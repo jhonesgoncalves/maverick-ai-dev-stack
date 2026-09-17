@@ -4,7 +4,7 @@
   "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
   "type": "module",
   "bin": {
-    "maverick": "./bin/maverick.js"
+    "maverick": "bin/maverick.js"
   },
   "files": [
     "bin",
@@ -44,7 +44,7 @@
   "author": "Jhones Maverick",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jhonesgoncalves/maverick-ai-dev-stack"
+    "url": "git+https://github.com/jhonesgoncalves/maverick-ai-dev-stack.git"
   },
   "bugs": {
     "url": "https://github.com/jhonesgoncalves/maverick-ai-dev-stack/issues"
