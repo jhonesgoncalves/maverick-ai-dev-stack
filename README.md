@@ -24,6 +24,10 @@ Then fill the generated `TASK.md`, `CONTEXT.md`, and `PLAN.md`; give those artef
 
 > The package name is intentionally not claimed as available. Check npm availability before publishing.
 
+## Releases
+
+Push a version tag such as `v1.0.1` to trigger the npm publish job after the full quality gate passes. Add an `NPM_TOKEN` repository secret with publish permission before the first release; the workflow uses npm provenance when supported.
+
 ## Workflow
 
 `DISCOVER → BRIEF → CONTEXT → PLAN → BUILD → VERIFY → REVIEW → PR → LEARN`
