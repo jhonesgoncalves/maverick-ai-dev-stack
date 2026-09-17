@@ -58,7 +58,7 @@ jobs:
           git commit -m "chore(release): v${{ steps.package.outputs.version }}"
           git tag "v${{ steps.package.outputs.version }}"
           git push origin HEAD:main --follow-tags
-      - name: Publish to npm
-        run: npm publish --provenance
+      - name: Publish public package to npm
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
