@@ -1,6 +1,6 @@
 {
   "name": "maverick-ai-dev-stack",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
   "type": "module",
   "bin": {
