@@ -36,6 +36,17 @@ It starts Lens on `http://127.0.0.1:4175` with a temporary example project named
 
 The Overview summarizes the current repository: task, specification, documentation, ADR, source-module, and task-artifact counts. The **Needs Attention** panel surfaces observable gaps such as a task without verification evidence or a specification with unresolved questions. It is a prompt for investigation, not an automated merge decision. Counts and warnings naturally change with the project Lens indexes.
 
+## Devtools Hub and interactive inspection
+
+Click **Open Devtools Hub** in the lower-right corner of Lens to open the integrated engineering view. It provides:
+
+- a local application map and static relative-import coupling ledger;
+- a Markdown preview when you click a row in **Docs** or **Specs**;
+- improvement proposals derived from unresolved specs and task evidence;
+- a **Create spec + task** action for each proposal.
+
+Creating a flow is the only write action in this view. It creates a task under the configured task root with the `spec-driven` preset, so the generated workflow includes both `SPEC.md` and `TASK.md`. The action remains local, runs only after an explicit click, and never creates a branch, commits, or uploads data.
+
 ## A practical workflow
 
 Open Lens after creating a task or before requesting review:
@@ -55,7 +66,7 @@ maverick review add-orders-pagination --diff
 maverick readiness add-orders-pagination
 ```
 
-Lens makes local project state easier to inspect; it does not run those commands, approve the change, or replace a review.
+Lens makes local project state easier to inspect and can create a new spec-driven task from an explicit Devtools Hub action. It does not run verification, approve a change, create commits, or replace human review.
 
 ## Explore a project
 
@@ -65,11 +76,11 @@ Use the left navigation to move among the local index:
 |---|---|
 | Overview | Project counts, attention signals, and the capabilities discovered locally. |
 | Tasks | Preset, validation state, and last update for each task under the configured task root. |
-| Specs and Docs | Specifications and text documentation found in the project. |
+| Specs and Docs | Specifications and text documentation found in the project; click a row to preview its local Markdown. |
 | Git | Current branch, recent commits, and working-tree changes. |
 | CLI | Maverick's command registry, aliases, descriptions, and runnable examples. |
 | Capabilities | Workflow, project-intelligence, review, governance, adapter, and Lab capabilities. |
-| Architecture | Filename-based source-module discovery, with its detection confidence. |
+| Architecture | Source-module discovery, static relative imports, and coupling signals in Devtools Hub. |
 | Agents, Adapters, and Lab | Repository-provided agent definitions, adapter templates, and Lab assets. |
 
 The CLI view is especially useful when onboarding: it keeps the actual command names, aliases, and examples beside the project context.
@@ -95,12 +106,12 @@ Lens builds the index at startup and writes a local cache to `.maverick/cache/pr
 maverick dashboard --no-watch
 ```
 
-The `POST /api/refresh` endpoint also refreshes the in-memory index; `GET /api/project` returns the current index as JSON for the dashboard itself. These endpoints are served only from the local loopback server.
+The `POST /api/refresh` endpoint also refreshes the in-memory index; `GET /api/project` returns the current index as JSON for the dashboard itself. The explicit `POST /api/improvements` action creates a local spec-driven task. These endpoints are served only from the local loopback server.
 
 ## Limits and interpretation
 
 - Empty sections mean Lens did not find matching local artifacts; they do not prove the project has none.
-- Module discovery is filename-based; Lens does not use an AST scanner or infer runtime architecture.
+- Module discovery uses filename discovery plus static relative-import extraction; Lens does not use an AST scanner or infer runtime architecture.
 - Attention signals are high-level checks from task artifacts and specifications. Review evidence, scope, security, and merge decisions still require human judgment.
 - Lens reflects the configured task root and files that the local process can read. Ignored directories such as `node_modules`, `.git`, `dist`, `build`, `coverage`, `.cache`, and `vendor` are excluded from discovery.
 - The dashboard reads local Git information when available. In a directory without Git history, Git fields may be empty or report that no repository is available.

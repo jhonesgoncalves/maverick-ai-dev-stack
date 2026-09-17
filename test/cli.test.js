@@ -69,10 +69,15 @@ test('Lens indexes commands, task artifacts, docs, and writes only a local cache
   const cwd = await mkdtemp(join(tmpdir(), 'maverick-lens-'));
   await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'lens-fixture', scripts: { test: 'node --version' } }));
   await main(['task', 'lens-task', '--preset', 'spec-driven'], cwd);
+  await writeFile(join(cwd, 'entry.js'), "import { value } from './dependency.js';\nexport { value };\n");
+  await writeFile(join(cwd, 'dependency.js'), 'export const value = 1;\n');
   const index = await buildProjectIndex(cwd);
   assert.equal(index.project.name, 'lens-fixture');
   assert.equal(index.tasks[0].id, 'lens-task');
   assert.ok(index.specs.some(spec => spec.path.endsWith('SPEC.md')));
+  assert.match(index.specs[0].content, /Specification/);
+  assert.ok(index.couplings.some(link => link.from === 'entry.js' && link.to === './dependency.js'));
+  assert.ok(index.improvements.some(item => item.preset));
   assert.ok(index.commands.some(command => command.id === 'dashboard'));
   assert.ok(commandRegistry.some(command => command.id === 'readiness'));
   const cache = await cacheProjectIndex(cwd, index);
