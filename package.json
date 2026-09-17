@@ -67,6 +67,7 @@
     "docs:build": "vitepress build site",
     "docs:preview": "vitepress preview site",
     "docs:check": "node scripts/check-docs-links.mjs && node scripts/check-doc-quality.mjs",
+    "dash:example": "node scripts/dash-example.mjs",
     "demo:test": "node --test demo/test/*.test.js",
     "release:dry": "npm pack --dry-run",
     "prepack": "npm run build"

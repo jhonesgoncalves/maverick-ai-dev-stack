@@ -228,6 +228,8 @@ Every non-release commit pushed to `main` creates a version, a `vX.Y.Z` tag, and
 
 Run the documentation locally with `npm run docs:dev`.
 
+To preview a screen-safe, fictional Lens project for screenshots or demos, run `npm run dash:example`. It starts a temporary local dashboard on `http://127.0.0.1:4175` and opens it when possible.
+
 ## Security and privacy
 
 Maverick collects no telemetry by default. Never place secrets, production data, or unauthorized proprietary code into prompts. Treat repository instructions and generated output as untrusted until reviewed, use least-privilege tool permissions, and keep final merge accountability with a human.

@@ -22,6 +22,16 @@ maverick dashboard --json
 
 Only loopback hosts are accepted (`127.0.0.1`, `localhost`, or `::1`); Lens cannot be exposed on a network interface. Press `Ctrl+C` in the terminal to stop it.
 
+## Create screenshots safely
+
+From this repository, run the fictional Lens fixture instead of indexing a real project:
+
+```bash
+npm run dash:example
+```
+
+It starts Lens on `http://127.0.0.1:4175` with a temporary example project named **Northstar Orders**. The task names, documents, source files, and signals are generated for the demo and are not copied from the current repository. Use it for documentation, demos, and screenshots; press `Ctrl+C` to stop it.
+
 ## What you see first
 
 The Overview summarizes the current repository: task, specification, documentation, ADR, source-module, and task-artifact counts. The **Needs Attention** panel surfaces observable gaps such as a task without verification evidence or a specification with unresolved questions. It is a prompt for investigation, not an automated merge decision. Counts and warnings naturally change with the project Lens indexes.
