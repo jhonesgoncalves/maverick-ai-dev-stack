@@ -42,6 +42,14 @@
   ],
   "license": "MIT",
   "author": "Jhones Maverick",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jhonesgoncalves/maverick-ai-dev-stack"
+  },
+  "bugs": {
+    "url": "https://github.com/jhonesgoncalves/maverick-ai-dev-stack/issues"
+  },
+  "homepage": "https://jhonesgoncalves.github.io/maverick-ai-dev-stack/",
   "exports": {
     ".": "./src/cli.js"
   },
