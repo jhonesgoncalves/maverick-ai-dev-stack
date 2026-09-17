@@ -1,102 +1,212 @@
-# MAVERICK AI DEV STACK
+# Maverick AI Dev Stack
 
-<img src="site/public/brand/logo-horizontal.svg" alt="Maverick AI Dev Stack" width="360">
+<p align="center"><img src="site/public/brand/logo-horizontal.svg" alt="Maverick AI Dev Stack" width="420"></p>
+<p align="center"><strong>Context before code. Evidence before merge.</strong></p>
+<p align="center">
+  <a href="https://github.com/jhonesgoncalves/maverick-ai-dev-stack/actions/workflows/ci.yml"><img src="https://github.com/jhonesgoncalves/maverick-ai-dev-stack/actions/workflows/ci.yml/badge.svg" alt="Build, test, and publish documentation"></a>
+  <a href="https://jhonesgoncalves.github.io/maverick-ai-dev-stack/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-ff6a00" alt="Documentation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1f6feb" alt="MIT license"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D20-339933" alt="Node 20 or later"></a>
+  <a href="https://github.com/jhonesgoncalves/maverick-ai-dev-stack/stargazers"><img src="https://img.shields.io/github/stars/jhonesgoncalves/maverick-ai-dev-stack?style=flat" alt="GitHub stars"></a>
+</p>
 
-> Menos prompt solto. Mais contexto, escopo e revisão.
+Maverick is an open-source, vendor-neutral toolkit for building software with AI in real repositories—without accepting changes you cannot explain, verify, or review.
 
-An open-source, vendor-neutral engineering workflow for building with AI in real codebases—without accepting code you cannot explain.
+It is not a Claude, Codex, Cursor, or Copilot framework. It is the workflow layer that gives any coding agent explicit intent, scoped context, verification evidence, security checks, and a human decision before merge.
 
-Maverick is not a Claude, Codex, or Cursor framework. It is the process layer that connects those tools to explicit scope, context, verification, and human review.
+> Spec-driven when you need it. Review-driven always.
+
+## Why Maverick?
+
+AI can produce a diff quickly. The hard part is knowing whether that diff belongs in your codebase.
+
+```text
+INTENT → CONTEXT → PLAN → BUILD → VERIFY → REVIEW → PR
+```
+
+Maverick helps teams answer the questions that actually matter:
+
+- What problem are we solving, and what is explicitly out of scope?
+- Which files, architecture rules, and constraints must the agent understand?
+- What checks were run, and what evidence do we have?
+- Did the change affect security, dependencies, observability, or rollback?
+- Who made the final human merge decision?
+
+## Features
+
+| Area | What Maverick provides |
+|---|---|
+| Task workflow | Lightweight, Standard, Spec Driven, and Strict Review presets |
+| Context | Repository map, task packets, impact lookup, and focused artifacts |
+| Verification | Detected test/lint/typecheck/build commands with saved evidence |
+| Review | Diff, scope, dependency, security, and readiness reports |
+| Collaboration | Handoffs, proposed learnings, and human review gates |
+| Governance | Versioned repository policy, change budgets, and sensitive-path rules |
+| Integrations | Provider-neutral adapters for Codex, Claude Code, Cursor, and generic agents |
+| Automation | JSON output, GitHub Actions task gates, npm release pipeline, and GitHub Pages docs |
 
 ## Quick start
 
-Requires Node 20+.
+Requires Node.js 20 or later.
 
 ```bash
 npx maverick-ai-dev-stack init
-npx maverick-ai-dev-stack task add-pagination
-npx maverick-ai-dev-stack validate add-pagination
+npx maverick-ai-dev-stack map
+npx maverick-ai-dev-stack task add-pagination --preset standard
+npx maverick-ai-dev-stack packet add-pagination --agent codex
 ```
 
-Choose the appropriate workflow with presets: `lightweight`, `standard` (the default), `spec-driven`, or `strict-review`. See [workflow presets](docs/concepts/presets.md).
+Fill the generated task artifacts, use your preferred agent, then collect evidence and complete the review:
 
-Then fill the generated `TASK.md`, `CONTEXT.md`, and `PLAN.md`; give those artefacts to your chosen assistant; verify the change; and complete `REVIEW.md` before opening a PR.
+```bash
+npx maverick-ai-dev-stack verify add-pagination
+npx maverick-ai-dev-stack review add-pagination --diff
+npx maverick-ai-dev-stack security add-pagination
+npx maverick-ai-dev-stack readiness add-pagination
+```
 
-> The package name is intentionally not claimed as available. Check npm availability before publishing.
+## Choose the right preset
 
-## Releases
+| Preset | Use it for | Generated workflow |
+|---|---|---|
+| `lightweight` | Small, low-risk, obvious changes | Brief → Context → Build → Verify → Review |
+| `standard` | Everyday features and fixes | Brief → Context → Plan → Build → Verify → Review → PR |
+| `spec-driven` | Ambiguous, complex, or domain-heavy work | Discover → Spec → Context → Plan → Build → Verify → Review → PR |
+| `strict-review` | Security, payments, data, migrations, or shared infrastructure | Brief → Context → Plan → Build → Verify → Security → Review → PR |
 
-Push a version tag such as `v1.0.1` to trigger the npm publish job after the full quality gate passes. Add an `NPM_TOKEN` repository secret with publish permission before the first release; the workflow uses npm provenance when supported.
+`standard` is the default. Every preset includes human review. Read the [preset guide](docs/concepts/presets.md) and [Spec-Driven Development guide](docs/concepts/spec-driven.md) for details.
 
-## Workflow
+## A complete task flow
 
-`DISCOVER → BRIEF → CONTEXT → PLAN → BUILD → VERIFY → REVIEW → PR → LEARN`
+```bash
+# Understand the repository and create a task
+maverick map
+maverick task payment-change --preset strict-review --risk-doc
 
-The shorter version is: **BRIEF → CONTEXT → BUILD → REVIEW**.
+# Give a focused packet to any AI coding agent
+maverick adapter install codex
+maverick packet payment-change --agent codex
 
-## What is included
+# Capture work and verify it
+maverick checkpoint payment-change
+maverick verify payment-change
+maverick guard payment-change
+maverick security payment-change
+maverick deps payment-change
+maverick review payment-change --diff --against main
 
-- A small Node CLI: initialize a project, create tasks, validate artefacts, inspect workflow files, and run diagnostics.
-- Task, context, plan, review, PR, and ADR templates.
-- Adapters for Claude Code, Codex, Cursor, and generic agents.
-- Focused prompts, agents, playbooks, checklists, workflows, an example, a demo, and the Maverick Lab.
-- A VitePress documentation site and GitHub Actions workflows.
+# Collaborate and prepare the delivery
+maverick handoff payment-change --to reviewer
+maverick readiness payment-change
+maverick pr payment-change
+```
 
-## CLI
+Generated reports stay with the task: `EVIDENCE.md`, `CHECKPOINT.md`, `SECURITY-REPORT.md`, `DEPENDENCY-REVIEW.md`, `REVIEW-FINDINGS.md`, `SCOPE-GUARD.md`, `HANDOFF.md`, and `MERGE-READINESS.md`.
+
+## CLI highlights
 
 ```text
 maverick init
-maverick task <slug>
-maverick task <slug> --preset strict-review
-maverick presets
+maverick task <slug> --preset <preset>
+maverick presets [show <preset>]
 maverick map
-maverick packet <slug> --agent codex
-maverick verify <slug>
-maverick checkpoint <slug>
-maverick impact src/orders/service.ts
-maverick guard <slug>
-maverick learn <slug> --rule "Run focused tests before review."
-maverick handoff <slug> --to reviewer
-maverick readiness <slug>
-maverick security <slug>
-maverick deps <slug>
-maverick review <slug> --diff
-maverick pr <slug>
-maverick status
-maverick context <slug>
-maverick plan <slug>
-maverick review <slug>
-maverick validate <slug>
-maverick doctor
-maverick info
+maverick impact <path>
+maverick packet|run <task> --agent <name>
+maverick verify <task> [--json]
+maverick checkpoint <task>
+maverick guard <task>
+maverick security <task>
+maverick deps <task>
+maverick review <task> --diff [--against main]
+maverick policy init|show|check <task>
+maverick handoff <task> --to <owner>
+maverick readiness <task>
+maverick pr <task>
+maverick adapter list|install <name>
+maverick ci github <task>
+maverick status [--json]
 ```
 
-## Operational toolkit
+Run `maverick help` for the current command reference. Most operational commands also support `--json`, making them useful in CI and other developer tools.
 
-`maverick map` records a concise local project map for agents and humans. `maverick packet <task>` compiles the task, context, plan, specification (when present), and map into a focused packet for an AI agent. `maverick verify <task>` runs discovered project checks and saves their output as `EVIDENCE.md`; `maverick review <task> --diff` records changed files and high-signal dependency or sensitive-path warnings. `maverick status` reports the next operational gate for every task.
+## Repository policy and team learning
 
-`maverick checkpoint`, `security`, and `deps` produce local, reviewable reports before merge. `maverick pr <task>` creates an evidence-backed PR draft; it never opens a remote PR or makes an approval decision.
+Create a repository-local policy with a change budget and sensitive paths:
 
-Before editing a shared area, use `maverick impact <path>` to find local textual references. Before merge, `maverick guard <task>` compares the diff with the task's expected changed files and configured change budget. `maverick learn <task> --rule "..."` saves a proposed team rule in `.maverick/LEARNINGS.md`; proposals remain unchecked until a human promotes them.
+```bash
+maverick policy init
+maverick policy check payment-change
+```
 
-`maverick handoff <task>` summarizes evidence and outstanding work for another human or agent. `maverick readiness <task>` produces a merge-readiness report and requires explicit human review before it can pass.
+Policies are plain JSON under `.maverick/policy.json`, so they can be reviewed with the code. Teams can capture proposed reusable practices without silently turning them into agent instructions:
 
-`maverick run <task> --agent <name>` currently prepares the same portable task packet rather than invoking a vendor tool directly. This preserves vendor neutrality while teams use their preferred agent.
+```bash
+maverick learn payment-change --rule "Run focused tests before requesting review."
+```
 
-`maverick init <slug>` is supported as a compatibility alias for earlier projects that used `init` to create tasks.
+## AI agent integrations
 
-## Security and privacy
+Maverick ships safe, non-overwriting adapters for:
 
-Never include secrets, `.env` files, customer data, or confidential code in a prompt without authorization. Use isolated branches and least-privilege tool permissions. Treat repository instructions and generated output as untrusted until reviewed. Maverick collects no telemetry by default. See [SECURITY.md](SECURITY.md).
+```bash
+maverick adapter list
+maverick adapter install codex
+maverick adapter install claude-code
+maverick adapter install cursor
+maverick adapter install generic
+```
+
+See the [Codex](site/integrations/codex.md), [Claude Code](site/integrations/claude-code.md), [Cursor](site/integrations/cursor.md), and [generic agent](site/integrations/generic.md) integration guides.
+
+## Automation, CI, and releases
+
+The repository pipeline runs documentation link checks, lint, type checks, CLI tests, demo tests, package build, package dry-run, documentation build, and GitHub Pages deployment on successful pushes to `main`.
+
+Generate a task-level GitHub Actions gate when a task needs explicit workflow checks:
+
+```bash
+maverick ci github payment-change
+```
+
+To publish a release to npm, configure the repository secret `NPM_TOKEN`, update `package.json`, and push a matching tag:
+
+```bash
+npm version 1.0.1
+git push origin main --follow-tags
+```
+
+The release job only runs for `v*` tags, verifies the tag matches `package.json`, and publishes with npm provenance. The [release checklist](RELEASE-CHECKLIST.md) has the complete process.
 
 ## Documentation
 
-Run `npm run docs:dev` for the local site. The Pages workflow derives its base path from `GITHUB_REPOSITORY`; set `DOCS_BASE` to override it. Start with [the guide](site/guide/getting-started.md).
+- [Documentation site](https://jhonesgoncalves.github.io/maverick-ai-dev-stack/)
+- [Getting started](site/guide/getting-started.md)
+- [Operational toolkit](docs/guide/operational-toolkit.md)
+- [Workflow presets](docs/concepts/presets.md)
+- [CLI reference](site/reference/cli.md)
+- [Configuration reference](site/reference/config.md)
+- [Templates](site/reference/templates.md)
+- [Maverick Lab](site/lab/introduction.md)
 
-## Contributing and roadmap
+Run the documentation locally with `npm run docs:dev`.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [ROADMAP.md](ROADMAP.md). The release procedure is in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).
+## Security and privacy
 
-## Licenses
+Maverick collects no telemetry by default. Never place secrets, production data, or unauthorized proprietary code into prompts. Treat repository instructions and generated output as untrusted until reviewed, use least-privilege tool permissions, and keep final merge accountability with a human.
 
-CLI code is MIT ([LICENSE](LICENSE)). Existing content/template licensing remains explicitly provisional in [LICENSE-CONTENT](LICENSE-CONTENT); see [the licensing decision record](docs/internal/LICENSING-DECISION.md) before changing it.
+Read the full [security policy](SECURITY.md).
+
+## Contributing
+
+Contributions are welcome—especially improvements that make AI-assisted engineering more explainable, testable, secure, and accessible across tools.
+
+1. Read the [contribution guide](CONTRIBUTING.md) and [code of conduct](CODE_OF_CONDUCT.md).
+2. Create a focused task and keep your diff narrow.
+3. Run `npm run check` and `npm run docs:build`.
+4. Explain compatibility and verification evidence in your pull request.
+
+See the [roadmap](ROADMAP.md) for directions and the [Maverick Lab](site/lab/introduction.md) for workflow experiments.
+
+## License
+
+CLI code is released under the [MIT License](LICENSE). Existing content and template licensing remain described in [LICENSE-CONTENT](LICENSE-CONTENT).
