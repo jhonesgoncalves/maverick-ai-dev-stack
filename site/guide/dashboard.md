@@ -68,8 +68,6 @@ The CLI view is especially useful when onboarding: it keeps the actual command n
 
 The search box searches the indexed arrays rather than the live filesystem. Use `Cmd/Ctrl+K` to focus it, then search for task IDs, command names, file paths, capability names, or adapter names.
 
-Examples:
-
 ```text
 add-orders          Find a task and its generated artifacts
 security            Find the security command and review capability
@@ -97,4 +95,4 @@ The `POST /api/refresh` endpoint also refreshes the in-memory index; `GET /api/p
 - Lens reflects the configured task root and files that the local process can read. Ignored directories such as `node_modules`, `.git`, `dist`, `build`, `coverage`, `.cache`, and `vendor` are excluded from discovery.
 - The dashboard reads local Git information when available. In a directory without Git history, Git fields may be empty or report that no repository is available.
 
-For every option and output mode, see the [dashboard CLI reference](../reference/dashboard-cli.md).
+For the broader command set, see the [CLI reference](/reference/cli).

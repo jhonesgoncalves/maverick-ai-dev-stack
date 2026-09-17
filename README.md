@@ -57,6 +57,41 @@ npx maverick-ai-dev-stack packet add-pagination --agent codex
 npx maverick-ai-dev-stack dashboard --open
 ```
 
+## Installation
+
+Maverick runs in the repository you want to understand and change. It does not require an account, a cloud service, or a project-wide daemon.
+
+### Run once with `npx`
+
+This is the quickest way to try Maverick and is the recommended option for occasional use:
+
+```bash
+cd path/to/your-repository
+npx maverick-ai-dev-stack init
+```
+
+### Install globally
+
+Use a global installation when you want the `maverick` command available from every repository:
+
+```bash
+npm install --global maverick-ai-dev-stack
+maverick init
+```
+
+### Use this checkout while contributing
+
+Clone the repository, install its dependencies, and run the CLI through the development script:
+
+```bash
+git clone https://github.com/jhonesgoncalves/maverick-ai-dev-stack.git
+cd maverick-ai-dev-stack
+npm install
+npm run dev -- init
+```
+
+Confirm your setup at any time with `maverick doctor`. `maverick init` writes `.maverick/config.json`; task artifacts are written to `.maverick/tasks/` by default. Both stay local to the repository and can be reviewed in Git.
+
 Fill the generated task artifacts, use your preferred agent, then collect evidence and complete the review:
 
 ```bash
@@ -184,6 +219,7 @@ Every non-release commit pushed to `main` creates a version, a `vX.Y.Z` tag, and
 - [Documentation site](https://jhonesgoncalves.github.io/maverick-ai-dev-stack/)
 - [Getting started](site/guide/getting-started.md)
 - [Operational toolkit](docs/guide/operational-toolkit.md)
+- [Maverick Lens dashboard](docs/guide/dashboard.md)
 - [Workflow presets](docs/concepts/presets.md)
 - [CLI reference](site/reference/cli.md)
 - [Configuration reference](site/reference/config.md)
