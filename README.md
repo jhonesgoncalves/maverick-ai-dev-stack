@@ -175,7 +175,7 @@ npm version 1.0.1
 git push origin main --follow-tags
 ```
 
-The release job only runs for `v*` tags, verifies the tag matches `package.json`, and publishes with npm provenance. The [release checklist](RELEASE-CHECKLIST.md) has the complete process.
+Every non-release commit pushed to `main` creates a version, a `vX.Y.Z` tag, and an npm publication automatically. The release workflow follows Conventional Commits: `feat:` creates a minor release, `!` or `BREAKING CHANGE:` creates a major release, and other commits create a patch release. It publishes with npm provenance using the `NPM_TOKEN` secret. The [release checklist](RELEASE-CHECKLIST.md) has the complete process.
 
 ## Documentation
 

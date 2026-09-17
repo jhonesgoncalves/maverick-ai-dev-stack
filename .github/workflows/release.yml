@@ -1,0 +1,63 @@
+name: Version and publish npm package
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: npm-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # The release commit itself must not create another release.
+    if: github.actor != 'github-actions[bot]' && !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    environment:
+      name: npm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Select semantic version bump from commits
+        id: version
+        shell: bash
+        run: |
+          LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          RANGE="${LAST_TAG:+$LAST_TAG..}HEAD"
+          MESSAGES="$(git log --format=%B "$RANGE")"
+          BUMP=patch
+          if grep -Eq 'BREAKING CHANGE:|^[a-z]+(\([^)]*\))?!:' <<< "$MESSAGES"; then
+            BUMP=major
+          elif grep -Eq '^feat(\([^)]*\))?:' <<< "$MESSAGES"; then
+            BUMP=minor
+          fi
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+      - name: Verify the release candidate
+        run: npm run check
+      - name: Bump package version
+        id: package
+        run: |
+          npm version "${{ steps.version.outputs.bump }}" --no-git-tag-version
+          echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+      - name: Commit and tag release
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          git commit -m "chore(release): v${{ steps.package.outputs.version }}"
+          git tag "v${{ steps.package.outputs.version }}"
+          git push origin HEAD:main --follow-tags
+      - name: Publish to npm
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
