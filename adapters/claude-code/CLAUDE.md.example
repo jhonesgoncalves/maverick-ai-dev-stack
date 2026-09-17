@@ -1,0 +1,13 @@
+# Project instructions for Claude Code
+
+Before coding, locate `.maverick/tasks/<active>/TASK.md` and `CONTEXT.md`.
+
+Rules:
+- TASK.md is the scope contract.
+- Read files in CONTEXT.md order.
+- Propose a plan before broad edits.
+- Do not add dependencies or alter public contracts without explicit permission.
+- Run the task's verification commands.
+- Summarize the final diff and remaining risks.
+
+For security-sensitive changes, stop when authorization or data-handling assumptions are unclear.

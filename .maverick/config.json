@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "project": {
+    "name": "Maverick_AI_Dev_Stack_v1",
+    "language": "",
+    "framework": ""
+  },
+  "workflow": {
+    "requirePlan": true,
+    "requireReview": true,
+    "requireTests": true,
+    "defaultPreset": "spec-driven"
+  },
+  "adapter": "generic",
+  "taskRoot": ".maverick/tasks",
+  "requiredTaskSections": [
+    "Problem",
+    "Goal",
+    "Acceptance Criteria",
+    "In Scope",
+    "Out of Scope",
+    "Verification"
+  ],
+  "requiredContextSections": [
+    "Architecture Summary",
+    "Relevant Paths",
+    "Constraints",
+    "Do Not Touch",
+    "Commands"
+  ]
+}

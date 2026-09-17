@@ -1,0 +1,11 @@
+# AGENTS.md — Maverick adapter
+
+Use `.maverick/tasks/<active>/TASK.md` as the task contract and `CONTEXT.md` as scoped repository context.
+
+## Required behavior
+1. Inspect before editing.
+2. Keep changes inside In Scope.
+3. Respect Do Not Change.
+4. Run Verification commands.
+5. Never remove/loosen tests merely to get green.
+6. Report actual commands/results and unknowns.

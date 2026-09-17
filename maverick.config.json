@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "taskRoot": ".maverick/tasks",
+  "templateRoot": "templates",
+  "workflow": {
+    "defaultPreset": "standard"
+  },
+  "requiredTaskSections": [
+    "Objective",
+    "Acceptance Criteria",
+    "In Scope",
+    "Out of Scope",
+    "Verification"
+  ],
+  "requiredContextSections": [
+    "Relevant Paths",
+    "Constraints",
+    "Commands",
+    "Do Not Change"
+  ],
+  "defaultVerification": [
+    "tests",
+    "lint",
+    "typecheck"
+  ],
+  "maxChangedFilesGuideline": 8
+}

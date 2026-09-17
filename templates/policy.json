@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "maxChangedFiles": 8,
+  "sensitivePaths": [
+    "auth/",
+    "security/",
+    "payments/",
+    "migrations/",
+    "infra/"
+  ],
+  "requiredPresetForSensitivePaths": "strict-review",
+  "notes": "Adjust these paths to match your repository. Policy checks are advisory until your CI enforces them."
+}

@@ -1,0 +1,6 @@
+- [ ] Existing behavior described
+- [ ] Reading order is explicit
+- [ ] Constraints and Do Not Change are explicit
+- [ ] Commands are executable
+- [ ] Context is minimal, not a repo dump
+- [ ] Unknowns are marked

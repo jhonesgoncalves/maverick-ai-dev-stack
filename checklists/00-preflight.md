@@ -1,0 +1,7 @@
+- [ ] Objective is observable
+- [ ] Acceptance criteria are testable
+- [ ] In/Out scope are explicit
+- [ ] Relevant paths identified
+- [ ] Verification commands known
+- [ ] No secrets/customer data in context
+- [ ] Task is small enough to review

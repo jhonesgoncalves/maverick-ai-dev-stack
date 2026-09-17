@@ -1,0 +1,7 @@
+- [ ] Happy path
+- [ ] Boundary cases
+- [ ] Invalid input
+- [ ] Regression case
+- [ ] Auth/permission when relevant
+- [ ] Tests fail for meaningful behavior changes
+- [ ] No weakened assertions to make generated code pass

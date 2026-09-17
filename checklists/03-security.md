@@ -1,0 +1,8 @@
+- [ ] Input validation at trust boundary
+- [ ] Authorization checked on the resource
+- [ ] Parameterized/safe APIs used
+- [ ] No secrets or PII leaked
+- [ ] Logs are safe
+- [ ] Dependency additions reviewed
+- [ ] Error details are appropriate
+- [ ] File/network paths constrained when relevant

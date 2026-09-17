@@ -1,0 +1,18 @@
+name: Maverick task gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  maverick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate task artifacts
+        run: npx --yes maverick-ai-dev-stack validate {{TASK_SLUG}} --json
+      - name: Check task policy
+        run: npx --yes maverick-ai-dev-stack policy check {{TASK_SLUG}} --json

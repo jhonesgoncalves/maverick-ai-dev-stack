@@ -1,0 +1,11 @@
+<svg width="1180" height="260" viewBox="0 0 1180 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Maverick AI Dev Stack — Horizontal Logo</title>
+  <g transform="translate(22 18) scale(.43)">
+    <path d="M48 356L146 164L230 282L194 346L151 286L116 356H48Z" fill="#FF6A00"/>
+    <path d="M187 354L335 100L386 137L239 390L187 354Z" fill="#FF6A00"/>
+    <path d="M307 293L352 217L464 356H393L350 303L319 356H250L307 293Z" fill="#FF6A00"/>
+  </g>
+  <line x1="245" y1="52" x2="245" y2="208" stroke="#343434" stroke-width="2"/>
+  <text x="290" y="128" fill="#F5F5F5" font-family="Inter, Arial, sans-serif" font-size="72" font-weight="800" letter-spacing="3">MAVERICK</text>
+  <text x="295" y="177" fill="#A3A3A3" font-family="JetBrains Mono, monospace" font-size="24" font-weight="600" letter-spacing="10">AI DEV STACK</text>
+</svg>

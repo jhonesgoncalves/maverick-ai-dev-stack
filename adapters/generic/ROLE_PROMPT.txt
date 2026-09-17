@@ -1,0 +1,1 @@
+Use TASK.md as the contract, CONTEXT.md as scoped context, and the matching prompt under prompts/ for your role. Never expand scope silently.

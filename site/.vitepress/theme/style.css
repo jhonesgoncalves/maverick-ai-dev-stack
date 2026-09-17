@@ -1,0 +1,40 @@
+@import '../../../brand-kit/styles/design-tokens.css';
+
+:root { --vp-c-brand-1: var(--mv-orange); --vp-c-brand-2: var(--mv-orange-hover); --vp-c-brand-3: var(--mv-orange-dark); --vp-c-bg: var(--mv-bg); --vp-c-bg-alt: var(--mv-surface-950); --vp-c-bg-elv: var(--mv-surface-900); --vp-c-bg-soft: var(--mv-surface-850); --vp-c-text-1: var(--mv-text); --vp-c-text-2: var(--mv-text-muted); --vp-c-border: var(--mv-border); --vp-font-family-base: Geist, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --vp-font-family-mono: "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+html { color-scheme: dark; }
+body { background: var(--mv-bg); color: var(--mv-text); }
+a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible { outline: none; box-shadow: var(--mv-shadow-focus); border-radius: var(--mv-radius-sm); }
+.VPNavBar { background: rgba(9, 9, 9, .92) !important; border-bottom: 1px solid var(--mv-border); backdrop-filter: blur(10px); }
+.VPNavBarTitle .title { font-family: var(--vp-font-family-mono); letter-spacing: .08em; font-size: .82rem; }
+.VPNavBarTitle .logo { border-radius: 6px; }
+.VPButton.brand { background: var(--mv-orange); color: var(--mv-bg); border-color: var(--mv-orange); font-weight: 750; }
+.VPButton.brand:hover { background: var(--mv-orange-hover); border-color: var(--mv-orange-hover); }
+.VPButton.alt { border-color: #343434; color: var(--mv-text); }
+.VPHomeHero { padding: 80px 24px 56px; }
+.VPHomeHero .container { max-width: var(--mv-content-width); }
+.VPHomeHero .name, .VPHomeHero .text { letter-spacing: -.035em; }
+.VPHomeHero .name { color: var(--mv-orange); font-family: var(--vp-font-family-mono); font-size: .78rem; letter-spacing: .13em; }
+.VPHomeHero .tagline { max-width: 560px; color: var(--mv-text-muted); }
+.mv-home { max-width: var(--mv-content-width); margin: 0 auto; padding: 0 24px 72px; }
+.mv-section { padding: 60px 0; border-top: 1px solid var(--mv-border); }
+.mv-kicker { color: var(--mv-orange); font: 650 .75rem/1 var(--vp-font-family-mono); letter-spacing: .14em; text-transform: uppercase; }
+.mv-section h2 { letter-spacing: -.025em; margin: 12px 0; }
+.mv-copy { max-width: 760px; color: var(--mv-text-muted); }
+.mv-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 28px; }
+.mv-card { background: var(--mv-surface-900); border: 1px solid var(--mv-border); border-radius: var(--mv-radius-lg); padding: 22px; transition: border-color var(--mv-transition), transform var(--mv-transition); }
+.mv-card:hover { border-color: rgba(255, 106, 0, .45); transform: translateY(-1px); }
+.mv-card h3 { margin: 0 0 8px; font-size: 1rem; }
+.mv-card p { margin: 0; color: var(--mv-text-muted); }
+.mv-workflow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 24px; }
+.mv-step { min-width: 0; padding: 14px 10px; border: 1px solid var(--mv-border); border-radius: var(--mv-radius-md); background: var(--mv-surface-900); font: 600 .72rem/1.35 var(--vp-font-family-mono); letter-spacing: .04em; }
+.mv-step span { display: block; color: var(--mv-text-muted); margin-bottom: 8px; }
+.mv-step.review { border-color: var(--mv-orange); color: var(--mv-orange); }
+.mv-terminal { margin: 28px 0 0; max-width: 660px; background: #080808; border: 1px solid #343434; border-radius: var(--mv-radius-lg); overflow: hidden; font: .85rem/1.75 var(--vp-font-family-mono); }
+.mv-terminal-bar { padding: 10px 16px; background: var(--mv-surface-850); border-bottom: 1px solid var(--mv-border); color: var(--mv-text-muted); }
+.mv-terminal pre { margin: 0; padding: 18px; color: var(--mv-text); white-space: pre-wrap; }
+.mv-ok { color: var(--mv-success); }
+.mv-label { display: inline-block; padding: 4px 7px; border: 1px solid var(--mv-border); border-radius: var(--mv-radius-sm); color: var(--mv-text-muted); font: .7rem/1 var(--vp-font-family-mono); letter-spacing: .08em; }
+.VPDoc .content { max-width: var(--mv-reading-width); }
+@media (max-width: 768px) { .VPHomeHero { padding-top: 52px; } .mv-grid { grid-template-columns: 1fr; } .mv-workflow { grid-template-columns: repeat(2, 1fr); } .mv-step:last-child { grid-column: span 2; } }
+@media (max-width: 375px) { .mv-home { padding-inline: 18px; } .mv-workflow { grid-template-columns: 1fr; } .mv-step:last-child { grid-column: auto; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

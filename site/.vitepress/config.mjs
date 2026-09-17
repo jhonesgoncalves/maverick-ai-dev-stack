@@ -1,0 +1,11 @@
+import { defineConfig } from 'vitepress';
+
+const repository = process.env.GITHUB_REPOSITORY?.split('/')[1];
+const base = process.env.DOCS_BASE || (repository ? `/${repository}/` : '/');
+export default defineConfig({
+  title: 'Maverick AI Dev Stack',
+  description: 'An open-source engineering workflow for building with AI using explicit context, scope, verification and human review.',
+  base,
+  head: [['link', { rel: 'icon', href: `${base}brand/favicon.svg`, type: 'image/svg+xml' }], ['meta', { name: 'theme-color', content: '#090909' }], ['meta', { property: 'og:title', content: 'Maverick AI Dev Stack' }], ['meta', { property: 'og:description', content: 'Build with AI using explicit context, scope, verification and human review.' }], ['meta', { property: 'og:image', content: `${base}brand/logo-symbol-on-dark.svg` }]],
+  themeConfig: { logo: '/brand/favicon.svg', nav: [{ text: 'Docs', link: '/guide/getting-started' }, { text: 'CLI', link: '/reference/cli' }, { text: 'Workflow', link: '/guide/workflow' }, { text: 'Adapters', link: '/integrations/generic' }, { text: 'Lab', link: '/lab/introduction' }, { text: 'GitHub', link: 'https://github.com/' }], sidebar: [{ text: 'GET STARTED', items: [{ text: 'Getting started', link: '/guide/getting-started' }, { text: 'Installation', link: '/guide/installation' }, { text: 'First task', link: '/guide/first-task' }] }, { text: 'CONCEPTS', items: ['brief', 'context-engineering', 'planning', 'verification', 'review', 'human-in-the-loop'].map(x => ({ text: x.replaceAll('-', ' '), link: `/concepts/${x}` })) }, { text: 'WORKFLOW', items: [{ text: 'Workflow', link: '/guide/workflow' }] }, { text: 'CLI', items: [{ text: 'CLI reference', link: '/reference/cli' }, { text: 'Configuration', link: '/reference/config' }] }, { text: 'ADAPTERS', items: ['claude-code', 'codex', 'cursor', 'generic'].map(x => ({ text: x, link: `/integrations/${x}` })) }, { text: 'MAVERICK LAB', items: [{ text: 'Introduction', link: '/lab/introduction' }, { text: 'Experiment design', link: '/lab/experiment-design' }, { text: 'Measurement', link: '/lab/measurement' }] }, { text: 'REFERENCE', items: ['templates', 'prompts', 'agents', 'workflows'].map(x => ({ text: x, link: `/reference/${x}` })) }, { text: 'CONTRIBUTING', items: [{ text: 'Contributing', link: '/contributing' }, { text: 'Security', link: '/security' }] }] }
+});

@@ -1,0 +1,8 @@
+- [ ] Diff matches task
+- [ ] No unrelated refactor
+- [ ] Public contract change intentional
+- [ ] Acceptance criteria verified
+- [ ] Tests meaningful
+- [ ] Security/reliability risks reviewed
+- [ ] Human can explain the change
+- [ ] Rollback/failure signal known

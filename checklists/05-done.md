@@ -1,0 +1,8 @@
+- [ ] TASK.md complete
+- [ ] CONTEXT.md complete
+- [ ] PLAN.md reflects final approach
+- [ ] Verification passed
+- [ ] REVIEW.md decision recorded
+- [ ] PR.md explains change and risk
+- [ ] Follow-ups separated from current scope
+- [ ] Reusable learning promoted to repo instructions only if stable

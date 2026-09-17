@@ -1,0 +1,5 @@
+---
+description: Maverick context-to-PR workflow
+alwaysApply: false
+---
+When working on a Maverick task, read `.maverick/tasks/<task>/TASK.md` and `CONTEXT.md` first. Treat task scope as authoritative. Prefer minimal diffs, preserve existing contracts, run explicit verification, and stop for material ambiguity.

@@ -1,0 +1,33 @@
+{
+  "name": "maverick-ai-dev-stack",
+  "version": "1.0.0",
+  "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
+  "type": "module",
+  "bin": { "maverick": "./bin/maverick.js" },
+  "files": ["bin", "dist", "templates", "prompts", "agents", "workflows", "playbooks", "checklists", "adapters", "README.md", "LICENSE", "LICENSE-CODE", "LICENSE-CONTENT"],
+  "engines": { "node": ">=20" },
+  "keywords": ["ai", "ai-engineering", "developer-tools", "developer-experience", "context-engineering", "spec-driven-development", "code-review", "claude-code", "codex", "cursor", "nodejs", "agents", "ai-coding", "software-engineering"],
+  "license": "MIT",
+  "author": "Jhones Maverick",
+  "exports": { ".": "./src/cli.js" },
+  "scripts": {
+    "build": "tsup src/cli/app.tsx --format esm --target node20 --out-dir dist --clean && node scripts/build.mjs",
+    "dev": "tsx src/cli/app.tsx",
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "docs:dev": "vitepress dev site",
+    "docs:build": "vitepress build site",
+    "docs:preview": "vitepress preview site",
+    "docs:check": "node scripts/check-docs-links.mjs",
+    "demo:test": "node --test demo/test/*.test.js",
+    "release:dry": "npm pack --dry-run",
+    "prepack": "npm run build"
+  },
+  "dependencies": { "ink": "^5.2.1", "react": "^18.3.1" },
+  "devDependencies": { "@types/node": "^22.15.3", "@types/react": "^18.3.12", "eslint": "^9.25.1", "prettier": "^3.5.3", "tsup": "^8.3.5", "tsx": "^4.19.2", "typescript": "^5.8.3", "vitepress": "^1.6.3" }
+}
