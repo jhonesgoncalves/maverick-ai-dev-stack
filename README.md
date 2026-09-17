@@ -54,6 +54,7 @@ npx maverick-ai-dev-stack init
 npx maverick-ai-dev-stack map
 npx maverick-ai-dev-stack task add-pagination --preset standard
 npx maverick-ai-dev-stack packet add-pagination --agent codex
+npx maverick-ai-dev-stack dashboard --open
 ```
 
 Fill the generated task artifacts, use your preferred agent, then collect evidence and complete the review:
@@ -125,6 +126,7 @@ maverick pr <task>
 maverick adapter list|install <name>
 maverick ci github <task>
 maverick status [--json]
+maverick dashboard|dash|lens [--open]
 ```
 
 Run `maverick help` for the current command reference. Most operational commands also support `--json`, making them useful in CI and other developer tools.

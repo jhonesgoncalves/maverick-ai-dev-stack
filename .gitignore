@@ -3,4 +3,5 @@ node_modules/
 site/.vitepress/cache/
 site/.vitepress/dist/
 coverage/
+.maverick/cache/
 *.log

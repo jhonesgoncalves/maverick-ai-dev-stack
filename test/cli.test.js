@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { main, sectionPresent, replaceVars } from '../src/cli.js';
 import { stagesForPreset } from '../src/core/presets.js';
 import { recommendPreset } from '../src/core/preset-suggestion.js';
+import { buildProjectIndex, cacheProjectIndex } from '../src/core/lens-index.js';
+import { commandRegistry } from '../src/core/command-registry.js';
 
 test('replaceVars replaces all variables', () => {
   assert.equal(replaceVars('{{A}}-{{A}}-{{B}}',{A:'x',B:'y'}),'x-x-y');
@@ -61,6 +63,20 @@ test('preset stages and local recommendations are deterministic', () => {
   assert.equal(recommendPreset({ type: 'migration' }).preset, 'strict-review');
   assert.equal(recommendPreset({ complexity: 'high', openQuestions: 1 }).preset, 'spec-driven');
   assert.equal(recommendPreset({ risk: 'low', estimatedFiles: 2 }).preset, 'lightweight');
+});
+
+test('Lens indexes commands, task artifacts, docs, and writes only a local cache', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'maverick-lens-'));
+  await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'lens-fixture', scripts: { test: 'node --version' } }));
+  await main(['task', 'lens-task', '--preset', 'spec-driven'], cwd);
+  const index = await buildProjectIndex(cwd);
+  assert.equal(index.project.name, 'lens-fixture');
+  assert.equal(index.tasks[0].id, 'lens-task');
+  assert.ok(index.specs.some(spec => spec.path.endsWith('SPEC.md')));
+  assert.ok(index.commands.some(command => command.id === 'dashboard'));
+  assert.ok(commandRegistry.some(command => command.id === 'readiness'));
+  const cache = await cacheProjectIndex(cwd, index);
+  assert.match(await readFile(cache, 'utf8'), /lens-fixture/);
 });
 
 test('invalid presets are rejected and old configs default to standard', async () => {

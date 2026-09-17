@@ -2,14 +2,14 @@
 
 ## Now
 
-- CLI, templates, adapters, docs, and Maverick Lab.
+- CLI, templates, adapters, docs, Maverick Lab, and Maverick Lens v1 (overview, tasks, specs, docs, Git, CLI explorer, capabilities, local search, cache, and watch mode).
 
 ## Next
 
-- Interactive context builder, workflow presets, Git integrations, custom templates, and project rules.
+- Dependency graph, change impact views, and deeper architecture intelligence.
 
 ## Later / exploratory
 
-- MCP, IDE integrations, team policies, and local analytics.
+- AST analysis, code ownership, historical insights, MCP, IDE integrations, and plugin ecosystem.
 
 No SaaS roadmap or telemetry commitment is implied.

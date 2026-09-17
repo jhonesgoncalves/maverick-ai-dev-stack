@@ -93,8 +93,8 @@ function HomeScreen() {
 }
 
 // src/cli.js
-import { mkdir as mkdir2, readFile as readFile2, writeFile as writeFile2, access as access2, copyFile, readdir as readdir2 } from "fs/promises";
-import { resolve, dirname, join as join2, relative as relative2 } from "path";
+import { mkdir as mkdir3, readFile as readFile4, writeFile as writeFile3, access as access2, copyFile, readdir as readdir3 } from "fs/promises";
+import { resolve as resolve2, dirname, join as join3, relative as relative3 } from "path";
 import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { createInterface } from "readline/promises";
@@ -129,9 +129,9 @@ function commandFor(pkg, name) {
 async function inspectProject(cwd) {
   const packagePath = join(cwd, "package.json");
   const pkg = await exists(packagePath) ? await readJson(packagePath) : null;
-  const entries = await readdir(cwd, { withFileTypes: true });
-  const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name) => !["node_modules", ".git", ".maverick", "dist", "build", "coverage"].includes(name)).sort();
-  const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
+  const entries2 = await readdir(cwd, { withFileTypes: true });
+  const directories = entries2.filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name) => !["node_modules", ".git", ".maverick", "dist", "build", "coverage"].includes(name)).sort();
+  const files = entries2.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
   const manifests = ["package.json", "pyproject.toml", "requirements.txt", "Cargo.toml", "go.mod", "pom.xml", "Gemfile"].filter((name) => files.includes(name));
   const commands = ["test", "lint", "typecheck", "build"].map((name) => ({ name, command: commandFor(pkg, name) })).filter((item) => item.command);
   const candidates = ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"];
@@ -165,7 +165,7 @@ Read the nearest instruction file and only the paths relevant to the task before
 }
 async function executeCommand(cwd, command) {
   const [bin, ...args2] = command.split(" ");
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     const child = spawn(bin, args2, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     let output2 = "";
     child.stdout.on("data", (chunk) => {
@@ -174,8 +174,8 @@ async function executeCommand(cwd, command) {
     child.stderr.on("data", (chunk) => {
       output2 += chunk;
     });
-    child.on("error", (error) => resolve2({ command, ok: false, code: null, output: error.message }));
-    child.on("close", (code) => resolve2({ command, ok: code === 0, code, output: output2.slice(-12e3) }));
+    child.on("error", (error) => resolve3({ command, ok: false, code: null, output: error.message }));
+    child.on("close", (code) => resolve3({ command, ok: code === 0, code, output: output2.slice(-12e3) }));
   });
 }
 async function gitDiff(cwd, against = "HEAD") {
@@ -201,18 +201,18 @@ ${result.output || "(no output)"}
 }
 async function findReferences(cwd, target, maxResults = 40) {
   const needle = target.split("/").pop().replace(/\.[^.]+$/, "");
-  const ignored = /* @__PURE__ */ new Set(["node_modules", ".git", ".maverick", "dist", "build", "coverage"]);
+  const ignored2 = /* @__PURE__ */ new Set(["node_modules", ".git", ".maverick", "dist", "build", "coverage"]);
   const results = [];
   async function visit(directory) {
     if (results.length >= maxResults) return;
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (results.length >= maxResults || ignored.has(entry.name)) continue;
+      if (results.length >= maxResults || ignored2.has(entry.name)) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile()) {
         try {
-          const text = await readFile(path, "utf8");
-          if (text.includes(needle)) results.push(relative(cwd, path));
+          const text2 = await readFile(path, "utf8");
+          if (text2.includes(needle)) results.push(relative(cwd, path));
         } catch {
         }
       }
@@ -222,9 +222,211 @@ async function findReferences(cwd, target, maxResults = 40) {
   return results;
 }
 
+// src/core/command-registry.js
+var commandRegistry = [
+  ["dashboard", "Open the local project-intelligence dashboard.", ["dash", "lens"], "dashboard --open"],
+  ["init", "Initialize a project or create a task with a legacy slug.", [], "init [task]"],
+  ["task", "Create preset-driven task artifacts.", ["create"], "task <slug> --preset <preset>"],
+  ["map", "Build a repository context map.", [], "map [--json]"],
+  ["packet", "Compile a focused agent packet.", ["run"], "packet <task> --agent <name>"],
+  ["checkpoint", "Save current Git state and diff.", [], "checkpoint <task>"],
+  ["impact", "Find bounded project references to a file.", [], "impact <path>"],
+  ["guard", "Compare changed files with declared task scope.", [], "guard <task>"],
+  ["learn", "Capture a proposed reusable engineering rule.", [], "learn <task> --rule <text>"],
+  ["handoff", "Create a task handoff with remaining gates.", [], "handoff <task> --to <owner>"],
+  ["readiness", "Evaluate merge-readiness gates.", [], "readiness <task>"],
+  ["policy", "Initialize, show, or check repository policy.", [], "policy init|show|check <task>"],
+  ["adapter", "List or install an AI adapter.", [], "adapter list|install <name>"],
+  ["ci", "Generate a GitHub Actions task gate.", [], "ci github <task>"],
+  ["verify", "Run detected checks and save evidence.", [], "verify <task> [--json]"],
+  ["security", "Scan a changed diff for high-signal security risks.", [], "security <task>"],
+  ["deps", "Report changed manifests and lockfiles.", [], "deps <task>"],
+  ["pr", "Generate an evidence-backed PR draft.", [], "pr <task>"],
+  ["presets", "List or inspect workflow presets.", [], "presets [show <preset>]"],
+  ["suggest", "Recommend a preset from local rules.", [], "suggest [--risk high]"],
+  ["validate", "Validate task artifacts and required sections.", [], "validate <task> [--json]"],
+  ["context", "Show a task context artifact.", [], "context <task>"],
+  ["plan", "Show a task plan artifact.", [], "plan <task>"],
+  ["review", "Show review or review a diff.", [], "review <task> --diff"],
+  ["doctor", "Inspect local setup and project checks.", [], "doctor [--fix]"],
+  ["status", "Show task stage and pending gates.", [], "status [--json]"],
+  ["info", "Show Maverick information.", ["version", "--version", "-v"], "info"]
+].map(([id, description, aliases, example]) => ({ id, command: `maverick ${id}`, description, aliases, example }));
+
+// src/dashboard/server.js
+import { createServer } from "http";
+import { readFile as readFile3 } from "fs/promises";
+import { URL } from "url";
+import { clearTimeout, setTimeout } from "timers";
+
+// src/core/lens-index.js
+import { mkdir as mkdir2, readFile as readFile2, readdir as readdir2, stat, writeFile as writeFile2 } from "fs/promises";
+import { join as join2, relative as relative2, resolve } from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+var exec = promisify(execFile);
+var ignored = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "build", "coverage", ".cache", "vendor"]);
+async function text(p) {
+  try {
+    return await readFile2(p, "utf8");
+  } catch {
+    return "";
+  }
+}
+async function entries(dir) {
+  try {
+    return await readdir2(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+function section(body, heading) {
+  const match = body.match(new RegExp(`^#{1,4}\\s+${heading.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\n([\\s\\S]*?)(?=^#{1,4}\\s|$)`, "mi"));
+  return match?.[1].trim() || "";
+}
+function title(body, fallback) {
+  return body.match(/^#\s+(.+)$/m)?.[1]?.replace(/—.*$/, "").trim() || fallback;
+}
+async function walk(root2, visitor, depth = 0) {
+  if (depth > 8) return;
+  for (const entry of await entries(root2)) {
+    if (ignored.has(entry.name) || entry.name === "cache" && root2.endsWith(".maverick")) continue;
+    const path = join2(root2, entry.name);
+    if (entry.isDirectory()) await walk(path, visitor, depth + 1);
+    else if (entry.isFile()) await visitor(path, entry);
+  }
+}
+async function git(cwd, args2) {
+  try {
+    return (await exec("git", args2, { cwd })).stdout.trim();
+  } catch {
+    return "";
+  }
+}
+async function buildProjectIndex(cwd) {
+  const root2 = resolve(cwd), [config, project] = await Promise.all([loadConfig(root2), inspectProject(root2)]);
+  const taskBase = join2(root2, config.taskRoot);
+  const tasks = [];
+  for (const entry of await entries(taskBase)) if (entry.isDirectory()) {
+    const dir = join2(taskBase, entry.name);
+    const meta = JSON.parse(await text(join2(dir, "TASK.json")) || "{}");
+    const taskBody = await text(join2(dir, "TASK.md"));
+    const preset = requirePreset(meta.preset || config.workflow.defaultPreset || "standard");
+    const files = (await entries(dir)).filter((x) => x.isFile()).map((x) => x.name);
+    const reports = files.filter((x) => /EVIDENCE|FINDINGS|SECURITY|DEPENDENCY|SCOPE|HANDOFF|READINESS|CHECKPOINT|POLICY/i.test(x));
+    tasks.push({ id: entry.name, title: title(taskBody, entry.name), preset: preset.id, stages: preset.stages, goal: section(taskBody, "Goal"), acceptanceCriteria: section(taskBody, "Acceptance Criteria"), scope: section(taskBody, "In Scope"), outOfScope: section(taskBody, "Out of Scope"), verification: section(taskBody, "Verification"), artifacts: files, reports, validation: files.includes("EVIDENCE.md") ? "evidence captured" : "verification pending", updated: (await stat(dir)).mtime.toISOString() });
+  }
+  const docs = [];
+  const modules = [];
+  const adrs = [];
+  const specs = [];
+  await walk(root2, async (path) => {
+    const rel2 = relative2(root2, path);
+    if (!/\.(md|mdx|txt|js|jsx|ts|tsx)$/i.test(path)) return;
+    const body = /\.(md|mdx|txt)$/i.test(path) ? await text(path) : "";
+    if (body) {
+      const item = { path: rel2, title: title(body, rel2), excerpt: body.replace(/^---[\s\S]*?---/, "").replace(/\s+/g, " ").slice(0, 220), type: /SPEC\.md$/i.test(path) ? "SPEC" : /(?:^|\/)ADR[-_]?\d|architecture.*decision/i.test(rel2) ? "ADR" : /TASK\.md$/i.test(path) ? "TASK" : "DOC" };
+      docs.push(item);
+      if (item.type === "SPEC") specs.push({ ...item, status: /FILL ME|TODO/i.test(body) ? "draft" : "documented", acceptanceCriteria: section(body, "Acceptance Criteria"), openQuestions: section(body, "Open Questions") });
+      if (item.type === "ADR") adrs.push(item);
+    } else if (/\.(js|jsx|ts|tsx)$/i.test(path)) modules.push({ path: rel2, kind: /test|spec/i.test(rel2) ? "test" : "module", confidence: "Detected" });
+  });
+  const status2 = await git(root2, ["status", "--short"]);
+  const log = await git(root2, ["log", "-5", "--pretty=format:%h %s"]);
+  const branch = await git(root2, ["branch", "--show-current"]);
+  const adapters = (await entries(join2(root2, "adapters"))).filter((x) => x.isDirectory()).map((x) => ({ id: x.name, status: config.adapter === x.name ? "active" : "available" }));
+  const agents = (await entries(join2(root2, "agents"))).filter((x) => x.isFile()).map((x) => ({ name: x.name.replace(/^\d+-/, "").replace(/-agent\.md$/, "").replace(/-/g, " "), path: `agents/${x.name}` }));
+  const workflows = (await entries(join2(root2, "workflows"))).filter((x) => x.isFile()).map((x) => ({ name: x.name.replace(/\.md$/, ""), path: `workflows/${x.name}` }));
+  const lab = (await entries(join2(root2, "lab"))).filter((x) => x.isFile()).map((x) => ({ name: x.name, path: `lab/${x.name}` }));
+  const signals = tasks.flatMap((t) => t.validation === "verification pending" ? [{ level: "warning", text: `${t.id}: verification evidence is missing.` }] : []).concat(specs.filter((s) => /FILL ME|TODO/i.test(s.openQuestions)).map((s) => ({ level: "warning", text: `${s.title}: unresolved questions.` })));
+  const capabilities = [{ id: "workflow", name: "Preset-driven task workflows", category: "workflow", description: "Task stages and artifacts are shared with the CLI.", status: "available", commands: ["task", "presets", "validate"] }, { id: "project-map", name: "Project intelligence", category: "project-intelligence", description: "Package, scripts, instructions and top-level areas.", status: "available", commands: ["map", "impact", "doctor"] }, { id: "review", name: "Evidence and review gates", category: "review", description: "Verification, scope, security, dependencies and merge readiness.", status: "available", commands: ["verify", "review", "guard", "security", "deps", "readiness"] }, { id: "governance", name: "Governance and handoff", category: "automation", description: "Policy, handoff, learnings, PR draft and CI generator.", status: "available", commands: ["policy", "handoff", "learn", "pr", "ci"] }, { id: "adapters", name: "AI adapters", category: "adapter", description: "Local adapter templates for supported coding tools.", status: "available", commands: ["adapter"] }, { id: "lab", name: "Maverick Lab", category: "lab", description: "Experiments and measurement scorecards.", status: lab.length ? "available" : "not configured", commands: [] }];
+  return { generatedAt: (/* @__PURE__ */ new Date()).toISOString(), project: { ...project, root: root2, version: "1.2.0", activePreset: config.workflow.defaultPreset, activeAdapter: config.adapter, packageManager: project.manifests.includes("package.json") ? "npm" : "unknown" }, commands: commandRegistry, presets: Object.values(presets).map((p) => ({ ...p, usageCount: tasks.filter((t) => t.preset === p.id).length, source: "built-in" })), tasks, specs, docs, adrs, modules, git: { branch: branch || "not a Git repository", changes: status2.split("\n").filter(Boolean), commits: log.split("\n").filter(Boolean) }, adapters, agents, workflows, lab, capabilities, signals };
+}
+async function cacheProjectIndex(cwd, index) {
+  const dir = join2(cwd, ".maverick", "cache");
+  await mkdir2(dir, { recursive: true });
+  const path = join2(dir, "project-index.json");
+  await writeFile2(path, JSON.stringify(index, null, 2));
+  return path;
+}
+
+// src/dashboard/server.js
+var page = new URL("./ui/index.html", import.meta.url);
+async function startDashboard({ cwd, host = "127.0.0.1", port = 4173, watch = true } = {}) {
+  if (!["127.0.0.1", "localhost", "::1"].includes(host)) throw new Error("dashboard host must be loopback-only");
+  if (!Number.isInteger(Number(port)) || Number(port) < 1 || Number(port) > 65535) throw new Error("dashboard port must be between 1 and 65535");
+  let index = await buildProjectIndex(cwd);
+  await cacheProjectIndex(cwd, index);
+  let timer;
+  const refresh = async () => {
+    index = await buildProjectIndex(cwd);
+    await cacheProjectIndex(cwd, index);
+  };
+  const server = createServer(async (req, res) => {
+    if (req.url === "/api/project") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      return res.end(JSON.stringify(index));
+    }
+    if (req.url === "/api/refresh" && req.method === "POST") {
+      await refresh();
+      res.writeHead(204);
+      return res.end();
+    }
+    if (req.url === "/" || req.url?.startsWith("/?")) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" });
+      return res.end(await readFile3(page, "utf8"));
+    }
+    res.writeHead(404);
+    res.end("Not found");
+  });
+  if (watch) {
+    const { watch: fsWatch } = await import("fs");
+    const watcher = fsWatch(cwd, { recursive: true }, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => refresh().catch(() => {
+      }), 250);
+    });
+    server.once("close", () => watcher.close());
+  }
+  await new Promise((resolve3, reject) => {
+    server.once("error", reject);
+    server.listen(Number(port), host, resolve3);
+  });
+  return server;
+}
+
 // src/cli.js
+async function dashboard(cwd, options = {}) {
+  const port = Number(options.port || 4173), host = options.host || "127.0.0.1";
+  const server = await startDashboard({ cwd, host, port, watch: !options.noWatch });
+  const address = `http://${host}:${port}`;
+  if (options.json) output(JSON.stringify({ address, host, port, watch: !options.noWatch }));
+  else output(`${brand()} / LENS
+
+\u2713 project indexed
+\u2713 tasks indexed
+\u2713 specs indexed
+\u2713 docs indexed
+\u2713 git state indexed
+
+Dashboard:
+${address}
+
+Local only. No project data is uploaded.`);
+  if (options.open) {
+    const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+    try {
+      execFileSync(opener, process.platform === "win32" ? ["/c", "start", address] : [address], { stdio: "ignore" });
+    } catch {
+      if (options.debug) output("Could not open browser automatically.");
+    }
+  }
+  const close = () => server.close();
+  process.once("SIGINT", close);
+  process.once("SIGTERM", close);
+}
 var __dirname = dirname(fileURLToPath(import.meta.url));
-var root = resolve(__dirname, "..");
+var root = resolve2(__dirname, "..");
 var slugOk = /^[a-z0-9][a-z0-9-]{1,80}$/;
 var defaultConfig = { version: 1, project: { name: "", language: "", framework: "" }, workflow: { requirePlan: true, requireReview: true, requireTests: true, defaultPreset: "standard" }, adapter: "generic", taskRoot: ".maverick/tasks", requiredTaskSections: ["Problem", "Goal", "Acceptance Criteria", "In Scope", "Out of Scope", "Verification"], requiredContextSections: ["Architecture Summary", "Relevant Paths", "Constraints", "Do Not Touch", "Commands"] };
 async function exists2(path) {
@@ -236,14 +438,14 @@ async function exists2(path) {
   }
 }
 async function json(path) {
-  return JSON.parse(await readFile2(path, "utf8"));
+  return JSON.parse(await readFile4(path, "utf8"));
 }
 function pretty(value) {
   return `${JSON.stringify(value, null, 2)}
 `;
 }
 function rel(cwd, path) {
-  return relative2(cwd, path) || ".";
+  return relative3(cwd, path) || ".";
 }
 function output(message) {
   console.log(message);
@@ -255,20 +457,20 @@ function mergeConfig(config = {}) {
   return { ...defaultConfig, ...config, project: { ...defaultConfig.project, ...config.project }, workflow: { ...defaultConfig.workflow, ...config.workflow } };
 }
 async function loadConfig(cwd) {
-  const canonical = join2(cwd, ".maverick", "config.json"), legacy = join2(cwd, "maverick.config.json");
+  const canonical = join3(cwd, ".maverick", "config.json"), legacy = join3(cwd, "maverick.config.json");
   if (await exists2(canonical)) return mergeConfig(await json(canonical));
   if (await exists2(legacy)) return mergeConfig(await json(legacy));
   return mergeConfig();
 }
-function replaceVars(text, vars) {
-  return Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{{${k}}}`, v), text);
+function replaceVars(text2, vars) {
+  return Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{{${k}}}`, v), text2);
 }
-function sectionPresent(text, name) {
+function sectionPresent(text2, name) {
   const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^#{1,4}\\s+${e}\\s*$`, "mi").test(text);
+  return new RegExp(`^#{1,4}\\s+${e}\\s*$`, "mi").test(text2);
 }
-function hasMeaningfulContent(text) {
-  return !/\b(TODO|TBD|FILL ME)\b/i.test(text);
+function hasMeaningfulContent(text2) {
+  return !/\b(TODO|TBD|FILL ME)\b/i.test(text2);
 }
 function requireSlug(slug) {
   if (!slugOk.test(slug || "")) throw new Error("use a lowercase slug such as add-orders-pagination");
@@ -317,26 +519,26 @@ async function chooseDefaultPreset() {
   return { 1: "standard", 2: "lightweight", 3: "spec-driven", 4: "strict-review" }[answer.trim() || "1"] || "standard";
 }
 async function initProject(cwd) {
-  const dir = join2(cwd, ".maverick"), path = join2(dir, "config.json");
+  const dir = join3(cwd, ".maverick"), path = join3(dir, "config.json");
   if (await exists2(path)) throw new Error(`configuration already exists: ${rel(cwd, path)}`);
   const preset = await chooseDefaultPreset();
-  await mkdir2(dir, { recursive: true });
+  await mkdir3(dir, { recursive: true });
   const name = cwd.split(/[\\/]/).filter(Boolean).pop() || "my-project";
-  await writeFile2(path, pretty({ ...defaultConfig, workflow: { ...defaultConfig.workflow, defaultPreset: preset }, project: { ...defaultConfig.project, name } }));
+  await writeFile3(path, pretty({ ...defaultConfig, workflow: { ...defaultConfig.workflow, defaultPreset: preset }, project: { ...defaultConfig.project, name } }));
   output(`${brand()}
 \u2713 project initialized: ${rel(cwd, path)}
 Default preset: ${getPreset(preset).name}`);
 }
 async function taskPath(cwd, config, slug) {
   requireSlug(slug);
-  return join2(cwd, config.taskRoot, slug);
+  return join3(cwd, config.taskRoot, slug);
 }
 async function taskPreset(dir, config) {
-  const meta = join2(dir, "TASK.json");
+  const meta = join3(dir, "TASK.json");
   if (await exists2(meta)) return (await json(meta)).preset || config.workflow.defaultPreset;
-  const file = join2(dir, "TASK.md");
+  const file = join3(dir, "TASK.md");
   if (await exists2(file)) {
-    const match = (await readFile2(file, "utf8")).match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    const match = (await readFile4(file, "utf8")).match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
     const preset = match?.[1].match(/^preset:\s*([^\s#]+)\s*$/m)?.[1];
     if (preset) return preset;
   }
@@ -345,11 +547,11 @@ async function taskPreset(dir, config) {
 async function createTask(cwd, slug, options = {}) {
   const config = await loadConfig(cwd), preset = requirePreset(options.preset || config.workflow.defaultPreset || "standard"), dir = await taskPath(cwd, config, slug);
   if (await exists2(dir)) throw new Error(`task already exists: ${rel(cwd, dir)}; choose another slug or remove it deliberately`);
-  await mkdir2(dir, { recursive: true });
+  await mkdir3(dir, { recursive: true });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), artifacts = [...preset.artifacts];
   if ((options.riskDoc || config.workflow.riskDocumentation) && preset.strict) artifacts.push({ id: "RISK", file: "RISK.md", template: "risk.md", sections: ["Risk Assessment", "Mitigations", "Rollback", "Approval"] });
-  for (const item of artifacts) await writeFile2(join2(dir, item.file), replaceVars(await readFile2(join2(root, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
-  await writeFile2(join2(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
+  for (const item of artifacts) await writeFile3(join3(dir, item.file), replaceVars(await readFile4(join3(root, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
+  await writeFile3(join3(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
   output(`${brand()}
 \u2713 task created: ${rel(cwd, dir)}
 Preset: ${preset.name}
@@ -361,13 +563,13 @@ async function getTask(cwd, slug) {
   return { config, dir, preset: requirePreset(await taskPreset(dir, config)) };
 }
 async function showArtifact(cwd, slug, filename, label) {
-  const { dir } = await getTask(cwd, slug), path = join2(dir, filename);
+  const { dir } = await getTask(cwd, slug), path = join3(dir, filename);
   output(`${label}: ${rel(cwd, path)}${await exists2(path) ? "" : " (not included by this preset)"}`);
 }
 async function mapProject(cwd, options = {}) {
-  const map = await inspectProject(cwd), dir = join2(cwd, ".maverick", "context"), path = join2(dir, "PROJECT_MAP.md");
-  await mkdir2(dir, { recursive: true });
-  await writeFile2(path, renderProjectMap(map));
+  const map = await inspectProject(cwd), dir = join3(cwd, ".maverick", "context"), path = join3(dir, "PROJECT_MAP.md");
+  await mkdir3(dir, { recursive: true });
+  await writeFile3(path, renderProjectMap(map));
   if (options.json) return output(JSON.stringify({ ...map, path: rel(cwd, path) }, null, 2));
   output(`${brand()} / MAP
 \u2713 project map: ${rel(cwd, path)}
@@ -375,16 +577,16 @@ Detected ${map.commands.length} verification command(s) and ${map.directories.le
 }
 async function taskPacket(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const mapPath = join2(cwd, ".maverick", "context", "PROJECT_MAP.md");
+  const mapPath = join3(cwd, ".maverick", "context", "PROJECT_MAP.md");
   const contents = [];
-  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists2(join2(dir, file))) contents.push(`## ${file}
+  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists2(join3(dir, file))) contents.push(`## ${file}
 
-${await readFile2(join2(dir, file), "utf8")}`);
+${await readFile4(join3(dir, file), "utf8")}`);
   if (await exists2(mapPath)) contents.unshift(`## PROJECT_MAP.md
 
-${await readFile2(mapPath, "utf8")}`);
-  const path = join2(dir, "TASK-PACKET.md");
-  await writeFile2(path, `# Maverick Task Packet
+${await readFile4(mapPath, "utf8")}`);
+  const path = join3(dir, "TASK-PACKET.md");
+  await writeFile3(path, `# Maverick Task Packet
 
 Preset: ${preset.name}
 Agent: ${options.agent || "generic"}
@@ -422,9 +624,9 @@ async function reviewDiff(cwd, slug, options = {}) {
   if (!diff) findings.push("No git diff found against the selected base.");
   if (files.some((file) => /(^|\/)(\.env|secrets?|credentials?)/i.test(file))) findings.push("Security: sensitive-looking path changed; confirm secrets and PII were not included.");
   if (files.some((file) => /(?:package-lock|yarn\.lock|pnpm-lock|requirements\.txt|Cargo\.lock)/.test(file))) findings.push("Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities.");
-  if (preset.strict && !await exists2(join2(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
-  const path = join2(dir, "REVIEW-FINDINGS.md");
-  await writeFile2(path, `# Diff Review Findings \u2014 ${slug}
+  if (preset.strict && !await exists2(join3(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
+  const path = join3(dir, "REVIEW-FINDINGS.md");
+  await writeFile3(path, `# Diff Review Findings \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
 Changed files:
@@ -441,8 +643,8 @@ Report: ${rel(cwd, path)}`);
 async function checkpoint(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const [status2, diff] = await Promise.all([executeCommand(cwd, "git status --short"), gitDiff(cwd, options.against || "HEAD")]);
-  const path = join2(dir, "CHECKPOINT.md");
-  await writeFile2(path, `# Checkpoint \u2014 ${slug}
+  const path = join3(dir, "CHECKPOINT.md");
+  await writeFile3(path, `# Checkpoint \u2014 ${slug}
 
 Created: ${(/* @__PURE__ */ new Date()).toISOString()}
 Base: ${options.against || "HEAD"}
@@ -471,15 +673,15 @@ ${references.map((file) => `- ${file}`).join("\n") || "- none found"}`);
 }
 async function guardScope(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
-  const task = await readFile2(join2(dir, "TASK.md"), "utf8");
+  const task = await readFile4(join3(dir, "TASK.md"), "utf8");
   const diff = await gitDiff(cwd, options.against || "HEAD");
   const changed = [...new Set([...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]))];
   const expected = (task.match(/^## Expected Changed Files\n([\s\S]*?)(?=^## |$)/m)?.[1].match(/`([^`]+)`/g) || []).map((value) => value.slice(1, -1)).filter((value) => !/FILL ME/i.test(value));
   const outsideScope = expected.length ? changed.filter((file) => !expected.includes(file)) : [];
   const maxFiles = config.maxChangedFilesGuideline || 8;
   const findings = [changed.length > maxFiles ? `Change budget exceeded: ${changed.length}/${maxFiles} files.` : null, ...outsideScope.map((file) => `Not listed in Expected Changed Files: ${file}`)].filter(Boolean);
-  const report = join2(dir, "SCOPE-GUARD.md");
-  await writeFile2(report, `# Scope Guard \u2014 ${slug}
+  const report = join3(dir, "SCOPE-GUARD.md");
+  await writeFile3(report, `# Scope Guard \u2014 ${slug}
 
 Changed files: ${changed.length}
 Expected files: ${expected.length || "not specified"}
@@ -496,10 +698,10 @@ Report: ${payload.path}`);
 async function learn(cwd, slug, options = {}) {
   await getTask(cwd, slug);
   if (!options.rule || options.rule === true) throw new Error('provide a rule with --rule "..."');
-  const dir = join2(cwd, ".maverick"), path = join2(dir, "LEARNINGS.md");
-  await mkdir2(dir, { recursive: true });
-  const existing = await exists2(path) ? await readFile2(path, "utf8") : "# Maverick Learnings\n\nProposed reusable rules. Promote only after team review.\n";
-  await writeFile2(path, `${existing}
+  const dir = join3(cwd, ".maverick"), path = join3(dir, "LEARNINGS.md");
+  await mkdir3(dir, { recursive: true });
+  const existing = await exists2(path) ? await readFile4(path, "utf8") : "# Maverick Learnings\n\nProposed reusable rules. Promote only after team review.\n";
+  await writeFile3(path, `${existing}
 - [ ] ${options.rule}
   - Source task: \`${slug}\`
 `);
@@ -509,12 +711,12 @@ async function learn(cwd, slug, options = {}) {
 async function handoff(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
   const present = {};
-  for (const file of ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md", "CHECKPOINT.md"]) present[file] = await exists2(join2(dir, file));
-  const task = await readFile2(join2(dir, "TASK.md"), "utf8");
+  for (const file of ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md", "CHECKPOINT.md"]) present[file] = await exists2(join3(dir, file));
+  const task = await readFile4(join3(dir, "TASK.md"), "utf8");
   const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.";
   const remaining = Object.entries(present).filter(([, value]) => !value).map(([file]) => file);
-  const path = join2(dir, "HANDOFF.md");
-  await writeFile2(path, `# Handoff \u2014 ${slug}
+  const path = join3(dir, "HANDOFF.md");
+  await writeFile3(path, `# Handoff \u2014 ${slug}
 
 ## Goal
 ${goal}
@@ -544,13 +746,13 @@ async function readiness(cwd, slug, options = {}) {
   if (preset.strict) required.push("CHECKPOINT.md");
   const available = [];
   const missing = [];
-  for (const file of required) (await exists2(join2(dir, file)) ? available : missing).push(file);
-  const review = await exists2(join2(dir, "REVIEW.md")) ? await readFile2(join2(dir, "REVIEW.md"), "utf8") : "";
+  for (const file of required) (await exists2(join3(dir, file)) ? available : missing).push(file);
+  const review = await exists2(join3(dir, "REVIEW.md")) ? await readFile4(join3(dir, "REVIEW.md"), "utf8") : "";
   const decisionMade = /- \[[xX]\] (?:approve|approve with follow-up|request changes)/.test(review);
   if (!decisionMade) missing.push("Human decision in REVIEW.md");
   const ready = missing.length === 0;
-  const path = join2(dir, "MERGE-READINESS.md");
-  await writeFile2(path, `# Merge Readiness \u2014 ${slug}
+  const path = join3(dir, "MERGE-READINESS.md");
+  await writeFile3(path, `# Merge Readiness \u2014 ${slug}
 
 Preset: ${preset.name}
 Status: ${ready ? "READY FOR HUMAN MERGE DECISION" : "NOT READY"}
@@ -571,11 +773,11 @@ Report: ${payload.path}`);
   if (!ready) throw new Error("merge readiness gates are incomplete");
 }
 async function policy(cwd, action, slug, options = {}) {
-  const dir = join2(cwd, ".maverick"), path = join2(dir, "policy.json");
+  const dir = join3(cwd, ".maverick"), path = join3(dir, "policy.json");
   if (action === "init") {
     if (await exists2(path)) throw new Error(`policy already exists: ${rel(cwd, path)}`);
-    await mkdir2(dir, { recursive: true });
-    await writeFile2(path, await readFile2(join2(root, "templates", "policy.json"), "utf8"));
+    await mkdir3(dir, { recursive: true });
+    await writeFile3(path, await readFile4(join3(root, "templates", "policy.json"), "utf8"));
     return output(`${brand()} / POLICY
 \u2713 policy created: ${rel(cwd, path)}`);
   }
@@ -591,8 +793,8 @@ ${pretty(rules)}`);
   const findings = [];
   if (changed.length > (rules.maxChangedFiles || Infinity)) findings.push(`Changed ${changed.length} files; policy maximum is ${rules.maxChangedFiles}.`);
   if (sensitive.length && preset.id !== rules.requiredPresetForSensitivePaths) findings.push(`Sensitive paths require preset ${rules.requiredPresetForSensitivePaths}: ${sensitive.join(", ")}.`);
-  const report = join2(taskDir, "POLICY-CHECK.md");
-  await writeFile2(report, `# Policy Check \u2014 ${slug}
+  const report = join3(taskDir, "POLICY-CHECK.md");
+  await writeFile3(report, `# Policy Check \u2014 ${slug}
 
 Policy: ${rel(cwd, path)}
 
@@ -613,21 +815,21 @@ async function adapter(cwd, action, name, options = {}) {
   if (action === "list") return output(options.json ? JSON.stringify(Object.keys(adapters)) : `${brand()} / ADAPTERS
 ${Object.keys(adapters).join("\n")}`);
   if (action !== "install" || !adapters[name]) throw new Error(`use adapter list or adapter install <${Object.keys(adapters).join("|")}>`);
-  const [source, target] = adapters[name], destination = join2(cwd, target);
+  const [source, target] = adapters[name], destination = join3(cwd, target);
   if (await exists2(destination)) throw new Error(`adapter target already exists: ${rel(cwd, destination)}`);
-  await mkdir2(dirname(destination), { recursive: true });
-  await copyFile(join2(root, source), destination);
+  await mkdir3(dirname(destination), { recursive: true });
+  await copyFile(join3(root, source), destination);
   output(options.json ? JSON.stringify({ adapter: name, path: rel(cwd, destination) }) : `${brand()} / ADAPTER
 \u2713 ${name}: ${rel(cwd, destination)}`);
 }
 async function ci(cwd, provider, slug, options = {}) {
   if (provider !== "github") throw new Error("only the github CI generator is currently available");
   await getTask(cwd, slug);
-  const destination = join2(cwd, ".github", "workflows", `maverick-${slug}.yml`);
+  const destination = join3(cwd, ".github", "workflows", `maverick-${slug}.yml`);
   if (await exists2(destination)) throw new Error(`CI workflow already exists: ${rel(cwd, destination)}`);
-  await mkdir2(dirname(destination), { recursive: true });
-  const content = replaceVars(await readFile2(join2(root, "templates", "github-actions-maverick.yml"), "utf8"), { TASK_SLUG: slug });
-  await writeFile2(destination, content);
+  await mkdir3(dirname(destination), { recursive: true });
+  const content = replaceVars(await readFile4(join3(root, "templates", "github-actions-maverick.yml"), "utf8"), { TASK_SLUG: slug });
+  await writeFile3(destination, content);
   output(options.json ? JSON.stringify({ provider, task: slug, path: rel(cwd, destination) }) : `${brand()} / CI
 \u2713 GitHub Actions workflow: ${rel(cwd, destination)}`);
 }
@@ -636,8 +838,8 @@ async function securityScan(cwd, slug, options = {}) {
   const diff = await gitDiff(cwd, options.against || "HEAD");
   const rules = [{ name: "Private key material", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ }, { name: "Likely cloud/API secret assignment", pattern: /(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"][^'"\s]{12,}/i }, { name: "Potentially unsafe dynamic execution", pattern: /(?:eval\(|child_process\.exec\(|shell:\s*true)/ }];
   const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name);
-  const path = join2(dir, "SECURITY-REPORT.md");
-  await writeFile2(path, `# Security Scan \u2014 ${slug}
+  const path = join3(dir, "SECURITY-REPORT.md");
+  await writeFile3(path, `# Security Scan \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
 
@@ -660,8 +862,8 @@ async function dependencyReview(cwd, slug, options = {}) {
   const diff = await gitDiff(cwd, options.against || "HEAD");
   const lockfiles = [...new Set([...diff.matchAll(/^\+\+\+ b\/(.*(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|poetry\.lock|Cargo\.lock))$/gm)].map((match) => match[1]))];
   const manifests = [...new Set([...diff.matchAll(/^\+\+\+ b\/(.*(?:package\.json|pyproject\.toml|go\.mod|Cargo\.toml))$/gm)].map((match) => match[1]))];
-  const path = join2(dir, "DEPENDENCY-REVIEW.md");
-  await writeFile2(path, `# Dependency Review \u2014 ${slug}
+  const path = join3(dir, "DEPENDENCY-REVIEW.md");
+  await writeFile3(path, `# Dependency Review \u2014 ${slug}
 
 ## Changed manifests
 ${manifests.map((file) => `- \`${file}\``).join("\n") || "- none"}
@@ -680,12 +882,12 @@ Report: ${rel(cwd, path)}`);
 }
 async function draftPr(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const task = await readFile2(join2(dir, "TASK.md"), "utf8");
-  const evidence = await exists2(join2(dir, "EVIDENCE.md")) ? await readFile2(join2(dir, "EVIDENCE.md"), "utf8") : "Verification evidence has not been captured.";
-  const findings = await exists2(join2(dir, "REVIEW-FINDINGS.md")) ? "Diff review report is available in REVIEW-FINDINGS.md." : "Diff review has not been run.";
+  const task = await readFile4(join3(dir, "TASK.md"), "utf8");
+  const evidence = await exists2(join3(dir, "EVIDENCE.md")) ? await readFile4(join3(dir, "EVIDENCE.md"), "utf8") : "Verification evidence has not been captured.";
+  const findings = await exists2(join3(dir, "REVIEW-FINDINGS.md")) ? "Diff review report is available in REVIEW-FINDINGS.md." : "Diff review has not been run.";
   const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.";
-  const path = join2(dir, "PR-DRAFT.md");
-  await writeFile2(path, `# PR Draft \u2014 ${slug}
+  const path = join3(dir, "PR-DRAFT.md");
+  await writeFile3(path, `# PR Draft \u2014 ${slug}
 
 ## Summary
 ${goal}
@@ -716,19 +918,19 @@ async function validate(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
   let errors = 0, warnings = 0;
   const results = [];
-  for (const item of validatorArtifacts(preset, await exists2(join2(dir, "RISK.md")))) {
-    const path = join2(dir, item.file);
+  for (const item of validatorArtifacts(preset, await exists2(join3(dir, "RISK.md")))) {
+    const path = join3(dir, item.file);
     if (!await exists2(path)) {
       results.push({ file: item.file, status: "FAIL", message: "missing" });
       errors++;
       continue;
     }
-    const text = await readFile2(path, "utf8");
-    for (const section of item.sections) if (!sectionPresent(text, section)) {
-      results.push({ file: item.file, status: "FAIL", message: `missing section "${section}"` });
+    const text2 = await readFile4(path, "utf8");
+    for (const section2 of item.sections) if (!sectionPresent(text2, section2)) {
+      results.push({ file: item.file, status: "FAIL", message: `missing section "${section2}"` });
       errors++;
     }
-    if (!hasMeaningfulContent(text)) {
+    if (!hasMeaningfulContent(text2)) {
       results.push({ file: item.file, status: "WARN", message: "placeholders remain" });
       warnings++;
     }
@@ -765,12 +967,12 @@ ${Object.values(presets).map((p) => `${p.id.toUpperCase()}
 ${p.description}`).join("\n\n")}`);
 }
 async function status(cwd, options = {}) {
-  const config = await loadConfig(cwd), base = join2(cwd, config.taskRoot);
+  const config = await loadConfig(cwd), base = join3(cwd, config.taskRoot);
   if (!await exists2(base)) return output(options.json ? "[]" : "No tasks yet. Run maverick task add-your-feature.");
   const tasks = [];
-  for (const entry of (await readdir2(base, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const dir = join2(base, entry.name), preset = await taskPreset(dir, config);
-    const evidence = await exists2(join2(dir, "EVIDENCE.md")), findings = await exists2(join2(dir, "REVIEW-FINDINGS.md"));
+  for (const entry of (await readdir3(base, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const dir = join3(base, entry.name), preset = await taskPreset(dir, config);
+    const evidence = await exists2(join3(dir, "EVIDENCE.md")), findings = await exists2(join3(dir, "REVIEW-FINDINGS.md"));
     tasks.push({ task: entry.name, preset, evidence, findings, next: evidence ? findings ? "complete human review" : "run review --diff" : "run verify" });
   }
   output(options.json ? JSON.stringify(tasks, null, 2) : tasks.map((task) => `${task.task}	${task.preset}	${task.next}`).join("\n"));
@@ -785,7 +987,7 @@ function gitAvailable() {
 }
 async function doctor(cwd, options = {}) {
   const config = await loadConfig(cwd), map = await inspectProject(cwd);
-  const checks = [["Node >= 20", Number(process.versions.node.split(".")[0]) >= 20], ["Git available", gitAvailable()], ["Git repository", await exists2(join2(cwd, ".git"))], ["Repository instructions", map.instructions.length > 0], ["Verification scripts", map.commands.length > 0]];
+  const checks = [["Node >= 20", Number(process.versions.node.split(".")[0]) >= 20], ["Git available", gitAvailable()], ["Git repository", await exists2(join3(cwd, ".git"))], ["Repository instructions", map.instructions.length > 0], ["Verification scripts", map.commands.length > 0]];
   const fixes = checks.filter(([, ok]) => !ok).map(([name]) => `Add or configure: ${name}`);
   if (options.json) return output(JSON.stringify({ checks: checks.map(([name, ok]) => ({ name, ok })), fixes }, null, 2));
   for (const [name, ok] of checks) output(`${ok ? "PASS" : "WARN"} ${name}`);
@@ -800,10 +1002,11 @@ function info() {
 async function main(args2, cwd = process.cwd()) {
   const { positional, options } = parseOptions(args2), [command, arg, third] = positional;
   if (!command || ["help", "--help", "-h"].includes(command)) return help();
+  if (["dashboard", "dash", "lens"].includes(command)) return dashboard(cwd, options);
   if (command === "init") return arg ? createTask(cwd, arg, options) : initProject(cwd);
   if (["task", "create"].includes(command)) return createTask(cwd, arg, options);
   if (command === "map") return mapProject(cwd, options);
-  if (command === "packet" || command === "run") return taskPacket(cwd, arg, options);
+  if (["packet", "run"].includes(command)) return taskPacket(cwd, arg, options);
   if (command === "checkpoint") return checkpoint(cwd, arg, options);
   if (command === "impact") return impact(cwd, arg, options);
   if (command === "guard") return guardScope(cwd, arg, options);
