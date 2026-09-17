@@ -63,13 +63,14 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "ci:local": "npm_config_cache=${TMPDIR:-/tmp}/maverick-npm-cache npm ci --no-audit && npm run docs:check && npm run lint && npm run typecheck && npm test && npm run demo:test && npm run build && npm run release:dry && npm run docs:build",
     "docs:dev": "vitepress dev site",
     "docs:build": "vitepress build site",
     "docs:preview": "vitepress preview site",
     "docs:check": "node scripts/check-docs-links.mjs && node scripts/check-doc-quality.mjs",
     "dash:example": "node scripts/dash-example.mjs",
     "demo:test": "node --test demo/test/*.test.js",
-    "release:dry": "npm pack --dry-run",
+    "release:dry": "npm_config_cache=${TMPDIR:-/tmp}/maverick-npm-cache npm pack --dry-run",
     "prepack": "npm run build"
   },
   "dependencies": {
@@ -81,6 +82,7 @@
     "@types/react": "^19.2.0",
     "eslint": "^9.25.1",
     "prettier": "^3.5.3",
+    "search-insights": "^2.17.3",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
