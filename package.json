@@ -1,6 +1,6 @@
 {
   "name": "maverick-ai-dev-stack",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
   "type": "module",
   "bin": {
@@ -73,12 +73,12 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "ink": "^5.2.1",
-    "react": "^18.3.1"
+    "ink": "^6.8.0",
+    "react": "^19.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
-    "@types/react": "^18.3.12",
+    "@types/react": "^19.2.0",
     "eslint": "^9.25.1",
     "prettier": "^3.5.3",
     "tsup": "^8.3.5",

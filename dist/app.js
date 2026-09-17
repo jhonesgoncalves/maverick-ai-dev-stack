@@ -1,96 +1,10 @@
 #!/usr/bin/env node
-
-// src/cli/app.tsx
-import { render } from "ink";
-
-// src/ui/screens/HomeScreen.tsx
-import { useState } from "react";
-import { Box as Box2, Text as Text3, useApp, useInput } from "ink";
-
-// src/ui/components/Brand.tsx
-import { Text } from "ink";
-
-// src/ui/theme.ts
-var theme = { brand: "#FF6A00" };
-
-// src/ui/components/Brand.tsx
-import { Fragment, jsx, jsxs } from "react/jsx-runtime";
-function Brand() {
-  return /* @__PURE__ */ jsxs(Fragment, { children: [
-    /* @__PURE__ */ jsx(Text, { color: process.env.NO_COLOR ? void 0 : theme.brand, children: "\u2694 MAVERICK" }),
-    /* @__PURE__ */ jsx(Text, { dimColor: true, children: "\\nAI DEV STACK" })
-  ] });
-}
-
-// src/ui/components/WorkflowStepper.tsx
-import { Box, Text as Text2 } from "ink";
-
-// src/core/presets.js
-var PRESET_IDS = ["lightweight", "standard", "spec-driven", "strict-review"];
-var artifact = (id, file, template, sections) => ({ id, file, template, sections });
-var common = {
-  task: artifact("TASK", "TASK.md", "task-brief.md", ["Problem", "Goal", "Acceptance Criteria", "In Scope", "Out of Scope", "Verification"]),
-  context: artifact("CONTEXT", "CONTEXT.md", "context-pack.md", ["Architecture Summary", "Relevant Paths", "Constraints", "Do Not Touch", "Commands"]),
-  plan: artifact("PLAN", "PLAN.md", "plan.md", ["Approach", "Files", "Steps", "Tests"]),
-  review: artifact("REVIEW", "REVIEW.md", "review.md", ["Scope", "Behavior", "Tests", "Security", "Decision"]),
-  pr: artifact("PR", "PR.md", "pr-description.md", ["Summary", "What Changed", "How Verified", "Human Review"]),
-  spec: artifact("SPEC", "SPEC.md", "spec.md", ["Problem", "Desired Behavior", "Functional Requirements", "Non-Functional Requirements", "Acceptance Criteria", "Domain Rules", "Constraints", "Edge Cases", "Out of Scope", "Open Questions", "Risks"]),
-  risk: artifact("RISK", "RISK.md", "risk.md", ["Risk Assessment", "Mitigations", "Rollback", "Approval"])
-};
-var presets = {
-  lightweight: { id: "lightweight", name: "Lightweight", description: "Small, low-risk changes.", bestFor: "Small, obvious changes with a narrow scope.", artifacts: [common.task, common.context, common.review], stages: ["brief", "context", "build", "verify", "review"] },
-  standard: { id: "standard", name: "Standard", description: "Default engineering workflow.", bestFor: "Normal features and changes in an existing codebase.", artifacts: [common.task, common.context, common.plan, common.review, common.pr], stages: ["brief", "context", "plan", "build", "verify", "review", "pr"] },
-  "spec-driven": { id: "spec-driven", name: "Spec Driven", description: "Specification-first workflow for ambiguous or complex work.", bestFor: "Complex or ambiguous features.", artifacts: [common.spec, common.task, common.context, common.plan, common.review, common.pr], stages: ["discover", "spec", "context", "plan", "build", "verify", "review", "pr"] },
-  "strict-review": { id: "strict-review", name: "Strict Review", description: "Extra verification for high-risk changes.", bestFor: "High-risk, security-sensitive, data, payment, migration, or shared-infrastructure work.", artifacts: [common.task, common.context, common.plan, common.review, common.pr], stages: ["brief", "context", "plan", "build", "verify", "security", "review", "pr"], strict: true }
-};
-function getPreset(id = "standard") {
-  return presets[id];
-}
-function requirePreset(id) {
-  const preset = getPreset(id);
-  if (!preset) throw new Error(`invalid preset "${id}"; choose: ${PRESET_IDS.join(", ")}`);
-  return preset;
-}
-function stagesForPreset(id) {
-  return requirePreset(id).stages;
-}
-
-// src/ui/components/WorkflowStepper.tsx
-import { jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
-function WorkflowStepper({ preset = "standard", activeStage }) {
-  const stages = stagesForPreset(preset);
-  return /* @__PURE__ */ jsx2(Box, { flexDirection: "column", children: stages.map((stage, index) => /* @__PURE__ */ jsxs2(Text2, { children: [
-    String(index + 1).padStart(2, "0"),
-    " ",
-    stage === activeStage ? "\u25CF" : "\u25CB",
-    " ",
-    stage.toUpperCase()
-  ] }, stage)) });
-}
-
-// src/ui/screens/HomeScreen.tsx
-import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
-var choices = ["Create a task", "Continue a task", "Review a change", "Validate artifacts", "Project doctor", "Help"];
-function HomeScreen() {
-  const [selected, setSelected] = useState(0);
-  const { exit } = useApp();
-  useInput((input, key) => {
-    if (input === "q" || key.escape) exit();
-    if (key.upArrow) setSelected((v) => Math.max(0, v - 1));
-    if (key.downArrow) setSelected((v) => Math.min(choices.length - 1, v + 1));
-  });
-  return /* @__PURE__ */ jsxs3(Box2, { flexDirection: "column", children: [
-    /* @__PURE__ */ jsx3(Brand, {}),
-    /* @__PURE__ */ jsx3(Text3, { children: "\\n\\nContext before code.\\n" }),
-    /* @__PURE__ */ jsx3(WorkflowStepper, {}),
-    /* @__PURE__ */ jsx3(Text3, { children: "\\nWhat do you want to do?\\n" }),
-    choices.map((choice, index) => /* @__PURE__ */ jsxs3(Text3, { children: [
-      index === selected ? "\u203A " : "  ",
-      choice
-    ] }, choice)),
-    /* @__PURE__ */ jsx3(Text3, { dimColor: true, children: "\\n\u2191\u2193 navigate   enter select   q quit" })
-  ] });
-}
+import {
+  PRESET_IDS,
+  getPreset,
+  presets,
+  requirePreset
+} from "./chunk-YM2BQGIU.js";
 
 // src/cli.js
 import { mkdir as mkdir3, readFile as readFile4, writeFile as writeFile3, access as access2, copyFile, readdir as readdir3 } from "fs/promises";
@@ -352,6 +266,7 @@ async function cacheProjectIndex(cwd, index) {
 
 // src/dashboard/server.js
 var page = new URL("./ui/index.html", import.meta.url);
+var interactions = new URL("./ui/interactions.js", import.meta.url);
 async function startDashboard({ cwd, host = "127.0.0.1", port = 4173, watch = true } = {}) {
   if (!["127.0.0.1", "localhost", "::1"].includes(host)) throw new Error("dashboard host must be loopback-only");
   if (!Number.isInteger(Number(port)) || Number(port) < 1 || Number(port) > 65535) throw new Error("dashboard port must be between 1 and 65535");
@@ -371,6 +286,10 @@ async function startDashboard({ cwd, host = "127.0.0.1", port = 4173, watch = tr
       await refresh();
       res.writeHead(204);
       return res.end();
+    }
+    if (req.url === "/interactions.js") {
+      res.writeHead(200, { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store" });
+      return res.end(await readFile3(interactions, "utf8"));
     }
     if (req.url === "/" || req.url?.startsWith("/?")) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" });
@@ -1037,10 +956,15 @@ Reason: ${rec.reason}`);
 }
 
 // src/cli/app.tsx
-import { jsx as jsx4 } from "react/jsx-runtime";
 var args = process.argv.slice(2);
-if (args.length === 0 && process.stdin.isTTY && !process.env.CI && !args.includes("--json")) render(/* @__PURE__ */ jsx4(HomeScreen, {}));
-else main(args).catch((error) => {
+if (args.length === 0 && process.stdin.isTTY && !process.env.CI && !args.includes("--json")) {
+  const [{ default: React }, { render }, { HomeScreen }] = await Promise.all([
+    import("react"),
+    import("ink"),
+    import("./HomeScreen-2IC6BDJX.js")
+  ]);
+  render(React.createElement(HomeScreen));
+} else main(args).catch((error) => {
   console.error(`maverick: ${error.message}`);
   process.exitCode = 1;
 });
