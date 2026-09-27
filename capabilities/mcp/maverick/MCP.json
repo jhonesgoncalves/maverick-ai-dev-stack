@@ -1,0 +1,7 @@
+{
+  "name": "maverick",
+  "description": "Read-only Maverick project intelligence for agents: stack and verification commands, task scope, ready subtasks, change impact, and architecture health.",
+  "version": "1.0.0",
+  "tags": ["maverick", "mcp", "project-intelligence"],
+  "server": { "command": "npx", "args": ["-y", "maverick-ai-dev-stack", "mcp"] }
+}

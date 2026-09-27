@@ -147,7 +147,7 @@ test('splitCommand honours quotes without invoking a shell', () => {
 
 test('import extraction covers multiple languages', () => {
   assert.equal(languageForPath('pkg/server.go'), 'Go');
-  assert.deepEqual(extractImports('Python', 'import os, sys\nfrom .models import User\n'), ['os', 'sys', '.models']);
+  assert.deepEqual(extractImports('Python', 'import os, sys\nfrom .models import User\nfrom . import views as v\n'), ['os', 'sys', '.models', '.models.User', '.', '.views']);
   assert.deepEqual(extractImports('Go', 'import (\n  "fmt"\n  "example.com/x/internal/db"\n)\n'), ['fmt', 'example.com/x/internal/db']);
   assert.deepEqual(extractImports('Rust', 'use crate::db::Pool;\nmod routes;\n'), ['crate::db::Pool', 'mod:routes']);
   assert.deepEqual(extractImports('C#', 'using System.Text;\nusing static Foo.Bar;\n'), ['System.Text', 'Foo.Bar']);
@@ -161,11 +161,12 @@ test('Lens indexes modules and local couplings beyond JavaScript', async () => {
     'go.mod': 'module example.com/svc\n',
     'cmd/main.go': 'package main\nimport "example.com/svc/internal/db"\n',
     'internal/db/db.go': 'package db\n',
-    'app/views.py': 'from .models import User\n'
+    'app/views.py': 'from .models import User\n',
+    'app/models.py': 'class User: pass\n'
   });
   const index = await buildProjectIndex(cwd);
   assert.equal(index.project.packageManager, 'go modules');
   assert.ok(index.modules.some(item => item.path === 'app/views.py' && item.language === 'Python'));
-  assert.ok(index.couplings.some(link => link.from === 'cmd/main.go' && link.to === 'example.com/svc/internal/db'));
-  assert.ok(index.couplings.some(link => link.from === 'app/views.py' && link.to === '.models'));
+  assert.ok(index.couplings.some(link => link.from === 'cmd/main.go' && link.to === 'internal/db/db.go'));
+  assert.ok(index.couplings.some(link => link.from === 'app/views.py' && link.to === 'app/models.py'));
 });

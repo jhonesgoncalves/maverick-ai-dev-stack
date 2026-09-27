@@ -26,10 +26,10 @@ const lock = cwd => readJson(cwd, '.maverick/capabilities.lock.json');
 const mcp = (name, server) => ({ [`.maverick/capabilities/${name}/MCP.json`]: JSON.stringify({ name, description: 'Exposes a test MCP server for integration tests.', server }) });
 const agent = (name, body = 'Do the thing carefully.') => ({ [`.maverick/capabilities/${name}/AGENT.md`]: `---\nname: ${name}\ndescription: A project-local agent used by the tests.\nversion: 1.0.0\n---\n\n${body}\n` });
 
-test('built-in catalog is valid and covers every kind except mcp', async () => {
+test('built-in catalog is valid and covers every kind', async () => {
   const catalog = await loadCatalog(await project());
   assert.deepEqual(catalog.errors, []);
-  assert.deepEqual([...new Set(catalog.capabilities.map(item => item.kind))].sort(), ['agent', 'command', 'skill']);
+  assert.deepEqual([...new Set(catalog.capabilities.map(item => item.kind))].sort(), ['agent', 'command', 'mcp', 'skill']);
   assert.equal(findCapability(catalog, 'reviewer').ref, 'agent/reviewer');
   assert.throws(() => findCapability(catalog, 'review'), /did you mean agent\/reviewer/);
 });

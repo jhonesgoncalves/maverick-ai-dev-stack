@@ -13,8 +13,12 @@ export const SOURCE_LANGUAGES = {
 
 const EXTRACTORS = {
   JavaScript: text => all(text, /(?:from\s*|import\s*\(\s*|require\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm),
-  Python: text => [...text.matchAll(/^\s*(?:from\s+([.\w]+)\s+import|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))/gm)]
-    .flatMap(match => match[1] ? [match[1]] : match[2].split(',').map(name => name.trim())),
+  // `from pkg import name` may import a submodule, so `pkg.name` is emitted too; the
+  // resolver keeps it only when such a file exists.
+  Python: text => [...text.matchAll(/^[ \t]*(?:from[ \t]+([.\w]+)[ \t]+import[ \t]+(?:\(([^)]*)\)|([\w \t,]+))|import[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*))/gm)]
+    .flatMap(match => (match[1]
+      ? [match[1], ...(match[2] ?? match[3]).split(',').map(name => name.trim().split(/\s+as\s+/)[0].trim()).filter(name => /^\w+$/.test(name)).map(name => `${match[1]}${/\.$/.test(match[1]) ? '' : '.'}${name}`)]
+      : match[4].split(',').map(name => name.trim()))),
   Go: text => [
     ...all(text, /^\s*import\s+(?:[\w.]+\s+)?"([^"]+)"/gm),
     ...[...text.matchAll(/^\s*import\s*\(([\s\S]*?)\)/gm)].flatMap(block => all(block[1], /"([^"]+)"/g))

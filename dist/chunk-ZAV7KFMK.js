@@ -267,7 +267,7 @@ var ECOSYSTEM_RULES = [
         name: (ctx.find(/\.slnx?$/)[0] || projects[0] || "").replace(/\.[^.]+$/, "") || void 0,
         packageManager: "nuget",
         languages: [projects.some((name2) => name2.endsWith(".fsproj")) ? "F#" : "C#"],
-        frameworks: pick([["Microsoft.NET.Sdk.Web", "ASP.NET Core"], ["Microsoft.AspNetCore", "ASP.NET Core"], ["BlazorWebAssembly", "Blazor"], ["<UseMaui>", ".NET MAUI"]], text).filter((name2, index, all) => all.indexOf(name2) === index),
+        frameworks: pick([["Microsoft.NET.Sdk.Web", "ASP.NET Core"], ["Microsoft.AspNetCore", "ASP.NET Core"], ["BlazorWebAssembly", "Blazor"], ["<UseMaui>", ".NET MAUI"]], text).filter((name2, index, all2) => all2.indexOf(name2) === index),
         commands: { lint: "dotnet format --verify-no-changes", typecheck: null, test: "dotnet test", build: "dotnet build" }
       };
     }
@@ -415,8 +415,8 @@ async function detectStack(cwd, { maxSubprojects = 40 } = {}) {
     const detected = await detectDirectory(join2(cwd, name2), name2);
     if (detected.ecosystems.length || detected.runners.length) subprojects.push({ path: name2, ...detected });
   }
-  const all = [root, ...subprojects];
-  const ecosystems = all.flatMap((item) => item.ecosystems);
+  const all2 = [root, ...subprojects];
+  const ecosystems = all2.flatMap((item) => item.ecosystems);
   return {
     ecosystems: root.ecosystems,
     runners: root.runners,
@@ -699,20 +699,6 @@ async function loadConfig(cwd) {
   return (await resolveConfig(cwd)).config;
 }
 
-// src/core/preset-suggestion.js
-function recommendPreset({ risk, type, complexity, openQuestions = 0, estimatedFiles } = {}) {
-  if (risk === "high") return { preset: "strict-review", reason: "High-risk changes need explicit verification, security review, and rollback evidence." };
-  if (type === "migration" || type === "security") return { preset: "strict-review", reason: `${type === "migration" ? "Migrations" : "Security-sensitive changes"} need rollback and extra verification.` };
-  if (complexity === "high" && Number(openQuestions) > 0) return { preset: "spec-driven", reason: "High complexity with open questions benefits from a shared specification." };
-  if (risk === "low" && Number(estimatedFiles) <= 2) return { preset: "lightweight", reason: "Low risk and a small file footprint support a lightweight workflow." };
-  return { preset: "standard", reason: "Standard is the default workflow for routine engineering changes." };
-}
-
-// src/commands/agent.js
-import { mkdir as mkdir3, readdir as readdir4, readFile as readFile8, writeFile as writeFile3 } from "fs/promises";
-import { join as join10 } from "path";
-import { createInterface } from "readline/promises";
-
 // src/core/tasks.js
 import { readFile as readFile4 } from "fs/promises";
 import { join as join5 } from "path";
@@ -736,6 +722,730 @@ async function getTask(cwd, slug) {
   if (!await exists(dir)) throw new Error(`task not found: ${rel(cwd, dir)}; run maverick task ${slug} first`);
   return { config, dir, preset: requirePreset(await taskPreset(dir, config)) };
 }
+
+// src/subtasks/graph.js
+import { mkdir, readdir as readdir3, readFile as readFile6, writeFile } from "fs/promises";
+import { join as join7 } from "path";
+import { z as z3 } from "zod";
+
+// src/capabilities/model.js
+import { createHash } from "crypto";
+import { readdir as readdir2, readFile as readFile5 } from "fs/promises";
+import { basename, join as join6, relative as relative2, sep } from "path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { z as z2 } from "zod";
+var ENTRY_FILES = { skill: "SKILL.md", agent: "AGENT.md", command: "COMMAND.md", mcp: "MCP.json" };
+var KINDS = Object.keys(ENTRY_FILES);
+var AGENT_TOOLS = ["read", "edit", "shell", "web"];
+var name = z2.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "use a lowercase kebab-case name");
+var version = z2.string().regex(/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/, "use a semantic version such as 1.0.0");
+var common = {
+  name,
+  version: version.default("1.0.0"),
+  description: z2.string().min(10, "describe when an agent should use it (10+ characters)").max(1024),
+  tags: z2.array(z2.string()).default([]),
+  targets: z2.array(z2.string()).optional()
+};
+var serverSchema = z2.union([
+  z2.object({ command: z2.string().min(1), args: z2.array(z2.string()).default([]), env: z2.record(z2.string(), z2.string()).default({}) }),
+  z2.object({ url: z2.url(), type: z2.enum(["http", "sse"]).default("http"), headers: z2.record(z2.string(), z2.string()).default({}) })
+]);
+var SCHEMAS = {
+  skill: z2.object({ ...common, "allowed-tools": z2.array(z2.string()).optional() }),
+  // Portable permissions; each adapter maps them to its own tool names.
+  agent: z2.object({ ...common, tools: z2.array(z2.enum(AGENT_TOOLS)).optional(), model: z2.string().optional() }),
+  command: z2.object({ ...common, "argument-hint": z2.string().optional() }),
+  mcp: z2.object({ ...common, server: serverSchema })
+};
+function sha256(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
+function parseFrontmatter(text) {
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return { data: {}, body: text };
+  return { data: parseYaml(match[1]) || {}, body: text.slice(match[0].length) };
+}
+function renderFrontmatter(data, body) {
+  const clean = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== void 0 && value !== "" && !(Array.isArray(value) && !value.length)));
+  return `---
+${stringifyYaml(clean, { lineWidth: 0 }).trimEnd()}
+---
+
+${body.replace(/^\s+/, "")}`;
+}
+async function listFiles(dir, root = dir) {
+  const files = [];
+  for (const entry of (await readdir2(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.name.startsWith(".")) continue;
+    const path = join6(dir, entry.name);
+    if (entry.isDirectory()) files.push(...await listFiles(path, root));
+    else if (entry.isFile()) files.push(relative2(root, path).split(sep).join("/"));
+  }
+  return files;
+}
+function formatIssues2(error) {
+  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
+}
+async function loadCapability(dir, source = "local") {
+  const entries = await readdir2(dir).catch(() => []);
+  const kinds = KINDS.filter((kind2) => entries.includes(ENTRY_FILES[kind2]));
+  if (kinds.length !== 1) throw new Error(`${dir}: expected exactly one of ${Object.values(ENTRY_FILES).join(", ")}`);
+  const kind = kinds[0], entry = ENTRY_FILES[kind];
+  const text = await readFile5(join6(dir, entry), "utf8");
+  let data, body = "";
+  if (kind === "mcp") {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`${dir}/${entry}: invalid JSON (${error.message})`);
+    }
+  } else ({ data, body } = parseFrontmatter(text));
+  const parsed = SCHEMAS[kind].safeParse(data);
+  if (!parsed.success) throw new Error(`${dir}/${entry}: ${formatIssues2(parsed.error)}`);
+  if (parsed.data.name !== basename(dir)) throw new Error(`${dir}/${entry}: name "${parsed.data.name}" must match its directory "${basename(dir)}"`);
+  if (kind !== "mcp" && !body.trim()) throw new Error(`${dir}/${entry}: the body is empty; add the instructions the agent should follow`);
+  const files = kind === "skill" ? await listFiles(dir) : [entry];
+  const contents = Object.fromEntries(await Promise.all(files.map(async (file) => [file, await readFile5(join6(dir, file))])));
+  const integrity = sha256(files.map((file) => `${file}\0${sha256(contents[file])}`).join("\n"));
+  return { ref: `${kind}/${parsed.data.name}`, kind, ...parsed.data, body, dir, source, entry, files, contents, integrity };
+}
+
+// src/subtasks/graph.js
+var STATUSES = ["pending", "in-progress", "blocked", "done"];
+var COMPLEXITY = ["low", "medium", "high"];
+var MANIFEST = "_tasks.md";
+var nodeId = z3.string().regex(/^\d{2,3}$/, "use a two or three digit id such as 01");
+var manifestSchema = z3.object({
+  schema: z3.literal("maverick.subtasks/v1"),
+  nodes: z3.array(z3.object({ id: nodeId, file: z3.string().regex(/^task_\d{2,3}\.md$/) })),
+  edges: z3.array(z3.object({ from: nodeId, to: nodeId })).default([])
+});
+var itemSchema = z3.object({
+  title: z3.string().min(1),
+  status: z3.enum(STATUSES),
+  type: z3.string().regex(/^[a-z0-9-]+$/).optional(),
+  complexity: z3.enum(COMPLEXITY).optional()
+});
+var dirFor = (taskDir) => join7(taskDir, "subtasks");
+function issues(error) {
+  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
+}
+function findCycle(ids, edges) {
+  const next = new Map(ids.map((id2) => [id2, []]));
+  for (const edge of edges) next.get(edge.from)?.push(edge.to);
+  const state = /* @__PURE__ */ new Map(), stack = [];
+  const visit = (id2) => {
+    state.set(id2, "visiting");
+    stack.push(id2);
+    for (const to of next.get(id2) || []) {
+      if (state.get(to) === "visiting") return [...stack.slice(stack.indexOf(to)), to];
+      if (!state.has(to)) {
+        const cycle = visit(to);
+        if (cycle) return cycle;
+      }
+    }
+    state.set(id2, "done");
+    stack.pop();
+    return null;
+  };
+  for (const id2 of ids) if (!state.has(id2)) {
+    const cycle = visit(id2);
+    if (cycle) return cycle;
+  }
+  return null;
+}
+function topologicalOrder(ids, edges) {
+  const incoming = new Map(ids.map((id2) => [id2, 0]));
+  for (const edge of edges) incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
+  const ready = ids.filter((id2) => !incoming.get(id2)).sort(), order = [];
+  while (ready.length) {
+    const id2 = ready.shift();
+    order.push(id2);
+    for (const edge of edges.filter((item) => item.from === id2)) {
+      incoming.set(edge.to, incoming.get(edge.to) - 1);
+      if (!incoming.get(edge.to)) {
+        ready.push(edge.to);
+        ready.sort();
+      }
+    }
+  }
+  return order;
+}
+async function loadGraph(taskDir) {
+  const dir = dirFor(taskDir), manifestPath = join7(dir, MANIFEST);
+  if (!await exists(manifestPath)) return { exists: false, nodes: [], edges: [], items: [], problems: [] };
+  const problems = [];
+  const parsed = manifestSchema.safeParse(parseFrontmatter(await readFile6(manifestPath, "utf8")).data);
+  if (!parsed.success) return { exists: true, nodes: [], edges: [], items: [], problems: [`${MANIFEST}: ${issues(parsed.error)}`] };
+  const { nodes, edges } = parsed.data, ids = nodes.map((node) => node.id);
+  for (const id2 of ids.filter((value, index) => ids.indexOf(value) !== index)) problems.push(`duplicate node ${id2}`);
+  for (const edge of edges) {
+    if (!ids.includes(edge.from) || !ids.includes(edge.to)) problems.push(`edge ${edge.from} \u2192 ${edge.to} references an unknown node`);
+    if (edge.from === edge.to) problems.push(`node ${edge.from} depends on itself`);
+  }
+  const cycle = findCycle(ids, edges.filter((edge) => ids.includes(edge.from) && ids.includes(edge.to)));
+  if (cycle) problems.push(`dependency cycle: ${cycle.join(" \u2192 ")}`);
+  const items = [];
+  for (const node of nodes) {
+    const path = join7(dir, node.file);
+    if (!await exists(path)) {
+      problems.push(`${node.file} is listed in ${MANIFEST} but missing`);
+      continue;
+    }
+    const { data, body } = parseFrontmatter(await readFile6(path, "utf8"));
+    const item = itemSchema.safeParse(data);
+    if (!item.success) {
+      problems.push(`${node.file}: ${issues(item.error)}`);
+      continue;
+    }
+    items.push({ id: node.id, file: node.file, ...item.data, body, dependsOn: edges.filter((edge) => edge.to === node.id).map((edge) => edge.from) });
+  }
+  const listed = new Set(nodes.map((node) => node.file));
+  for (const file of (await readdir3(dir)).filter((name2) => /^task_\d{2,3}\.md$/.test(name2) && !listed.has(name2))) problems.push(`${file} is not listed in ${MANIFEST}`);
+  const order = cycle ? ids : topologicalOrder(ids, edges);
+  items.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  const done = new Set(items.filter((item) => item.status === "done").map((item) => item.id));
+  for (const item of items) item.ready = item.status === "pending" && item.dependsOn.every((id2) => done.has(id2));
+  return { exists: true, nodes, edges, items, problems };
+}
+async function writeManifest(taskDir, slug, nodes, edges, items) {
+  const table = items.map((item) => `| ${item.id} | ${item.title.replaceAll("|", "\\|")} | ${item.status} | ${item.dependsOn.join(", ") || "\u2014"} |`).join("\n");
+  await writeFile(join7(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: "maverick.subtasks/v1", nodes, edges }, `# Subtasks \u2014 ${slug}
+
+The frontmatter is the source of truth for dependencies. Manage it with \`maverick subtask\`.
+
+| ID | Title | Status | Depends on |
+|---|---|---|---|
+${table}
+`));
+}
+async function addSubtask(taskDir, slug, { title, after = [], type, complexity }) {
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const ids = graph.nodes.map((node) => node.id);
+  const unknown = after.filter((id3) => !ids.includes(id3));
+  if (unknown.length) throw new Error(`unknown dependency ${unknown.join(", ")}; existing subtasks: ${ids.join(", ") || "none"}`);
+  if (complexity && !COMPLEXITY.includes(complexity)) throw new Error(`complexity must be one of ${COMPLEXITY.join(", ")}`);
+  const id2 = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, "0"), file = `task_${id2}.md`;
+  const nodes = [...graph.nodes, { id: id2, file }], edges = [...graph.edges, ...after.map((from) => ({ from, to: id2 }))];
+  await mkdir(dirFor(taskDir), { recursive: true });
+  await writeFile(join7(dirFor(taskDir), file), renderFrontmatter({ title, status: "pending", type, complexity }, `# ${title}
+
+## Goal
+FILL ME
+
+## Acceptance Criteria
+- FILL ME
+
+## Notes
+`));
+  await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id: id2, title, status: "pending", dependsOn: after }]);
+  return { id: id2, file };
+}
+async function setStatus(taskDir, slug, id2, status2) {
+  if (!STATUSES.includes(status2)) throw new Error(`status must be one of ${STATUSES.join(", ")}`);
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const item = graph.items.find((entry) => entry.id === id2);
+  if (!item) throw new Error(`subtask not found: ${id2}; existing: ${graph.items.map((entry) => entry.id).join(", ") || "none"}`);
+  const blockedBy = item.dependsOn.filter((dep) => graph.items.find((entry) => entry.id === dep)?.status !== "done");
+  if (["in-progress", "done"].includes(status2) && blockedBy.length) throw new Error(`subtask ${id2} depends on unfinished ${blockedBy.join(", ")}`);
+  const path = join7(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile6(path, "utf8"));
+  await writeFile(path, renderFrontmatter({ ...data, status: status2 }, body));
+  item.status = status2;
+  await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
+  return item;
+}
+
+// src/capabilities/catalog.js
+import { readdir as readdir4 } from "fs/promises";
+import { join as join8, resolve as resolve2 } from "path";
+var entryNames = new Set(Object.values(ENTRY_FILES));
+async function capabilityDirs(root, depth = 0) {
+  const entries = await readdir4(root, { withFileTypes: true }).catch(() => []);
+  if (entries.some((entry) => entry.isFile() && entryNames.has(entry.name))) return [root];
+  if (depth >= 4) return [];
+  const nested = await Promise.all(entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules").map((entry) => capabilityDirs(join8(root, entry.name), depth + 1)));
+  return nested.flat();
+}
+function catalogRoots(cwd, config = {}) {
+  return [
+    { source: "project", path: join8(cwd, ".maverick", "capabilities") },
+    ...(config.capabilities?.catalogs || []).map((path) => ({ source: `catalog:${path}`, path: resolve2(cwd, path) })),
+    { source: "built-in", path: join8(packageRoot, "capabilities") }
+  ];
+}
+async function loadCatalog(cwd, config = {}) {
+  const capabilities = /* @__PURE__ */ new Map(), shadowed = [], errors = [];
+  for (const root of catalogRoots(cwd, config)) {
+    for (const dir of await capabilityDirs(root.path)) {
+      try {
+        const capability = await loadCapability(dir, root.source);
+        if (capabilities.has(capability.ref)) shadowed.push({ ref: capability.ref, source: root.source, by: capabilities.get(capability.ref).source });
+        else capabilities.set(capability.ref, capability);
+      } catch (error) {
+        errors.push({ path: rel(cwd, dir), source: root.source, message: error.message.replace(`${dir}/`, "").replace(`${dir}: `, "") });
+      }
+    }
+  }
+  return { capabilities: [...capabilities.values()].sort((a, b) => a.ref.localeCompare(b.ref)), shadowed, errors };
+}
+function findCapability(catalog, reference) {
+  if (!reference || reference === true) throw new Error("name a capability, for example: maverick add agent/reviewer");
+  const exact = catalog.capabilities.find((item) => item.ref === reference);
+  if (exact) return exact;
+  const byName2 = catalog.capabilities.filter((item) => item.name === reference);
+  if (byName2.length === 1) return byName2[0];
+  if (byName2.length > 1) throw new Error(`"${reference}" is ambiguous; use one of: ${byName2.map((item) => item.ref).join(", ")}`);
+  const similar = catalog.capabilities.filter((item) => item.name.includes(reference) || reference.includes(item.name)).map((item) => item.ref);
+  throw new Error(`capability not found: ${reference}${similar.length ? `; did you mean ${similar.slice(0, 5).join(", ")}?` : "; run maverick catalog to list available capabilities"}`);
+}
+function searchCatalog(catalog, query = "") {
+  const terms = String(query).toLowerCase().split(/\s+/).filter(Boolean);
+  return catalog.capabilities.filter((item) => terms.every((term) => `${item.ref} ${item.description} ${item.tags.join(" ")}`.toLowerCase().includes(term)));
+}
+
+// src/core/project-tools.js
+import { mkdir as mkdir2, readdir as readdir5, readFile as readFile7, writeFile as writeFile2 } from "fs/promises";
+import { join as join9, relative as relative3 } from "path";
+import { spawn as spawn2 } from "child_process";
+var INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", ".cursorrules", ".cursor/rules", ".windsurfrules", "CONVENTIONS.md", "CONTRIBUTING.md"];
+async function inspectProject(cwd) {
+  const stack = await detectStack(cwd);
+  const entries = await readdir5(cwd, { withFileTypes: true });
+  const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name2) => !IGNORED_DIRS.has(name2)).sort();
+  const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
+  const manifests = [...new Set(stack.ecosystems.flatMap((item) => item.manifests))];
+  const instructions = (await Promise.all(INSTRUCTION_FILES.map(async (name2) => await exists(join9(cwd, name2)) ? name2 : null))).filter(Boolean);
+  const scripts = stack.ecosystems.find((item) => item.id === "node")?.scripts || {};
+  return {
+    name: stack.name || cwd.split(/[\\/]/).filter(Boolean).pop(),
+    manifests,
+    directories,
+    files: files.slice(0, 40),
+    scripts,
+    commands: stack.commands,
+    instructions,
+    language: stack.languages.join(", ") || "unknown",
+    languages: stack.languages,
+    framework: stack.frameworks.join(", ") || void 0,
+    frameworks: stack.frameworks,
+    packageManagers: stack.packageManagers,
+    stack
+  };
+}
+function commandLine(item) {
+  return `- ${item.name}: \`${item.command}\`${item.cwd ? ` (in \`${item.cwd}/\`)` : ""} \u2014 ${item.source}`;
+}
+function renderProjectMap(map) {
+  const stack = map.stack || { ecosystems: [], runners: [], subprojects: [] };
+  const commands2 = map.commands.length ? map.commands.map(commandLine).join("\n") : "- No verification commands detected. Declare them in `.maverick/config.json` under `verification.commands`.";
+  const ecosystems = stack.ecosystems.map((item) => `- ${item.id} (${item.packageManager}): ${item.manifests.join(", ")}`).join("\n") || "- none detected at the root";
+  const runners = stack.runners.map((item) => `- ${item.id}: \`${item.file}\` (${item.targets.slice(0, 12).join(", ") || "no targets"})`).join("\n");
+  const subprojects = stack.subprojects.map((item) => `- \`${item.path}/\`: ${item.ecosystems.map((e) => e.id).concat(item.runners.map((r) => r.id)).join(", ")}${item.commands.length ? ` \u2014 ${item.commands.map((c) => c.command).join("; ")}` : ""}`).join("\n");
+  return `# Project Map
+
+Generated by Maverick. Refresh with \`maverick map\`.
+
+## Stack
+- Project: ${map.name}
+- Languages: ${map.language}
+- Frameworks: ${map.framework || "not detected"}
+- Package managers: ${map.packageManagers?.join(", ") || "not detected"}
+- Manifests: ${map.manifests.join(", ") || "none detected"}
+
+## Ecosystems
+${ecosystems}
+${runners ? `
+## Task runners
+${runners}
+` : ""}${subprojects ? `
+## Subprojects
+${subprojects}
+` : ""}
+## Top-level areas
+${map.directories.map((name2) => `- \`${name2}/\``).join("\n") || "- none"}
+
+## Verification commands
+${commands2}
+
+## Repository instructions
+${map.instructions.map((name2) => `- \`${name2}\``).join("\n") || "- none detected"}
+
+## Context guidance
+Read the nearest instruction file and only the paths relevant to the task before editing.
+`;
+}
+async function executeCommand(cwd, command, subdir = "") {
+  let bin, args;
+  try {
+    [bin, ...args] = splitCommand(command);
+  } catch (error) {
+    return { command, cwd: subdir, ok: false, code: null, output: error.message };
+  }
+  const label = subdir ? `${command} (in ${subdir}/)` : command;
+  return new Promise((resolve3) => {
+    const child = spawn2(bin, args, { cwd: subdir ? join9(cwd, subdir) : cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    let output2 = "";
+    child.stdout.on("data", (chunk) => {
+      output2 += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output2 += chunk;
+    });
+    child.on("error", (error) => resolve3({ command: label, ok: false, code: null, output: error.message }));
+    child.on("close", (code) => resolve3({ command: label, ok: code === 0, code, output: output2.slice(-12e3) }));
+  });
+}
+async function gitDiff(cwd, against = "HEAD") {
+  const result = await executeCommand(cwd, `git diff ${against} --`);
+  return result.ok ? result.output : "";
+}
+async function writeEvidence(dir, task, results) {
+  await mkdir2(dir, { recursive: true });
+  const body = `# Verification Evidence \u2014 ${task}
+
+Generated: ${(/* @__PURE__ */ new Date()).toISOString()}
+
+${results.map((result) => `## ${result.ok ? "PASS" : "FAIL"} \u2014 ${result.command}
+Exit code: ${result.code ?? "not started"}
+
+\`\`\`text
+${result.output || "(no output)"}
+\`\`\``).join("\n\n")}
+`;
+  const path = join9(dir, "EVIDENCE.md");
+  await writeFile2(path, body);
+  return path;
+}
+async function findReferences(cwd, target, maxResults = 40) {
+  const needle = target.split("/").pop().replace(/\.[^.]+$/, "");
+  const results = [];
+  async function visit(directory) {
+    if (results.length >= maxResults) return;
+    for (const entry of await readdir5(directory, { withFileTypes: true })) {
+      if (results.length >= maxResults || IGNORED_DIRS.has(entry.name)) continue;
+      const path = join9(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) {
+        try {
+          const text = await readFile7(path, "utf8");
+          if (text.includes(needle)) results.push(relative3(cwd, path));
+        } catch {
+        }
+      }
+    }
+  }
+  await visit(cwd);
+  return results;
+}
+
+// src/intel/graph.js
+import { readdir as readdir6, readFile as readFile8, stat } from "fs/promises";
+import { dirname as dirname2, join as join10, normalize, relative as relative4, sep as sep2 } from "path";
+
+// src/core/imports.js
+var all = (text, pattern, group = 1) => [...text.matchAll(pattern)].map((match) => match[group]).filter(Boolean);
+var SOURCE_LANGUAGES = {
+  ".js": "JavaScript",
+  ".jsx": "JavaScript",
+  ".mjs": "JavaScript",
+  ".cjs": "JavaScript",
+  ".ts": "TypeScript",
+  ".tsx": "TypeScript",
+  ".mts": "TypeScript",
+  ".cts": "TypeScript",
+  ".py": "Python",
+  ".go": "Go",
+  ".rs": "Rust",
+  ".java": "Java",
+  ".kt": "Kotlin",
+  ".kts": "Kotlin",
+  ".cs": "C#",
+  ".fs": "F#",
+  ".rb": "Ruby",
+  ".php": "PHP",
+  ".ex": "Elixir",
+  ".exs": "Elixir",
+  ".dart": "Dart",
+  ".swift": "Swift",
+  ".c": "C/C++",
+  ".h": "C/C++",
+  ".cpp": "C/C++",
+  ".hpp": "C/C++",
+  ".cc": "C/C++"
+};
+var EXTRACTORS = {
+  JavaScript: (text) => all(text, /(?:from\s*|import\s*\(\s*|require\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm),
+  // `from pkg import name` may import a submodule, so `pkg.name` is emitted too; the
+  // resolver keeps it only when such a file exists.
+  Python: (text) => [...text.matchAll(/^[ \t]*(?:from[ \t]+([.\w]+)[ \t]+import[ \t]+(?:\(([^)]*)\)|([\w \t,]+))|import[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*))/gm)].flatMap((match) => match[1] ? [match[1], ...(match[2] ?? match[3]).split(",").map((name2) => name2.trim().split(/\s+as\s+/)[0].trim()).filter((name2) => /^\w+$/.test(name2)).map((name2) => `${match[1]}${/\.$/.test(match[1]) ? "" : "."}${name2}`)] : match[4].split(",").map((name2) => name2.trim())),
+  Go: (text) => [
+    ...all(text, /^\s*import\s+(?:[\w.]+\s+)?"([^"]+)"/gm),
+    ...[...text.matchAll(/^\s*import\s*\(([\s\S]*?)\)/gm)].flatMap((block) => all(block[1], /"([^"]+)"/g))
+  ],
+  Rust: (text) => [...all(text, /^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([\w:]+)/gm), ...all(text, /^\s*(?:pub\s+)?mod\s+(\w+)\s*;/gm).map((name2) => `mod:${name2}`)],
+  Java: (text) => all(text, /^\s*import\s+(?:static\s+)?([\w.*]+)\s*;?/gm),
+  "C#": (text) => all(text, /^\s*(?:global\s+)?using\s+(?:static\s+)?([\w.]+)\s*;/gm),
+  "F#": (text) => all(text, /^\s*open\s+([\w.]+)/gm),
+  Ruby: (text) => [...text.matchAll(/^\s*(require_relative|require)\s*\(?\s*['"]([^'"]+)['"]/gm)].map((match) => match[1] === "require_relative" && !match[2].startsWith(".") ? `./${match[2]}` : match[2]),
+  PHP: (text) => [...all(text, /^\s*use\s+([\w\\]+)/gm), ...all(text, /(?:require|include)(?:_once)?\s*\(?\s*['"]([^'"]+)['"]/g)],
+  Elixir: (text) => all(text, /^\s*(?:alias|import|use|require)\s+([\w.]+)/gm),
+  Dart: (text) => all(text, /^\s*(?:import|export)\s+['"]([^'"]+)['"]/gm),
+  Swift: (text) => all(text, /^\s*import\s+(?:class\s+|struct\s+|enum\s+|func\s+)?([\w.]+)/gm),
+  "C/C++": (text) => all(text, /^\s*#\s*include\s*[<"]([^>"]+)[>"]/gm)
+};
+EXTRACTORS.TypeScript = EXTRACTORS.JavaScript;
+EXTRACTORS.Kotlin = EXTRACTORS.Java;
+function languageForPath(path) {
+  const extension = path.match(/\.[^./\\]+$/)?.[0]?.toLowerCase();
+  return extension ? SOURCE_LANGUAGES[extension] : void 0;
+}
+function extractImports(language, text) {
+  const extractor = EXTRACTORS[language];
+  return extractor ? [...new Set(extractor(text))] : [];
+}
+
+// src/intel/graph.js
+var MAX_FILES = 5e3;
+var MAX_BYTES = 512 * 1024;
+var posix = (path) => path.split(sep2).join("/");
+var TEST = /(^|\/)(__tests__|tests?|spec)\/|[._-](test|spec)\.[^/]+$|_test\.go$|Tests?\.(java|kt|cs)$/i;
+async function sourceFiles(root) {
+  const files = [];
+  async function visit(dir, depth) {
+    if (depth > 12 || files.length >= MAX_FILES) return;
+    for (const entry of (await readdir6(dir, { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name.startsWith(".") || IGNORED_DIRS.has(entry.name)) continue;
+      const path = join10(dir, entry.name);
+      if (entry.isDirectory()) await visit(path, depth + 1);
+      else if (entry.isFile() && languageForPath(entry.name)) files.push(posix(relative4(root, path)));
+    }
+  }
+  await visit(root, 0);
+  return files;
+}
+var JS_EXTENSIONS = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", "/index.ts", "/index.tsx", "/index.js", "/index.jsx", "/index.mjs"];
+var RESOLVERS = {
+  JavaScript(spec, from, ctx) {
+    if (!spec.startsWith(".")) return [];
+    const base2 = posix(normalize(join10(dirname2(from), spec)));
+    const stem = base2.replace(/\.(m|c)?js$/, "");
+    return first(ctx, [...JS_EXTENSIONS.map((ext) => base2 + ext), ...JS_EXTENSIONS.map((ext) => stem + ext)]);
+  },
+  Python(spec, from, ctx) {
+    const dots = spec.match(/^\.*/)[0].length, rest = spec.slice(dots).replaceAll(".", "/");
+    const bases = dots ? [posix(normalize(join10(dirname2(from), ...Array(dots - 1).fill(".."), rest)))] : [rest, ...ctx.pythonRoots.map((root) => `${root}/${rest}`)];
+    return first(ctx, bases.flatMap((base2) => [`${base2}.py`, `${base2}/__init__.py`]));
+  },
+  Go(spec, from, ctx) {
+    if (!ctx.goModulePath || !(spec === ctx.goModulePath || spec.startsWith(`${ctx.goModulePath}/`))) return [];
+    const dir = spec.slice(ctx.goModulePath.length).replace(/^\//, "");
+    return ctx.files.filter((file) => file.endsWith(".go") && !file.endsWith("_test.go") && posix(dirname2(file)) === (dir || "."));
+  },
+  Rust(spec, from, ctx) {
+    if (spec.startsWith("mod:")) {
+      const name2 = spec.slice(4), dir = posix(dirname2(from)), own = from.replace(/(mod|lib|main)\.rs$/, "").replace(/\.rs$/, "/");
+      return first(ctx, [`${own}${name2}.rs`, `${own}${name2}/mod.rs`, `${dir}/${name2}.rs`, `${dir}/${name2}/mod.rs`].map((path) => path.replace(/^\.\//, "")));
+    }
+    const parts = spec.split("::");
+    if (parts[0] !== "crate") return [];
+    const crateRoot = ctx.files.find((file) => /(^|\/)src\/(lib|main)\.rs$/.test(file))?.replace(/(lib|main)\.rs$/, "") || "src/";
+    for (let size = parts.length - 1; size >= 1; size--) {
+      const path = parts.slice(1, size + 1).join("/");
+      const found = first(ctx, [`${crateRoot}${path}.rs`, `${crateRoot}${path}/mod.rs`]);
+      if (found.length) return found;
+    }
+    return [];
+  },
+  Java(spec, from, ctx) {
+    const path = spec.replace(/\.\*$/, "").replaceAll(".", "/");
+    return ctx.files.filter((file) => /\.(java|kt)$/.test(file) && (file.endsWith(`/${path}.java`) || file.endsWith(`/${path}.kt`)));
+  },
+  Ruby(spec, from, ctx) {
+    return spec.startsWith(".") ? first(ctx, [posix(normalize(join10(dirname2(from), spec))) + (spec.endsWith(".rb") ? "" : ".rb")]) : first(ctx, [`lib/${spec}.rb`]);
+  },
+  PHP(spec, from, ctx) {
+    return /\.php$/.test(spec) ? first(ctx, [posix(normalize(join10(dirname2(from), spec)))]) : [];
+  },
+  Dart(spec, from, ctx) {
+    if (spec.startsWith("package:")) {
+      const [pkg, ...path] = spec.slice(8).split("/");
+      return pkg === ctx.dartPackage ? first(ctx, [`lib/${path.join("/")}`]) : [];
+    }
+    return spec.includes(":") ? [] : first(ctx, [posix(normalize(join10(dirname2(from), spec)))]);
+  },
+  "C/C++"(spec, from, ctx) {
+    return first(ctx, [posix(normalize(join10(dirname2(from), spec))), spec]);
+  }
+};
+RESOLVERS.TypeScript = RESOLVERS.JavaScript;
+RESOLVERS.Kotlin = RESOLVERS.Java;
+function first(ctx, candidates) {
+  const hit = candidates.find((candidate) => ctx.fileSet.has(candidate));
+  return hit ? [hit] : [];
+}
+async function projectContext(root, files) {
+  const read = async (path) => readFile8(join10(root, path), "utf8").catch(() => "");
+  const goModulePath = (await read("go.mod")).match(/^module\s+(\S+)/m)?.[1];
+  const dartPackage = (await read("pubspec.yaml")).match(/^name:\s*(\S+)/m)?.[1];
+  const pythonRoots = ["src", "lib", "app"].filter((dir) => files.some((file) => file.startsWith(`${dir}/`) && file.endsWith(".py")));
+  return { files, fileSet: new Set(files), goModulePath, dartPackage, pythonRoots };
+}
+function stronglyConnected(nodes, adjacency) {
+  let index = 0;
+  const stack = [], onStack = /* @__PURE__ */ new Set(), indices = /* @__PURE__ */ new Map(), low = /* @__PURE__ */ new Map(), components = [];
+  const connect = (node) => {
+    indices.set(node, index);
+    low.set(node, index);
+    index++;
+    stack.push(node);
+    onStack.add(node);
+    for (const next of adjacency.get(node) || []) {
+      if (!indices.has(next)) {
+        connect(next);
+        low.set(node, Math.min(low.get(node), low.get(next)));
+      } else if (onStack.has(next)) low.set(node, Math.min(low.get(node), indices.get(next)));
+    }
+    if (low.get(node) === indices.get(node)) {
+      const component = [];
+      let member;
+      do {
+        member = stack.pop();
+        onStack.delete(member);
+        component.push(member);
+      } while (member !== node);
+      if (component.length > 1 || (adjacency.get(node) || []).includes(node)) components.push(component.sort());
+    }
+  };
+  for (const node of nodes) if (!indices.has(node)) connect(node);
+  return components.sort((a, b) => b.length - a.length || a[0].localeCompare(b[0]));
+}
+async function buildGraph(root) {
+  const files = await sourceFiles(root), ctx = await projectContext(root, files);
+  const nodes = [], edges = [];
+  for (const file of files) {
+    const info2 = await stat(join10(root, file)).catch(() => null);
+    if (!info2 || info2.size > MAX_BYTES) continue;
+    const language = languageForPath(file), text = await readFile8(join10(root, file), "utf8").catch(() => "");
+    const imports = extractImports(language, text), targets = /* @__PURE__ */ new Map();
+    const lazy = /Script$/.test(language) ? new Set([...text.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1])) : /* @__PURE__ */ new Set();
+    for (const spec of imports) {
+      for (const target of RESOLVERS[language]?.(spec, file, ctx) || []) {
+        if (target === file && !spec.startsWith("mod:")) continue;
+        targets.set(target, (targets.get(target) ?? true) && lazy.has(spec));
+      }
+    }
+    nodes.push({ id: file, language, test: TEST.test(file), lines: text ? text.split("\n").length : 0, imports: imports.length });
+    for (const [target, dynamic] of targets) edges.push({ from: file, to: target, ...dynamic && { dynamic: true } });
+  }
+  return withMetrics(nodes, edges, { truncated: files.length >= MAX_FILES });
+}
+function withMetrics(nodes, edges, extra = {}) {
+  const out = new Map(nodes.map((node) => [node.id, []])), incoming = new Map(nodes.map((node) => [node.id, []]));
+  const staticOut = new Map(nodes.map((node) => [node.id, []])), staticIn = new Map(nodes.map((node) => [node.id, []]));
+  for (const edge of edges) {
+    out.get(edge.from)?.push(edge.to);
+    incoming.get(edge.to)?.push(edge.from);
+    if (!edge.dynamic) {
+      staticOut.get(edge.from)?.push(edge.to);
+      staticIn.get(edge.to)?.push(edge.from);
+    }
+  }
+  for (const node of nodes) {
+    node.fanOut = staticOut.get(node.id).length;
+    node.fanIn = staticIn.get(node.id).length;
+    node.instability = node.fanIn + node.fanOut ? Number((node.fanOut / (node.fanIn + node.fanOut)).toFixed(2)) : 0;
+  }
+  const cycles = stronglyConnected(nodes.map((node) => node.id), staticOut);
+  const inCycles = new Set(cycles.flat());
+  const source = nodes.filter((node) => !node.test);
+  const threshold = (values) => {
+    const sorted = values.sort((a, b) => a - b);
+    return Math.max(5, sorted[Math.floor(sorted.length * 0.9)] || 0);
+  };
+  const fanInLimit = threshold(source.map((node) => node.fanIn)), fanOutLimit = threshold(source.map((node) => node.fanOut));
+  const hubs = source.filter((node) => node.fanIn >= fanInLimit && node.fanOut >= fanOutLimit).map((node) => node.id);
+  const total = source.length || 1;
+  const cycleShare = source.filter((node) => inCycles.has(node.id)).length / total, hubShare = hubs.length / total;
+  const health = { score: Math.max(0, Math.round(100 * (1 - 0.7 * cycleShare - 0.3 * hubShare))), formula: "100 \xD7 (1 \u2212 0.7 \xD7 share of files in import cycles \u2212 0.3 \xD7 share of hub files)", cycleShare: Number(cycleShare.toFixed(3)), hubShare: Number(hubShare.toFixed(3)) };
+  return { nodes, edges, cycles, hubs, health, out, incoming, ...extra };
+}
+function impactOf(graph, target, maxDepth = 10) {
+  const seen = /* @__PURE__ */ new Map([[target, 0]]), queue = [target];
+  while (queue.length) {
+    const current = queue.shift(), depth = seen.get(current);
+    if (depth >= maxDepth) continue;
+    for (const parent of graph.incoming.get(current) || []) if (!seen.has(parent)) {
+      seen.set(parent, depth + 1);
+      queue.push(parent);
+    }
+  }
+  seen.delete(target);
+  const testIds = new Set(graph.nodes.filter((node) => node.test).map((node) => node.id));
+  const dependents = [...seen].map(([id2, depth]) => ({ id: id2, depth, test: testIds.has(id2) })).sort((a, b) => a.depth - b.depth || a.id.localeCompare(b.id));
+  return { target, known: graph.out.has(target), direct: dependents.filter((item) => item.depth === 1).map((item) => item.id), dependents, tests: dependents.filter((item) => item.test).map((item) => item.id) };
+}
+function directoryGraph(graph, depth = 2) {
+  const group = (id2) => {
+    const parts = id2.split("/");
+    return parts.length > 1 ? parts.slice(0, Math.min(depth, parts.length - 1)).join("/") : "(root)";
+  };
+  const weights = /* @__PURE__ */ new Map();
+  for (const edge of graph.edges) {
+    const from = group(edge.from), to = group(edge.to);
+    if (from !== to) weights.set(`${from}\0${to}`, (weights.get(`${from}\0${to}`) || 0) + 1);
+  }
+  return [...weights].map(([key, weight]) => {
+    const [from, to] = key.split("\0");
+    return { from, to, weight };
+  }).sort((a, b) => b.weight - a.weight);
+}
+function toMermaid(graph, depth = 2, limit = 60) {
+  const links = directoryGraph(graph, depth).slice(0, limit), ids = /* @__PURE__ */ new Map();
+  const id2 = (name2) => {
+    if (!ids.has(name2)) ids.set(name2, `n${ids.size}`);
+    return ids.get(name2);
+  };
+  const lines = links.map((link) => `  ${id2(link.from)}["${link.from}"] -->|${link.weight}| ${id2(link.to)}["${link.to}"]`);
+  return `graph LR
+${lines.join("\n") || '  empty["no local imports"]'}`;
+}
+
+// src/core/preset-suggestion.js
+function recommendPreset({ risk, type, complexity, openQuestions = 0, estimatedFiles } = {}) {
+  if (risk === "high") return { preset: "strict-review", reason: "High-risk changes need explicit verification, security review, and rollback evidence." };
+  if (type === "migration" || type === "security") return { preset: "strict-review", reason: `${type === "migration" ? "Migrations" : "Security-sensitive changes"} need rollback and extra verification.` };
+  if (complexity === "high" && Number(openQuestions) > 0) return { preset: "spec-driven", reason: "High complexity with open questions benefits from a shared specification." };
+  if (risk === "low" && Number(estimatedFiles) <= 2) return { preset: "lightweight", reason: "Low risk and a small file footprint support a lightweight workflow." };
+  return { preset: "standard", reason: "Standard is the default workflow for routine engineering changes." };
+}
+
+// src/intel/hotspots.js
+import { execFile } from "child_process";
+import { promisify } from "util";
+var exec = promisify(execFile);
+async function churn(cwd, since2 = "6 months ago") {
+  try {
+    const { stdout } = await exec("git", ["log", `--since=${since2}`, "--no-merges", "--name-only", "--format=%x00"], { cwd, maxBuffer: 64 * 1024 * 1024 });
+    const counts = /* @__PURE__ */ new Map();
+    for (const commit of stdout.split("\0")) for (const file of new Set(commit.split("\n").map((line) => line.trim()).filter(Boolean))) counts.set(file, (counts.get(file) || 0) + 1);
+    return counts;
+  } catch {
+    return /* @__PURE__ */ new Map();
+  }
+}
+function rankHotspots(graph, counts, limit = 15) {
+  return graph.nodes.filter((node) => !node.test && counts.get(node.id)).map((node) => {
+    const commits = counts.get(node.id);
+    return { id: node.id, commits, fanIn: node.fanIn, lines: node.lines, score: Math.round(commits * (1 + node.fanIn) * Math.log10(10 + node.lines)) };
+  }).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, limit);
+}
+
+// src/commands/agent.js
+import { mkdir as mkdir4, readdir as readdir7, readFile as readFile10, writeFile as writeFile4 } from "fs/promises";
+import { join as join13 } from "path";
+import { createInterface } from "readline/promises";
 
 // src/runtime/providers.js
 var json = (line) => {
@@ -895,9 +1605,9 @@ function providersFor(config = {}) {
 }
 
 // src/runtime/prompt.js
-import { readFile as readFile5 } from "fs/promises";
-import { join as join6 } from "path";
-import { z as z2 } from "zod";
+import { readFile as readFile9 } from "fs/promises";
+import { join as join11 } from "path";
+import { z as z4 } from "zod";
 var HEADLESS_RULES = `You are running non-interactively under Maverick. Follow these rules:
 - Work only inside this repository and only within the task scope below. TASK.md is the scope contract.
 - Do not commit, push, open pull requests, publish packages, or change CI/CD, credentials, or secrets. A human does that after review.
@@ -909,11 +1619,11 @@ var HEADLESS_RULES = `You are running non-interactively under Maverick. Follow t
 \`\`\`maverick-result
 {"status": "done" | "blocked" | "needs-input", "summary": "one or two sentences", "questions": [], "filesChanged": []}
 \`\`\``;
-var resultSchema = z2.object({
-  status: z2.enum(["done", "blocked", "needs-input"]),
-  summary: z2.string().default(""),
-  questions: z2.array(z2.string()).default([]),
-  filesChanged: z2.array(z2.string()).default([])
+var resultSchema = z4.object({
+  status: z4.enum(["done", "blocked", "needs-input"]),
+  summary: z4.string().default(""),
+  questions: z4.array(z4.string()).default([]),
+  filesChanged: z4.array(z4.string()).default([])
 });
 function parseResultBlock(text = "") {
   const blocks = [...text.matchAll(/```maverick-result\s*\n([\s\S]*?)```/g)];
@@ -929,10 +1639,10 @@ var TASK_FILES = ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"];
 async function buildPrompt({ taskDir, task, subtask, instruction, issues: issues2 = [] }) {
   const sections = [HEADLESS_RULES, `# Task: ${task}`];
   for (const file of TASK_FILES) {
-    const path = join6(taskDir, file);
+    const path = join11(taskDir, file);
     if (await exists(path)) sections.push(`## ${file}
 
-${(await readFile5(path, "utf8")).trim()}`);
+${(await readFile9(path, "utf8")).trim()}`);
   }
   if (subtask) sections.push(`## Current subtask ${subtask.id}: ${subtask.title}
 
@@ -951,16 +1661,16 @@ ${instruction || (subtask ? `Implement subtask ${subtask.id}.` : "Implement the 
 }
 
 // src/runtime/session.js
-import { appendFile, mkdir, writeFile } from "fs/promises";
-import { join as join7 } from "path";
+import { appendFile, mkdir as mkdir3, writeFile as writeFile3 } from "fs/promises";
+import { join as join12 } from "path";
 function stamp() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
 }
 async function transcriptFile(taskDir, providerId) {
-  const dir = join7(taskDir, "runs");
-  await mkdir(dir, { recursive: true });
-  if (!await exists(join7(dir, ".gitignore"))) await writeFile(join7(dir, ".gitignore"), "# Agent transcripts may contain tool output and secrets.\n*\n!.gitignore\n");
-  return join7(dir, `${stamp()}-${providerId}.jsonl`);
+  const dir = join12(taskDir, "runs");
+  await mkdir3(dir, { recursive: true });
+  if (!await exists(join12(dir, ".gitignore"))) await writeFile3(join12(dir, ".gitignore"), "# Agent transcripts may contain tool output and secrets.\n*\n!.gitignore\n");
+  return join12(dir, `${stamp()}-${providerId}.jsonl`);
 }
 async function runAgent({ cwd, config, taskDir, task, provider, model, permission, prompt, timeoutMs, signal, onEvent = () => {
 } }) {
@@ -1021,240 +1731,6 @@ async function runAgent({ cwd, config, taskDir, task, provider, model, permissio
   const after = await runHooks(cwd, config, "after-agent-run", { task, provider: provider.id, ok: summary.ok, status: summary.result?.status, summary: summary.result?.summary, transcript });
   summary.warnings = after.warnings;
   return summary;
-}
-
-// src/subtasks/graph.js
-import { mkdir as mkdir2, readdir as readdir3, readFile as readFile7, writeFile as writeFile2 } from "fs/promises";
-import { join as join9 } from "path";
-import { z as z4 } from "zod";
-
-// src/capabilities/model.js
-import { createHash } from "crypto";
-import { readdir as readdir2, readFile as readFile6 } from "fs/promises";
-import { basename, join as join8, relative as relative2, sep } from "path";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { z as z3 } from "zod";
-var ENTRY_FILES = { skill: "SKILL.md", agent: "AGENT.md", command: "COMMAND.md", mcp: "MCP.json" };
-var KINDS = Object.keys(ENTRY_FILES);
-var AGENT_TOOLS = ["read", "edit", "shell", "web"];
-var name = z3.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "use a lowercase kebab-case name");
-var version = z3.string().regex(/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/, "use a semantic version such as 1.0.0");
-var common = {
-  name,
-  version: version.default("1.0.0"),
-  description: z3.string().min(10, "describe when an agent should use it (10+ characters)").max(1024),
-  tags: z3.array(z3.string()).default([]),
-  targets: z3.array(z3.string()).optional()
-};
-var serverSchema = z3.union([
-  z3.object({ command: z3.string().min(1), args: z3.array(z3.string()).default([]), env: z3.record(z3.string(), z3.string()).default({}) }),
-  z3.object({ url: z3.url(), type: z3.enum(["http", "sse"]).default("http"), headers: z3.record(z3.string(), z3.string()).default({}) })
-]);
-var SCHEMAS = {
-  skill: z3.object({ ...common, "allowed-tools": z3.array(z3.string()).optional() }),
-  // Portable permissions; each adapter maps them to its own tool names.
-  agent: z3.object({ ...common, tools: z3.array(z3.enum(AGENT_TOOLS)).optional(), model: z3.string().optional() }),
-  command: z3.object({ ...common, "argument-hint": z3.string().optional() }),
-  mcp: z3.object({ ...common, server: serverSchema })
-};
-function sha256(content) {
-  return createHash("sha256").update(content).digest("hex");
-}
-function parseFrontmatter(text) {
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!match) return { data: {}, body: text };
-  return { data: parseYaml(match[1]) || {}, body: text.slice(match[0].length) };
-}
-function renderFrontmatter(data, body) {
-  const clean = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== void 0 && value !== "" && !(Array.isArray(value) && !value.length)));
-  return `---
-${stringifyYaml(clean, { lineWidth: 0 }).trimEnd()}
----
-
-${body.replace(/^\s+/, "")}`;
-}
-async function listFiles(dir, root = dir) {
-  const files = [];
-  for (const entry of (await readdir2(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name.startsWith(".")) continue;
-    const path = join8(dir, entry.name);
-    if (entry.isDirectory()) files.push(...await listFiles(path, root));
-    else if (entry.isFile()) files.push(relative2(root, path).split(sep).join("/"));
-  }
-  return files;
-}
-function formatIssues2(error) {
-  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
-}
-async function loadCapability(dir, source = "local") {
-  const entries = await readdir2(dir).catch(() => []);
-  const kinds = KINDS.filter((kind2) => entries.includes(ENTRY_FILES[kind2]));
-  if (kinds.length !== 1) throw new Error(`${dir}: expected exactly one of ${Object.values(ENTRY_FILES).join(", ")}`);
-  const kind = kinds[0], entry = ENTRY_FILES[kind];
-  const text = await readFile6(join8(dir, entry), "utf8");
-  let data, body = "";
-  if (kind === "mcp") {
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      throw new Error(`${dir}/${entry}: invalid JSON (${error.message})`);
-    }
-  } else ({ data, body } = parseFrontmatter(text));
-  const parsed = SCHEMAS[kind].safeParse(data);
-  if (!parsed.success) throw new Error(`${dir}/${entry}: ${formatIssues2(parsed.error)}`);
-  if (parsed.data.name !== basename(dir)) throw new Error(`${dir}/${entry}: name "${parsed.data.name}" must match its directory "${basename(dir)}"`);
-  if (kind !== "mcp" && !body.trim()) throw new Error(`${dir}/${entry}: the body is empty; add the instructions the agent should follow`);
-  const files = kind === "skill" ? await listFiles(dir) : [entry];
-  const contents = Object.fromEntries(await Promise.all(files.map(async (file) => [file, await readFile6(join8(dir, file))])));
-  const integrity = sha256(files.map((file) => `${file}\0${sha256(contents[file])}`).join("\n"));
-  return { ref: `${kind}/${parsed.data.name}`, kind, ...parsed.data, body, dir, source, entry, files, contents, integrity };
-}
-
-// src/subtasks/graph.js
-var STATUSES = ["pending", "in-progress", "blocked", "done"];
-var COMPLEXITY = ["low", "medium", "high"];
-var MANIFEST = "_tasks.md";
-var nodeId = z4.string().regex(/^\d{2,3}$/, "use a two or three digit id such as 01");
-var manifestSchema = z4.object({
-  schema: z4.literal("maverick.subtasks/v1"),
-  nodes: z4.array(z4.object({ id: nodeId, file: z4.string().regex(/^task_\d{2,3}\.md$/) })),
-  edges: z4.array(z4.object({ from: nodeId, to: nodeId })).default([])
-});
-var itemSchema = z4.object({
-  title: z4.string().min(1),
-  status: z4.enum(STATUSES),
-  type: z4.string().regex(/^[a-z0-9-]+$/).optional(),
-  complexity: z4.enum(COMPLEXITY).optional()
-});
-var dirFor = (taskDir) => join9(taskDir, "subtasks");
-function issues(error) {
-  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
-}
-function findCycle(ids, edges) {
-  const next = new Map(ids.map((id2) => [id2, []]));
-  for (const edge of edges) next.get(edge.from)?.push(edge.to);
-  const state = /* @__PURE__ */ new Map(), stack = [];
-  const visit = (id2) => {
-    state.set(id2, "visiting");
-    stack.push(id2);
-    for (const to of next.get(id2) || []) {
-      if (state.get(to) === "visiting") return [...stack.slice(stack.indexOf(to)), to];
-      if (!state.has(to)) {
-        const cycle = visit(to);
-        if (cycle) return cycle;
-      }
-    }
-    state.set(id2, "done");
-    stack.pop();
-    return null;
-  };
-  for (const id2 of ids) if (!state.has(id2)) {
-    const cycle = visit(id2);
-    if (cycle) return cycle;
-  }
-  return null;
-}
-function topologicalOrder(ids, edges) {
-  const incoming = new Map(ids.map((id2) => [id2, 0]));
-  for (const edge of edges) incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
-  const ready = ids.filter((id2) => !incoming.get(id2)).sort(), order = [];
-  while (ready.length) {
-    const id2 = ready.shift();
-    order.push(id2);
-    for (const edge of edges.filter((item) => item.from === id2)) {
-      incoming.set(edge.to, incoming.get(edge.to) - 1);
-      if (!incoming.get(edge.to)) {
-        ready.push(edge.to);
-        ready.sort();
-      }
-    }
-  }
-  return order;
-}
-async function loadGraph(taskDir) {
-  const dir = dirFor(taskDir), manifestPath = join9(dir, MANIFEST);
-  if (!await exists(manifestPath)) return { exists: false, nodes: [], edges: [], items: [], problems: [] };
-  const problems = [];
-  const parsed = manifestSchema.safeParse(parseFrontmatter(await readFile7(manifestPath, "utf8")).data);
-  if (!parsed.success) return { exists: true, nodes: [], edges: [], items: [], problems: [`${MANIFEST}: ${issues(parsed.error)}`] };
-  const { nodes, edges } = parsed.data, ids = nodes.map((node) => node.id);
-  for (const id2 of ids.filter((value, index) => ids.indexOf(value) !== index)) problems.push(`duplicate node ${id2}`);
-  for (const edge of edges) {
-    if (!ids.includes(edge.from) || !ids.includes(edge.to)) problems.push(`edge ${edge.from} \u2192 ${edge.to} references an unknown node`);
-    if (edge.from === edge.to) problems.push(`node ${edge.from} depends on itself`);
-  }
-  const cycle = findCycle(ids, edges.filter((edge) => ids.includes(edge.from) && ids.includes(edge.to)));
-  if (cycle) problems.push(`dependency cycle: ${cycle.join(" \u2192 ")}`);
-  const items = [];
-  for (const node of nodes) {
-    const path = join9(dir, node.file);
-    if (!await exists(path)) {
-      problems.push(`${node.file} is listed in ${MANIFEST} but missing`);
-      continue;
-    }
-    const { data, body } = parseFrontmatter(await readFile7(path, "utf8"));
-    const item = itemSchema.safeParse(data);
-    if (!item.success) {
-      problems.push(`${node.file}: ${issues(item.error)}`);
-      continue;
-    }
-    items.push({ id: node.id, file: node.file, ...item.data, body, dependsOn: edges.filter((edge) => edge.to === node.id).map((edge) => edge.from) });
-  }
-  const listed = new Set(nodes.map((node) => node.file));
-  for (const file of (await readdir3(dir)).filter((name2) => /^task_\d{2,3}\.md$/.test(name2) && !listed.has(name2))) problems.push(`${file} is not listed in ${MANIFEST}`);
-  const order = cycle ? ids : topologicalOrder(ids, edges);
-  items.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-  const done = new Set(items.filter((item) => item.status === "done").map((item) => item.id));
-  for (const item of items) item.ready = item.status === "pending" && item.dependsOn.every((id2) => done.has(id2));
-  return { exists: true, nodes, edges, items, problems };
-}
-async function writeManifest(taskDir, slug, nodes, edges, items) {
-  const table = items.map((item) => `| ${item.id} | ${item.title.replaceAll("|", "\\|")} | ${item.status} | ${item.dependsOn.join(", ") || "\u2014"} |`).join("\n");
-  await writeFile2(join9(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: "maverick.subtasks/v1", nodes, edges }, `# Subtasks \u2014 ${slug}
-
-The frontmatter is the source of truth for dependencies. Manage it with \`maverick subtask\`.
-
-| ID | Title | Status | Depends on |
-|---|---|---|---|
-${table}
-`));
-}
-async function addSubtask(taskDir, slug, { title, after = [], type, complexity }) {
-  const graph = await loadGraph(taskDir);
-  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
-  const ids = graph.nodes.map((node) => node.id);
-  const unknown = after.filter((id3) => !ids.includes(id3));
-  if (unknown.length) throw new Error(`unknown dependency ${unknown.join(", ")}; existing subtasks: ${ids.join(", ") || "none"}`);
-  if (complexity && !COMPLEXITY.includes(complexity)) throw new Error(`complexity must be one of ${COMPLEXITY.join(", ")}`);
-  const id2 = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, "0"), file = `task_${id2}.md`;
-  const nodes = [...graph.nodes, { id: id2, file }], edges = [...graph.edges, ...after.map((from) => ({ from, to: id2 }))];
-  await mkdir2(dirFor(taskDir), { recursive: true });
-  await writeFile2(join9(dirFor(taskDir), file), renderFrontmatter({ title, status: "pending", type, complexity }, `# ${title}
-
-## Goal
-FILL ME
-
-## Acceptance Criteria
-- FILL ME
-
-## Notes
-`));
-  await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id: id2, title, status: "pending", dependsOn: after }]);
-  return { id: id2, file };
-}
-async function setStatus(taskDir, slug, id2, status2) {
-  if (!STATUSES.includes(status2)) throw new Error(`status must be one of ${STATUSES.join(", ")}`);
-  const graph = await loadGraph(taskDir);
-  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
-  const item = graph.items.find((entry) => entry.id === id2);
-  if (!item) throw new Error(`subtask not found: ${id2}; existing: ${graph.items.map((entry) => entry.id).join(", ") || "none"}`);
-  const blockedBy = item.dependsOn.filter((dep) => graph.items.find((entry) => entry.id === dep)?.status !== "done");
-  if (["in-progress", "done"].includes(status2) && blockedBy.length) throw new Error(`subtask ${id2} depends on unfinished ${blockedBy.join(", ")}`);
-  const path = join9(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile7(path, "utf8"));
-  await writeFile2(path, renderFrontmatter({ ...data, status: status2 }, body));
-  item.status = status2;
-  await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
-  return item;
 }
 
 // src/commands/agent.js
@@ -1341,8 +1817,8 @@ async function trust(cwd, id2, options, add2 = true) {
   const config = await loadConfig(cwd), providers = providersFor(config);
   const provider = providers.find((item) => item.id === id2);
   if (!provider) throw new Error(`unknown provider ${id2 || ""}; available: ${providers.map((item) => item.id).join(", ")}`);
-  const path = join10(cwd, ".maverick", "config.json");
-  const current = await exists(path) ? JSON.parse(await readFile8(path, "utf8")) : { version: 1 };
+  const path = join13(cwd, ".maverick", "config.json");
+  const current = await exists(path) ? JSON.parse(await readFile10(path, "utf8")) : { version: 1 };
   const runtime = { ...current.runtime };
   const trusted = new Set(runtime.trusted || []);
   if (add2) trusted.add(id2);
@@ -1356,8 +1832,8 @@ async function trust(cwd, id2, options, add2 = true) {
   const ceiling = runtime.maxPermission || "edit";
   const message = add2 ? `Trust ${provider.name} to run in ${cwd} with up to "${ceiling}" permission? It will run ${[provider.bin].flat().join(" or ")} with your user account.` : `Stop trusting ${provider.name}?`;
   if (!await confirm(message, options)) return output("Nothing changed.");
-  await mkdir3(join10(cwd, ".maverick"), { recursive: true });
-  await writeFile3(path, pretty({ ...current, runtime }));
+  await mkdir4(join13(cwd, ".maverick"), { recursive: true });
+  await writeFile4(path, pretty({ ...current, runtime }));
   output(options.json ? JSON.stringify({ trusted: runtime.trusted, maxPermission: ceiling, default: runtime.default || null }) : `${brand()} / AGENT
 \u2713 ${add2 ? "trusted" : "untrusted"} ${id2}; runtime written to ${rel(cwd, path)}
 Max permission: ${ceiling}. Commit this file so the team reviews the decision.`);
@@ -1375,10 +1851,10 @@ Trust one with: maverick agent trust <provider>`);
 }
 async function runs(cwd, slug, options) {
   const { dir } = await getTask(cwd, slug);
-  const files = (await readdir4(join10(dir, "runs")).catch(() => [])).filter((file) => file.endsWith(".jsonl")).sort();
+  const files = (await readdir7(join13(dir, "runs")).catch(() => [])).filter((file) => file.endsWith(".jsonl")).sort();
   const items = [];
   for (const file of files) {
-    const events = (await readFile8(join10(dir, "runs", file), "utf8")).split("\n").filter(Boolean).map((line) => {
+    const events = (await readFile10(join13(dir, "runs", file), "utf8")).split("\n").filter(Boolean).map((line) => {
       try {
         return JSON.parse(line);
       } catch {
@@ -1386,7 +1862,7 @@ async function runs(cwd, slug, options) {
       }
     }).filter(Boolean);
     const start = events.find((event) => event.type === "start"), end = events.findLast((event) => event.type === "end");
-    items.push({ file: rel(cwd, join10(dir, "runs", file)), provider: start?.provider, at: start?.at, ok: end?.ok ?? null, status: end?.status ?? null, durationMs: end?.durationMs ?? null });
+    items.push({ file: rel(cwd, join13(dir, "runs", file)), provider: start?.provider, at: start?.at, ok: end?.ok ?? null, status: end?.status ?? null, durationMs: end?.durationMs ?? null });
   }
   if (options.json) return output(JSON.stringify(items, null, 2));
   output(items.length ? items.map((item) => `${item.at}  ${String(item.provider).padEnd(12)}${item.ok === null ? "incomplete" : item.ok ? "ok" : "failed"}${item.status ? ` \xB7 ${item.status}` : ""}  ${item.file}`).join("\n") : `No agent runs for ${slug} yet.`);
@@ -1407,7 +1883,7 @@ var agentCommands = [
 import { createInterface as createInterface2 } from "readline/promises";
 
 // src/capabilities/adapters.js
-import { join as join11 } from "path";
+import { join as join14 } from "path";
 var argumentsAs = (body, token) => body.replaceAll("{{ARGUMENTS}}", token);
 var tomlString = (text) => text.includes("'''") ? JSON.stringify(text) : `'''
 ${text}'''`;
@@ -1511,7 +1987,7 @@ ${body}
 var ADAPTER_IDS = ADAPTERS.map((adapter2) => adapter2.id);
 async function detectAdapters(cwd) {
   const detected = [];
-  for (const adapter2 of ADAPTERS) if ((await Promise.all(adapter2.detect.map((path) => exists(join11(cwd, path))))).some(Boolean)) detected.push(adapter2);
+  for (const adapter2 of ADAPTERS) if ((await Promise.all(adapter2.detect.map((path) => exists(join14(cwd, path))))).some(Boolean)) detected.push(adapter2);
   return detected;
 }
 async function resolveTargets(cwd, config = {}, to) {
@@ -1527,79 +2003,31 @@ async function resolveTargets(cwd, config = {}, to) {
   return detected;
 }
 
-// src/capabilities/catalog.js
-import { readdir as readdir5 } from "fs/promises";
-import { join as join12, resolve as resolve2 } from "path";
-var entryNames = new Set(Object.values(ENTRY_FILES));
-async function capabilityDirs(root, depth = 0) {
-  const entries = await readdir5(root, { withFileTypes: true }).catch(() => []);
-  if (entries.some((entry) => entry.isFile() && entryNames.has(entry.name))) return [root];
-  if (depth >= 4) return [];
-  const nested = await Promise.all(entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules").map((entry) => capabilityDirs(join12(root, entry.name), depth + 1)));
-  return nested.flat();
-}
-function catalogRoots(cwd, config = {}) {
-  return [
-    { source: "project", path: join12(cwd, ".maverick", "capabilities") },
-    ...(config.capabilities?.catalogs || []).map((path) => ({ source: `catalog:${path}`, path: resolve2(cwd, path) })),
-    { source: "built-in", path: join12(packageRoot, "capabilities") }
-  ];
-}
-async function loadCatalog(cwd, config = {}) {
-  const capabilities = /* @__PURE__ */ new Map(), shadowed = [], errors = [];
-  for (const root of catalogRoots(cwd, config)) {
-    for (const dir of await capabilityDirs(root.path)) {
-      try {
-        const capability = await loadCapability(dir, root.source);
-        if (capabilities.has(capability.ref)) shadowed.push({ ref: capability.ref, source: root.source, by: capabilities.get(capability.ref).source });
-        else capabilities.set(capability.ref, capability);
-      } catch (error) {
-        errors.push({ path: rel(cwd, dir), source: root.source, message: error.message.replace(`${dir}/`, "").replace(`${dir}: `, "") });
-      }
-    }
-  }
-  return { capabilities: [...capabilities.values()].sort((a, b) => a.ref.localeCompare(b.ref)), shadowed, errors };
-}
-function findCapability(catalog, reference) {
-  if (!reference || reference === true) throw new Error("name a capability, for example: maverick add agent/reviewer");
-  const exact = catalog.capabilities.find((item) => item.ref === reference);
-  if (exact) return exact;
-  const byName2 = catalog.capabilities.filter((item) => item.name === reference);
-  if (byName2.length === 1) return byName2[0];
-  if (byName2.length > 1) throw new Error(`"${reference}" is ambiguous; use one of: ${byName2.map((item) => item.ref).join(", ")}`);
-  const similar = catalog.capabilities.filter((item) => item.name.includes(reference) || reference.includes(item.name)).map((item) => item.ref);
-  throw new Error(`capability not found: ${reference}${similar.length ? `; did you mean ${similar.slice(0, 5).join(", ")}?` : "; run maverick catalog to list available capabilities"}`);
-}
-function searchCatalog(catalog, query = "") {
-  const terms = String(query).toLowerCase().split(/\s+/).filter(Boolean);
-  return catalog.capabilities.filter((item) => terms.every((term) => `${item.ref} ${item.description} ${item.tags.join(" ")}`.toLowerCase().includes(term)));
-}
-
 // src/capabilities/engine.js
-import { mkdir as mkdir4, readdir as readdir6, readFile as readFile9, rm, rmdir, writeFile as writeFile4 } from "fs/promises";
-import { dirname as dirname2, isAbsolute as isAbsolute2, join as join13, normalize, relative as relative3, sep as sep2 } from "path";
+import { mkdir as mkdir5, readdir as readdir8, readFile as readFile11, rm, rmdir, writeFile as writeFile5 } from "fs/promises";
+import { dirname as dirname3, isAbsolute as isAbsolute2, join as join15, normalize as normalize2, relative as relative5, sep as sep3 } from "path";
 var LOCK_PATH = ".maverick/capabilities.lock.json";
 function resolveInside(cwd, path) {
-  const normalized = normalize(path);
-  if (isAbsolute2(normalized) || normalized === ".." || normalized.startsWith(`..${sep2}`)) throw new Error(`refusing to write outside the project: ${path}`);
-  return join13(cwd, normalized);
+  const normalized = normalize2(path);
+  if (isAbsolute2(normalized) || normalized === ".." || normalized.startsWith(`..${sep3}`)) throw new Error(`refusing to write outside the project: ${path}`);
+  return join15(cwd, normalized);
 }
 var keyId = (path, pointer) => `${path}#${pointer.join(".")}`;
 var hashValue = (value) => sha256(JSON.stringify(value));
 var toBuffer = (content) => Buffer.isBuffer(content) ? content : Buffer.from(content);
 async function readLock(cwd) {
-  const path = join13(cwd, LOCK_PATH);
+  const path = join15(cwd, LOCK_PATH);
   if (!await exists(path)) return { version: 1, capabilities: {} };
   try {
-    return JSON.parse(await readFile9(path, "utf8"));
+    return JSON.parse(await readFile11(path, "utf8"));
   } catch (error) {
     throw new Error(`invalid lockfile ${LOCK_PATH}: ${error.message}`);
   }
 }
 async function writeLock(cwd, lock) {
   const sorted = { version: 1, capabilities: Object.fromEntries(Object.entries(lock.capabilities).sort(([a], [b]) => a.localeCompare(b))) };
-  await mkdir4(dirname2(join13(cwd, LOCK_PATH)), { recursive: true });
-  await writeFile4(join13(cwd, LOCK_PATH), pretty(sorted));
+  await mkdir5(dirname3(join15(cwd, LOCK_PATH)), { recursive: true });
+  await writeFile5(join15(cwd, LOCK_PATH), pretty(sorted));
 }
 function ownership(lock) {
   const owners = /* @__PURE__ */ new Map();
@@ -1614,7 +2042,7 @@ function ownership(lock) {
 async function readJsonFile(cwd, path) {
   const full = resolveInside(cwd, path);
   if (!await exists(full)) return void 0;
-  const text = await readFile9(full, "utf8");
+  const text = await readFile11(full, "utf8");
   if (!text.trim()) return {};
   try {
     return JSON.parse(text);
@@ -1652,7 +2080,7 @@ async function planInstall(cwd, capability, adapters, lock, { force = false } = 
     for (const output2 of outputs) {
       if (output2.type === "file") {
         const full = resolveInside(cwd, output2.path), content = toBuffer(output2.content), hash = sha256(content);
-        const current = await exists(full) ? await readFile9(full) : null, owner = owners.get(output2.path);
+        const current = await exists(full) ? await readFile11(full) : null, owner = owners.get(output2.path);
         const op = !current ? "create" : sha256(current) === hash ? "unchanged" : "update";
         if (current && owner !== capability.ref && op !== "unchanged") conflicts.push({ target: adapter2.id, path: output2.path, reason: owner ? `owned by ${owner}` : "exists and is not managed by Maverick" });
         changes.push({ target: adapter2.id, type: "file", op, path: output2.path, content, sha256: hash });
@@ -1679,7 +2107,7 @@ async function planRemove(cwd, ref, lock, { force = false } = {}) {
     for (const file of recorded.files || []) {
       const full = resolveInside(cwd, file.path);
       if (!await exists(full)) continue;
-      if (sha256(await readFile9(full)) !== file.sha256) conflicts.push({ target, path: file.path, reason: "edited since install" });
+      if (sha256(await readFile11(full)) !== file.sha256) conflicts.push({ target, path: file.path, reason: "edited since install" });
       changes.push({ target, type: "file", op: "delete", path: file.path });
     }
     for (const key of recorded.keys || []) {
@@ -1692,8 +2120,8 @@ async function planRemove(cwd, ref, lock, { force = false } = {}) {
   return { ref, changes, skipped: [], conflicts: force ? [] : conflicts, forced: force ? conflicts : [] };
 }
 async function removeEmptyParents(cwd, path) {
-  for (let dir = dirname2(path); relative3(cwd, dir) && !relative3(cwd, dir).startsWith(".."); dir = dirname2(dir)) {
-    if ((await readdir6(dir).catch(() => ["x"])).length) return;
+  for (let dir = dirname3(path); relative5(cwd, dir) && !relative5(cwd, dir).startsWith(".."); dir = dirname3(dir)) {
+    if ((await readdir8(dir).catch(() => ["x"])).length) return;
     await rmdir(dir).catch(() => {
     });
   }
@@ -1702,7 +2130,7 @@ async function applyChanges(cwd, changes) {
   const staged = /* @__PURE__ */ new Map(), originals = /* @__PURE__ */ new Map();
   const load = async (path) => {
     if (!staged.has(path)) {
-      const full = resolveInside(cwd, path), current = await exists(full) ? await readFile9(full) : null;
+      const full = resolveInside(cwd, path), current = await exists(full) ? await readFile11(full) : null;
       originals.set(path, current);
       staged.set(path, current);
     }
@@ -1729,8 +2157,8 @@ async function applyChanges(cwd, changes) {
         await rm(full, { force: true });
         await removeEmptyParents(cwd, full);
       } else {
-        await mkdir4(dirname2(full), { recursive: true });
-        await writeFile4(full, content);
+        await mkdir5(dirname3(full), { recursive: true });
+        await writeFile5(full, content);
       }
     }
   } catch (error) {
@@ -1738,7 +2166,7 @@ async function applyChanges(cwd, changes) {
       const full = resolveInside(cwd, path), original = originals.get(path);
       if (original === null) await rm(full, { force: true }).catch(() => {
       });
-      else await writeFile4(full, original).catch(() => {
+      else await writeFile5(full, original).catch(() => {
       });
     }
     throw new Error(`could not apply changes (all files restored): ${error.message}`);
@@ -1762,7 +2190,7 @@ async function checkDrift(cwd, lock) {
       for (const file of recorded.files || []) {
         const full = resolveInside(cwd, file.path);
         if (!await exists(full)) issues2.push({ target, path: file.path, status: "missing" });
-        else if (sha256(await readFile9(full)) !== file.sha256) issues2.push({ target, path: file.path, status: "modified" });
+        else if (sha256(await readFile11(full)) !== file.sha256) issues2.push({ target, path: file.path, status: "modified" });
       }
       for (const key of recorded.keys || []) {
         let current;
@@ -1961,8 +2389,8 @@ var capabilityCommands = [
 ];
 
 // src/commands/delivery.js
-import { copyFile, mkdir as mkdir5, readFile as readFile10, writeFile as writeFile5 } from "fs/promises";
-import { dirname as dirname3, join as join14 } from "path";
+import { copyFile, mkdir as mkdir6, readFile as readFile12, writeFile as writeFile6 } from "fs/promises";
+import { dirname as dirname4, join as join16 } from "path";
 var ADAPTERS2 = {
   codex: ["adapters/codex/AGENTS.md.example", "AGENTS.md"],
   "claude-code": ["adapters/claude-code/CLAUDE.md.example", "CLAUDE.md"],
@@ -1972,10 +2400,10 @@ var ADAPTERS2 = {
 async function learn(cwd, slug, options = {}) {
   await getTask(cwd, slug);
   if (!options.rule || options.rule === true) throw new Error('provide a rule with --rule "..."');
-  const dir = join14(cwd, ".maverick"), path = join14(dir, "LEARNINGS.md");
-  await mkdir5(dir, { recursive: true });
-  const existing = await exists(path) ? await readFile10(path, "utf8") : "# Maverick Learnings\n\nProposed reusable rules. Promote only after team review.\n";
-  await writeFile5(path, `${existing}
+  const dir = join16(cwd, ".maverick"), path = join16(dir, "LEARNINGS.md");
+  await mkdir6(dir, { recursive: true });
+  const existing = await exists(path) ? await readFile12(path, "utf8") : "# Maverick Learnings\n\nProposed reusable rules. Promote only after team review.\n";
+  await writeFile6(path, `${existing}
 - [ ] ${options.rule}
   - Source task: \`${slug}\`
 `);
@@ -1984,11 +2412,11 @@ async function learn(cwd, slug, options = {}) {
 }
 async function handoff(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug), present = {};
-  for (const file of ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md", "CHECKPOINT.md"]) present[file] = await exists(join14(dir, file));
-  const task = await readFile10(join14(dir, "TASK.md"), "utf8");
+  for (const file of ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md", "CHECKPOINT.md"]) present[file] = await exists(join16(dir, file));
+  const task = await readFile12(join16(dir, "TASK.md"), "utf8");
   const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.";
-  const remaining = Object.entries(present).filter(([, value]) => !value).map(([file]) => file), path = join14(dir, "HANDOFF.md");
-  await writeFile5(path, `# Handoff \u2014 ${slug}
+  const remaining = Object.entries(present).filter(([, value]) => !value).map(([file]) => file), path = join16(dir, "HANDOFF.md");
+  await writeFile6(path, `# Handoff \u2014 ${slug}
 
 ## Goal
 ${goal}
@@ -2016,30 +2444,30 @@ async function adapter(cwd, action, name2, options = {}) {
   if (action === "list") return output(options.json ? JSON.stringify(Object.keys(ADAPTERS2)) : `${brand()} / ADAPTERS
 ${Object.keys(ADAPTERS2).join("\n")}`);
   if (action !== "install" || !ADAPTERS2[name2]) throw new Error(`use adapter list or adapter install <${Object.keys(ADAPTERS2).join("|")}>`);
-  const [source, target] = ADAPTERS2[name2], destination = join14(cwd, target);
+  const [source, target] = ADAPTERS2[name2], destination = join16(cwd, target);
   if (await exists(destination)) throw new Error(`adapter target already exists: ${rel(cwd, destination)}`);
-  await mkdir5(dirname3(destination), { recursive: true });
-  await copyFile(join14(packageRoot, source), destination);
+  await mkdir6(dirname4(destination), { recursive: true });
+  await copyFile(join16(packageRoot, source), destination);
   output(options.json ? JSON.stringify({ adapter: name2, path: rel(cwd, destination) }) : `${brand()} / ADAPTER
 \u2713 ${name2}: ${rel(cwd, destination)}`);
 }
 async function ci(cwd, provider, slug, options = {}) {
   if (provider !== "github") throw new Error("only the github CI generator is currently available");
   await getTask(cwd, slug);
-  const destination = join14(cwd, ".github", "workflows", `maverick-${slug}.yml`);
+  const destination = join16(cwd, ".github", "workflows", `maverick-${slug}.yml`);
   if (await exists(destination)) throw new Error(`CI workflow already exists: ${rel(cwd, destination)}`);
-  await mkdir5(dirname3(destination), { recursive: true });
-  await writeFile5(destination, replaceVars(await readFile10(join14(packageRoot, "templates", "github-actions-maverick.yml"), "utf8"), { TASK_SLUG: slug }));
+  await mkdir6(dirname4(destination), { recursive: true });
+  await writeFile6(destination, replaceVars(await readFile12(join16(packageRoot, "templates", "github-actions-maverick.yml"), "utf8"), { TASK_SLUG: slug }));
   output(options.json ? JSON.stringify({ provider, task: slug, path: rel(cwd, destination) }) : `${brand()} / CI
 \u2713 GitHub Actions workflow: ${rel(cwd, destination)}`);
 }
 async function draftPr(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const task = await readFile10(join14(dir, "TASK.md"), "utf8");
-  const evidence = await exists(join14(dir, "EVIDENCE.md")) ? await readFile10(join14(dir, "EVIDENCE.md"), "utf8") : "Verification evidence has not been captured.";
-  const findings = await exists(join14(dir, "REVIEW-FINDINGS.md")) ? "Diff review report is available in REVIEW-FINDINGS.md." : "Diff review has not been run.";
-  const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.", path = join14(dir, "PR-DRAFT.md");
-  await writeFile5(path, `# PR Draft \u2014 ${slug}
+  const task = await readFile12(join16(dir, "TASK.md"), "utf8");
+  const evidence = await exists(join16(dir, "EVIDENCE.md")) ? await readFile12(join16(dir, "EVIDENCE.md"), "utf8") : "Verification evidence has not been captured.";
+  const findings = await exists(join16(dir, "REVIEW-FINDINGS.md")) ? "Diff review report is available in REVIEW-FINDINGS.md." : "Diff review has not been run.";
+  const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.", path = join16(dir, "PR-DRAFT.md");
+  await writeFile6(path, `# PR Draft \u2014 ${slug}
 
 ## Summary
 ${goal}
@@ -2071,151 +2499,16 @@ var deliveryCommands = [
 ];
 
 // src/commands/flow.js
-import { readdir as readdir9 } from "fs/promises";
-import { join as join18 } from "path";
+import { readdir as readdir10 } from "fs/promises";
+import { join as join19 } from "path";
 
 // src/flows/engine.js
-import { mkdir as mkdir7, readFile as readFile13, writeFile as writeFile7 } from "fs/promises";
-import { join as join17 } from "path";
-
-// src/core/project-tools.js
-import { mkdir as mkdir6, readdir as readdir7, readFile as readFile11, writeFile as writeFile6 } from "fs/promises";
-import { join as join15, relative as relative4 } from "path";
-import { spawn as spawn2 } from "child_process";
-var INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", ".cursorrules", ".cursor/rules", ".windsurfrules", "CONVENTIONS.md", "CONTRIBUTING.md"];
-async function inspectProject(cwd) {
-  const stack = await detectStack(cwd);
-  const entries = await readdir7(cwd, { withFileTypes: true });
-  const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name2) => !IGNORED_DIRS.has(name2)).sort();
-  const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
-  const manifests = [...new Set(stack.ecosystems.flatMap((item) => item.manifests))];
-  const instructions = (await Promise.all(INSTRUCTION_FILES.map(async (name2) => await exists(join15(cwd, name2)) ? name2 : null))).filter(Boolean);
-  const scripts = stack.ecosystems.find((item) => item.id === "node")?.scripts || {};
-  return {
-    name: stack.name || cwd.split(/[\\/]/).filter(Boolean).pop(),
-    manifests,
-    directories,
-    files: files.slice(0, 40),
-    scripts,
-    commands: stack.commands,
-    instructions,
-    language: stack.languages.join(", ") || "unknown",
-    languages: stack.languages,
-    framework: stack.frameworks.join(", ") || void 0,
-    frameworks: stack.frameworks,
-    packageManagers: stack.packageManagers,
-    stack
-  };
-}
-function commandLine(item) {
-  return `- ${item.name}: \`${item.command}\`${item.cwd ? ` (in \`${item.cwd}/\`)` : ""} \u2014 ${item.source}`;
-}
-function renderProjectMap(map) {
-  const stack = map.stack || { ecosystems: [], runners: [], subprojects: [] };
-  const commands2 = map.commands.length ? map.commands.map(commandLine).join("\n") : "- No verification commands detected. Declare them in `.maverick/config.json` under `verification.commands`.";
-  const ecosystems = stack.ecosystems.map((item) => `- ${item.id} (${item.packageManager}): ${item.manifests.join(", ")}`).join("\n") || "- none detected at the root";
-  const runners = stack.runners.map((item) => `- ${item.id}: \`${item.file}\` (${item.targets.slice(0, 12).join(", ") || "no targets"})`).join("\n");
-  const subprojects = stack.subprojects.map((item) => `- \`${item.path}/\`: ${item.ecosystems.map((e) => e.id).concat(item.runners.map((r) => r.id)).join(", ")}${item.commands.length ? ` \u2014 ${item.commands.map((c) => c.command).join("; ")}` : ""}`).join("\n");
-  return `# Project Map
-
-Generated by Maverick. Refresh with \`maverick map\`.
-
-## Stack
-- Project: ${map.name}
-- Languages: ${map.language}
-- Frameworks: ${map.framework || "not detected"}
-- Package managers: ${map.packageManagers?.join(", ") || "not detected"}
-- Manifests: ${map.manifests.join(", ") || "none detected"}
-
-## Ecosystems
-${ecosystems}
-${runners ? `
-## Task runners
-${runners}
-` : ""}${subprojects ? `
-## Subprojects
-${subprojects}
-` : ""}
-## Top-level areas
-${map.directories.map((name2) => `- \`${name2}/\``).join("\n") || "- none"}
-
-## Verification commands
-${commands2}
-
-## Repository instructions
-${map.instructions.map((name2) => `- \`${name2}\``).join("\n") || "- none detected"}
-
-## Context guidance
-Read the nearest instruction file and only the paths relevant to the task before editing.
-`;
-}
-async function executeCommand(cwd, command, subdir = "") {
-  let bin, args;
-  try {
-    [bin, ...args] = splitCommand(command);
-  } catch (error) {
-    return { command, cwd: subdir, ok: false, code: null, output: error.message };
-  }
-  const label = subdir ? `${command} (in ${subdir}/)` : command;
-  return new Promise((resolve3) => {
-    const child = spawn2(bin, args, { cwd: subdir ? join15(cwd, subdir) : cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
-    let output2 = "";
-    child.stdout.on("data", (chunk) => {
-      output2 += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      output2 += chunk;
-    });
-    child.on("error", (error) => resolve3({ command: label, ok: false, code: null, output: error.message }));
-    child.on("close", (code) => resolve3({ command: label, ok: code === 0, code, output: output2.slice(-12e3) }));
-  });
-}
-async function gitDiff(cwd, against = "HEAD") {
-  const result = await executeCommand(cwd, `git diff ${against} --`);
-  return result.ok ? result.output : "";
-}
-async function writeEvidence(dir, task, results) {
-  await mkdir6(dir, { recursive: true });
-  const body = `# Verification Evidence \u2014 ${task}
-
-Generated: ${(/* @__PURE__ */ new Date()).toISOString()}
-
-${results.map((result) => `## ${result.ok ? "PASS" : "FAIL"} \u2014 ${result.command}
-Exit code: ${result.code ?? "not started"}
-
-\`\`\`text
-${result.output || "(no output)"}
-\`\`\``).join("\n\n")}
-`;
-  const path = join15(dir, "EVIDENCE.md");
-  await writeFile6(path, body);
-  return path;
-}
-async function findReferences(cwd, target, maxResults = 40) {
-  const needle = target.split("/").pop().replace(/\.[^.]+$/, "");
-  const results = [];
-  async function visit(directory) {
-    if (results.length >= maxResults) return;
-    for (const entry of await readdir7(directory, { withFileTypes: true })) {
-      if (results.length >= maxResults || IGNORED_DIRS.has(entry.name)) continue;
-      const path = join15(directory, entry.name);
-      if (entry.isDirectory()) await visit(path);
-      else if (entry.isFile()) {
-        try {
-          const text = await readFile11(path, "utf8");
-          if (text.includes(needle)) results.push(relative4(cwd, path));
-        } catch {
-        }
-      }
-    }
-  }
-  await visit(cwd);
-  return results;
-}
+import { mkdir as mkdir7, readFile as readFile14, writeFile as writeFile7 } from "fs/promises";
+import { join as join18 } from "path";
 
 // src/flows/model.js
-import { readdir as readdir8, readFile as readFile12 } from "fs/promises";
-import { basename as basename2, join as join16 } from "path";
+import { readdir as readdir9, readFile as readFile13 } from "fs/promises";
+import { basename as basename2, join as join17 } from "path";
 import { parse as parseYaml2 } from "yaml";
 import { z as z5 } from "zod";
 var MAVERICK_GATES = ["validate", "verify", "guard", "security", "deps", "policy", "review", "readiness"];
@@ -2251,7 +2544,7 @@ function formatIssues3(error) {
   return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
 }
 async function loadFlowFile(path, source) {
-  const text = await readFile12(path, "utf8");
+  const text = await readFile13(path, "utf8");
   let data;
   try {
     data = parseYaml2(text);
@@ -2265,13 +2558,13 @@ async function loadFlowFile(path, source) {
 }
 async function loadFlows(cwd) {
   const flows = /* @__PURE__ */ new Map(), errors = [];
-  for (const [source, dir] of [["project", join16(cwd, ".maverick", "flows")], ["built-in", join16(packageRoot, "flows")]]) {
-    for (const file of (await readdir8(dir).catch(() => [])).filter((name2) => /\.ya?ml$/.test(name2)).sort()) {
+  for (const [source, dir] of [["project", join17(cwd, ".maverick", "flows")], ["built-in", join17(packageRoot, "flows")]]) {
+    for (const file of (await readdir9(dir).catch(() => [])).filter((name2) => /\.ya?ml$/.test(name2)).sort()) {
       try {
-        const flow = await loadFlowFile(join16(dir, file), source);
+        const flow = await loadFlowFile(join17(dir, file), source);
         if (!flows.has(flow.name)) flows.set(flow.name, flow);
       } catch (error) {
-        errors.push({ source, file, message: error.message.replace(`${join16(dir, file)}: `, "") });
+        errors.push({ source, file, message: error.message.replace(`${join17(dir, file)}: `, "") });
       }
     }
   }
@@ -2326,9 +2619,9 @@ async function runChecks(context, gate2) {
 async function runArtifact(context, gate2) {
   const file = interpolate(gate2.file, { task: context.task });
   if (file.split(/[\\/]/).includes("..")) return { pass: false, issues: [`artifact path must stay inside the task: ${file}`] };
-  const path = join17(context.taskDir, file);
+  const path = join18(context.taskDir, file);
   if (!await exists(path)) return { pass: false, issues: [`missing ${file}`] };
-  const text = await readFile13(path, "utf8"), issues2 = [];
+  const text = await readFile14(path, "utf8"), issues2 = [];
   for (const section of gate2.sections) if (!sectionPresent(text, section)) issues2.push(`${file}: missing section "${section}"`);
   if (gate2.pattern && !new RegExp(gate2.pattern, "m").test(text)) issues2.push(`${file}: ${gate2.description || `expected /${gate2.pattern}/`}`);
   if (gate2.noPlaceholders && !hasMeaningfulContent(text)) issues2.push(`${file}: placeholders remain`);
@@ -2383,15 +2676,15 @@ function decideOutcome(results, history, contract) {
   return { outcome: "revise", iteration, issueKey: key };
 }
 function statePath(taskDir, flow) {
-  return join17(taskDir, "flows", `${flow}.json`);
+  return join18(taskDir, "flows", `${flow}.json`);
 }
 async function readState(taskDir, flow) {
   const path = statePath(taskDir, flow);
   if (!await exists(path)) return { flow, runs: [], approvals: {} };
-  return JSON.parse(await readFile13(path, "utf8"));
+  return JSON.parse(await readFile14(path, "utf8"));
 }
 async function writeState(taskDir, state) {
-  await mkdir7(join17(taskDir, "flows"), { recursive: true });
+  await mkdir7(join18(taskDir, "flows"), { recursive: true });
   await writeFile7(statePath(taskDir, state.flow), pretty(state));
 }
 var NEXT_STEP = {
@@ -2438,7 +2731,7 @@ async function runFlow(context, flow, { reset = false } = {}) {
   const run2 = { at: (/* @__PURE__ */ new Date()).toISOString(), ...decision, results };
   state = { ...state, flow: flow.name, integrity: flow.integrity, runs: [...state.runs, run2], status: run2.outcome };
   await writeState(context.taskDir, state);
-  const reportPath = join17(context.taskDir, `FLOW-${flow.name.toUpperCase()}.md`);
+  const reportPath = join18(context.taskDir, `FLOW-${flow.name.toUpperCase()}.md`);
   await writeFile7(reportPath, renderReport(flow, context.task, run2, flow.contract));
   return { run: run2, state, notes, reportPath, next: NEXT_STEP[run2.outcome] };
 }
@@ -2503,7 +2796,7 @@ ${flow.gates.map((gate2) => `  ${gate2.id.padEnd(14)}${gate2.type}${gate2.run ? 
   }
   if (action === "run") {
     const [name2, slug] = args, flow = await findFlow(cwd, name2), { dir } = await getTask(cwd, slug), config = await loadConfig(cwd);
-    const invoke = async (argv) => (await import("./cli-UWF7MYWH.js")).main(argv, cwd);
+    const invoke = async (argv) => (await import("./cli-XXWE434X.js")).main(argv, cwd);
     const agentRuns = [];
     let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
     report(cwd, flow, slug, result, options);
@@ -2534,7 +2827,7 @@ The agent stopped: ${agent.result.status}. ${agent.result.summary}`);
   }
   if (action === "status") {
     const [slug] = args, { dir } = await getTask(cwd, slug);
-    const files = (await readdir9(join18(dir, "flows")).catch(() => [])).filter((file) => file.endsWith(".json"));
+    const files = (await readdir10(join19(dir, "flows")).catch(() => [])).filter((file) => file.endsWith(".json"));
     const states = await Promise.all(files.map((file) => readState(dir, file.replace(/\.json$/, ""))));
     const summary = states.map((state) => ({ flow: state.flow, status: state.status || "not run", runs: state.runs.length, lastRun: state.runs.at(-1)?.at, approvals: state.approvals }));
     if (options.json) return output(JSON.stringify(summary, null, 2));
@@ -2565,7 +2858,7 @@ async function subtaskCommand(cwd, [action, slug, ...args], options = {}) {
     const created = await addSubtask(dir, slug, { title, after, type: typeof options.type === "string" ? options.type : void 0, complexity: typeof options.complexity === "string" ? options.complexity : void 0 });
     return output(options.json ? JSON.stringify(created) : `${brand()} / SUBTASK
 \u2713 ${created.id}: ${title}${after.length ? ` (after ${after.join(", ")})` : ""}
-File: ${rel(cwd, join18(dir, "subtasks", created.file))}`);
+File: ${rel(cwd, join19(dir, "subtasks", created.file))}`);
   }
   if (action === "set") {
     const [id2, status2] = args;
@@ -2609,39 +2902,39 @@ var flowCommands = [
 ];
 
 // src/commands/gates.js
-import { mkdir as mkdir9, readFile as readFile15, writeFile as writeFile9 } from "fs/promises";
-import { join as join20 } from "path";
+import { mkdir as mkdir9, readFile as readFile16, writeFile as writeFile9 } from "fs/promises";
+import { join as join21 } from "path";
 
 // src/commands/task.js
-import { mkdir as mkdir8, readFile as readFile14, writeFile as writeFile8 } from "fs/promises";
-import { join as join19 } from "path";
+import { mkdir as mkdir8, readFile as readFile15, writeFile as writeFile8 } from "fs/promises";
+import { join as join20 } from "path";
 async function createTask(cwd, slug, options = {}) {
   const config = await loadConfig(cwd), preset = requirePreset(options.preset || config.workflow.defaultPreset || "standard"), dir = taskPath(cwd, config, slug);
   if (await exists(dir)) throw new Error(`task already exists: ${rel(cwd, dir)}; choose another slug or remove it deliberately`);
   await mkdir8(dir, { recursive: true });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), artifacts = [...preset.artifacts];
   if ((options.riskDoc || config.workflow.riskDocumentation) && preset.strict) artifacts.push({ id: "RISK", file: "RISK.md", template: "risk.md", sections: ["Risk Assessment", "Mitigations", "Rollback", "Approval"] });
-  for (const item of artifacts) await writeFile8(join19(dir, item.file), replaceVars(await readFile14(join19(packageRoot, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
-  await writeFile8(join19(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
+  for (const item of artifacts) await writeFile8(join20(dir, item.file), replaceVars(await readFile15(join20(packageRoot, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
+  await writeFile8(join20(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
   output(`${brand()}
 \u2713 task created: ${rel(cwd, dir)}
 Preset: ${preset.name}
 Stages: ${preset.stages.map((s) => s.toUpperCase()).join(" \u2192 ")}`);
 }
 async function showArtifact(cwd, slug, filename, label) {
-  const { dir } = await getTask(cwd, slug), path = join19(dir, filename);
+  const { dir } = await getTask(cwd, slug), path = join20(dir, filename);
   output(`${label}: ${rel(cwd, path)}${await exists(path) ? "" : " (not included by this preset)"}`);
 }
 async function taskPacket(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const mapPath = join19(cwd, ".maverick", "context", "PROJECT_MAP.md"), contents = [];
-  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists(join19(dir, file))) contents.push(`## ${file}
+  const mapPath = join20(cwd, ".maverick", "context", "PROJECT_MAP.md"), contents = [];
+  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists(join20(dir, file))) contents.push(`## ${file}
 
-${await readFile14(join19(dir, file), "utf8")}`);
+${await readFile15(join20(dir, file), "utf8")}`);
   if (await exists(mapPath)) contents.unshift(`## PROJECT_MAP.md
 
-${await readFile14(mapPath, "utf8")}`);
-  const path = join19(dir, "TASK-PACKET.md");
+${await readFile15(mapPath, "utf8")}`);
+  const path = join20(dir, "TASK-PACKET.md");
   await writeFile8(path, `# Maverick Task Packet
 
 Preset: ${preset.name}
@@ -2665,14 +2958,14 @@ async function validate(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
   let errors = 0, warnings = 0;
   const results = [];
-  for (const item of validatorArtifacts(preset, await exists(join19(dir, "RISK.md")))) {
-    const path = join19(dir, item.file);
+  for (const item of validatorArtifacts(preset, await exists(join20(dir, "RISK.md")))) {
+    const path = join20(dir, item.file);
     if (!await exists(path)) {
       results.push({ file: item.file, status: "FAIL", message: "missing" });
       errors++;
       continue;
     }
-    const text = await readFile14(path, "utf8");
+    const text = await readFile15(path, "utf8");
     for (const section of item.sections) if (!sectionPresent(text, section)) {
       results.push({ file: item.file, status: "FAIL", message: `missing section "${section}"` });
       errors++;
@@ -2754,8 +3047,10 @@ async function reviewDiff(cwd, slug, options = {}) {
   if (!diff) findings.push("No git diff found against the selected base.");
   if (files.some((file) => /(^|\/)(\.env|secrets?|credentials?)/i.test(file))) findings.push("Security: sensitive-looking path changed; confirm secrets and PII were not included.");
   if (files.some((file) => LOCKFILE.test(file))) findings.push("Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities.");
-  if (preset.strict && !await exists(join20(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
-  const path = join20(dir, "REVIEW-FINDINGS.md");
+  if (preset.strict && !await exists(join21(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
+  const graph = files.length ? await buildGraph(cwd) : null;
+  const radius = graph ? files.map((file) => ({ file, ...impactOf(graph, file) })).filter((item) => item.known && item.dependents.length).sort((a, b) => b.dependents.length - a.dependents.length) : [];
+  const path = join21(dir, "REVIEW-FINDINGS.md");
   await writeFile9(path, `# Diff Review Findings \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
@@ -2764,6 +3059,9 @@ ${files.map((file) => `- \`${file}\``).join("\n") || "- none"}
 
 ## Findings
 ${findings.map((finding) => `- ${finding}`).join("\n") || "- No automated findings. Complete the human review in REVIEW.md."}
+
+## Blast radius
+${radius.map((item) => `- \`${item.file}\`: ${item.direct.length} direct / ${item.dependents.length} transitive dependents; tests: ${item.tests.slice(0, 5).map((test) => `\`${test}\``).join(", ") || "none"}`).join("\n") || "- Changed files have no local dependents."}
 `);
   output(options.json ? JSON.stringify({ files, findings, path: rel(cwd, path) }, null, 2) : `${brand()} / REVIEW
 Changed files: ${files.length}
@@ -2773,7 +3071,7 @@ Report: ${rel(cwd, path)}`);
 async function checkpoint(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const [status2, diff] = await Promise.all([executeCommand(cwd, "git status --short"), gitDiff(cwd, options.against || "HEAD")]);
-  const path = join20(dir, "CHECKPOINT.md");
+  const path = join21(dir, "CHECKPOINT.md");
   await writeFile9(path, `# Checkpoint \u2014 ${slug}
 
 Created: ${(/* @__PURE__ */ new Date()).toISOString()}
@@ -2794,22 +3092,35 @@ ${diff || "(no diff available)"}
 }
 async function impact(cwd, path, options = {}) {
   if (!path || path.includes("..")) throw new Error("provide a project-relative file path");
-  const references = await findReferences(cwd, path);
-  const payload = { path, references, count: references.length, truncated: references.length === 40 };
-  output(options.json ? JSON.stringify(payload, null, 2) : `${brand()} / IMPACT
-Target: ${path}
-References:
+  const target = path.replace(/^\.\//, "");
+  const graph = await buildGraph(cwd), result = impactOf(graph, target);
+  const references = result.known ? [] : await findReferences(cwd, target);
+  const payload = { path: target, inGraph: result.known, direct: result.direct, dependents: result.dependents, tests: result.tests, references, count: result.known ? result.dependents.length : references.length, truncated: !result.known && references.length === 40 };
+  if (options.json) return output(JSON.stringify(payload, null, 2));
+  if (!result.known) return output(`${brand()} / IMPACT
+Target: ${target} (not a source file in the import graph)
+Text references:
 ${references.map((file) => `- ${file}`).join("\n") || "- none found"}`);
+  const production = result.dependents.filter((item) => !item.test);
+  output(`${brand()} / IMPACT
+Target: ${target}
+Direct dependents: ${result.direct.length} \xB7 transitive: ${result.dependents.length} (${result.tests.length} test file(s))
+
+${production.slice(0, 30).map((item) => `${"  ".repeat(Math.min(item.depth - 1, 4))}- ${item.id}${item.depth > 1 ? ` (depth ${item.depth})` : ""}`).join("\n") || "No production file imports it."}${production.length > 30 ? `
+\u2026 ${production.length - 30} more` : ""}
+
+Tests to run:
+${result.tests.map((file) => `- ${file}`).join("\n") || "- none import it; consider adding one"}`);
 }
 async function guardScope(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
-  const task = await readFile15(join20(dir, "TASK.md"), "utf8");
+  const task = await readFile16(join21(dir, "TASK.md"), "utf8");
   const changed = changedFilesFromDiff(await gitDiff(cwd, options.against || "HEAD"));
   const expected = (task.match(/^## Expected Changed Files\n([\s\S]*?)(?=^## |$)/m)?.[1].match(/`([^`]+)`/g) || []).map((value) => value.slice(1, -1)).filter((value) => !/FILL ME/i.test(value));
   const outsideScope = expected.length ? changed.filter((file) => !expected.includes(file)) : [];
   const maxFiles = config.maxChangedFilesGuideline || 8;
   const findings = [changed.length > maxFiles ? `Change budget exceeded: ${changed.length}/${maxFiles} files.` : null, ...outsideScope.map((file) => `Not listed in Expected Changed Files: ${file}`)].filter(Boolean);
-  const report2 = join20(dir, "SCOPE-GUARD.md");
+  const report2 = join21(dir, "SCOPE-GUARD.md");
   await writeFile9(report2, `# Scope Guard \u2014 ${slug}
 
 Changed files: ${changed.length}
@@ -2829,10 +3140,10 @@ async function readiness(cwd, slug, options = {}) {
   const required = ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md"];
   if (preset.strict) required.push("CHECKPOINT.md");
   const available = [], missing = [];
-  for (const file of required) (await exists(join20(dir, file)) ? available : missing).push(file);
-  const review = await exists(join20(dir, "REVIEW.md")) ? await readFile15(join20(dir, "REVIEW.md"), "utf8") : "";
+  for (const file of required) (await exists(join21(dir, file)) ? available : missing).push(file);
+  const review = await exists(join21(dir, "REVIEW.md")) ? await readFile16(join21(dir, "REVIEW.md"), "utf8") : "";
   if (!/- \[[xX]\] (?:approve|approve with follow-up|request changes)/.test(review)) missing.push("Human decision in REVIEW.md");
-  const ready = missing.length === 0, path = join20(dir, "MERGE-READINESS.md");
+  const ready = missing.length === 0, path = join21(dir, "MERGE-READINESS.md");
   await writeFile9(path, `# Merge Readiness \u2014 ${slug}
 
 Preset: ${preset.name}
@@ -2854,11 +3165,11 @@ Report: ${payload.path}`);
   if (!ready) throw new Error("merge readiness gates are incomplete");
 }
 async function policy(cwd, action, slug, options = {}) {
-  const dir = join20(cwd, ".maverick"), path = join20(dir, "policy.json");
+  const dir = join21(cwd, ".maverick"), path = join21(dir, "policy.json");
   if (action === "init") {
     if (await exists(path)) throw new Error(`policy already exists: ${rel(cwd, path)}`);
     await mkdir9(dir, { recursive: true });
-    await writeFile9(path, await readFile15(join20(packageRoot, "templates", "policy.json"), "utf8"));
+    await writeFile9(path, await readFile16(join21(packageRoot, "templates", "policy.json"), "utf8"));
     return output(`${brand()} / POLICY
 \u2713 policy created: ${rel(cwd, path)}`);
   }
@@ -2873,7 +3184,7 @@ ${pretty(rules)}`);
   const findings = [];
   if (changed.length > (rules.maxChangedFiles || Infinity)) findings.push(`Changed ${changed.length} files; policy maximum is ${rules.maxChangedFiles}.`);
   if (sensitive.length && preset.id !== rules.requiredPresetForSensitivePaths) findings.push(`Sensitive paths require preset ${rules.requiredPresetForSensitivePaths}: ${sensitive.join(", ")}.`);
-  const report2 = join20(taskDir, "POLICY-CHECK.md");
+  const report2 = join21(taskDir, "POLICY-CHECK.md");
   await writeFile9(report2, `# Policy Check \u2014 ${slug}
 
 Policy: ${rel(cwd, path)}
@@ -2898,7 +3209,7 @@ async function securityScan(cwd, slug, options = {}) {
     { name: "Likely cloud/API secret assignment", pattern: /(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"][^'"\s]{12,}/i },
     { name: "Potentially unsafe dynamic execution", pattern: /(?:eval\(|child_process\.exec\(|shell:\s*true)/ }
   ];
-  const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name), path = join20(dir, "SECURITY-REPORT.md");
+  const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name), path = join21(dir, "SECURITY-REPORT.md");
   await writeFile9(path, `# Security Scan \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
@@ -2921,7 +3232,7 @@ async function dependencyReview(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const changed = changedFilesFromDiff(await gitDiff(cwd, options.against || "HEAD"));
   const lockfiles = changed.filter((file) => LOCKFILE.test(file)), manifests = changed.filter((file) => MANIFEST2.test(file));
-  const path = join20(dir, "DEPENDENCY-REVIEW.md");
+  const path = join21(dir, "DEPENDENCY-REVIEW.md");
   await writeFile9(path, `# Dependency Review \u2014 ${slug}
 
 ## Changed manifests
@@ -2951,9 +3262,58 @@ var gateCommands = [
   { id: "review", description: "Show review or review a diff.", aliases: [], usage: "review <task> --diff", run: ({ cwd, arg, options }) => options.diff ? reviewDiff(cwd, arg, options) : showArtifact(cwd, arg, "REVIEW.md", "Review") }
 ];
 
+// src/commands/intel.js
+var since = (options) => typeof options.since === "string" ? options.since : "6 months ago";
+async function graphCommand(cwd, options = {}) {
+  const graph = await buildGraph(cwd);
+  const depth = Number(options.depth) || 2;
+  if (options.format === "mermaid") return output(toMermaid(graph, depth));
+  if (options.format === "dot") return output(`digraph maverick {
+  rankdir=LR;
+${directoryGraph(graph, depth).map((link) => `  "${link.from}" -> "${link.to}" [label=${link.weight}];`).join("\n")}
+}`);
+  const production = graph.nodes.filter((node) => !node.test);
+  const languages = Object.entries(graph.nodes.reduce((counts, node) => ({ ...counts, [node.language]: (counts[node.language] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1]);
+  const topFanIn = [...production].sort((a, b) => b.fanIn - a.fanIn).slice(0, 8).filter((node) => node.fanIn);
+  const unstableHubs = production.filter((node) => node.fanIn >= 3 && node.instability >= 0.7).sort((a, b) => b.fanIn - a.fanIn).slice(0, 8);
+  const summary = { files: graph.nodes.length, tests: graph.nodes.length - production.length, edges: graph.edges.length, dynamicEdges: graph.edges.filter((edge) => edge.dynamic).length, languages: Object.fromEntries(languages), health: graph.health, cycles: graph.cycles, hubs: graph.hubs, topFanIn: topFanIn.map(({ id: id2, fanIn, fanOut }) => ({ id: id2, fanIn, fanOut })), unstableDependencies: unstableHubs.map(({ id: id2, fanIn, fanOut, instability }) => ({ id: id2, fanIn, fanOut, instability })), truncated: graph.truncated };
+  if (options.json) return output(JSON.stringify(summary, null, 2));
+  const lines = [`${brand()} / GRAPH`, "", `Files: ${summary.files} (${summary.tests} test) \xB7 local import edges: ${summary.edges}${summary.dynamicEdges ? ` (${summary.dynamicEdges} lazy)` : ""}`, `Languages: ${languages.map(([name2, count]) => `${name2} ${count}`).join(", ") || "none detected"}`, `Health: ${graph.health.score}/100 = ${graph.health.formula}`];
+  lines.push("", `Import cycles: ${graph.cycles.length}`, ...graph.cycles.slice(0, 5).map((cycle) => `  ${cycle.join(" \u21C4 ")}`));
+  if (graph.hubs.length) lines.push("", "Hubs (high fan-in and fan-out):", ...graph.hubs.slice(0, 8).map((id2) => `  ${id2}`));
+  if (topFanIn.length) lines.push("", "Most depended on:", ...topFanIn.map((node) => `  ${String(node.fanIn).padStart(3)} \u2190 ${node.id}`));
+  if (unstableHubs.length) lines.push("", "Widely used but unstable (depends on many others):", ...unstableHubs.map((node) => `  ${node.id} (fan-in ${node.fanIn}, instability ${node.instability})`));
+  if (graph.truncated) lines.push("", "Note: the scan stopped at 5,000 files.");
+  lines.push("", "Diagram: maverick graph --format mermaid");
+  output(lines.join("\n"));
+}
+async function hotspotsCommand(cwd, options = {}) {
+  const [graph, counts] = await Promise.all([buildGraph(cwd), churn(cwd, since(options))]);
+  const hotspots = rankHotspots(graph, counts, Number(options.limit) || 15);
+  if (options.json) return output(JSON.stringify({ since: since(options), hotspots }, null, 2));
+  if (!counts.size) return output("No git history found; hotspots need a Git repository with commits.");
+  output(`${brand()} / HOTSPOTS (since ${since(options)})
+
+score  commits  fan-in  file
+${hotspots.map((item) => `${String(item.score).padStart(5)}  ${String(item.commits).padStart(7)}  ${String(item.fanIn).padStart(6)}  ${item.id}`).join("\n") || "No source files changed in this period."}
+
+Score = commits \xD7 (1 + fan-in) \xD7 log10(10 + lines). Prefer strict-review for changes here.`);
+}
+async function mcpCommand(cwd) {
+  const { serveMcp } = await import("./server-4FHQ5OWG.js");
+  process.stderr.write(`maverick mcp: serving read-only project intelligence for ${cwd} over stdio
+`);
+  await serveMcp({ cwd });
+}
+var intelCommands = [
+  { id: "mcp", description: "Serve read-only project intelligence to AI agents over MCP (stdio).", aliases: [], usage: "mcp", run: ({ cwd }) => mcpCommand(cwd) },
+  { id: "graph", description: "Analyze the import graph: cycles, hubs, coupling, and health.", aliases: [], usage: "graph [--json] [--format mermaid|dot]", run: ({ cwd, options }) => graphCommand(cwd, options) },
+  { id: "hotspots", description: "Rank files by change frequency and dependents.", aliases: [], usage: 'hotspots [--since "6 months ago"]', run: ({ cwd, options }) => hotspotsCommand(cwd, options) }
+];
+
 // src/commands/project.js
-import { mkdir as mkdir10, readdir as readdir10, writeFile as writeFile10 } from "fs/promises";
-import { join as join21 } from "path";
+import { mkdir as mkdir10, readdir as readdir11, writeFile as writeFile10 } from "fs/promises";
+import { join as join22 } from "path";
 import { execFileSync } from "child_process";
 import { createInterface as createInterface3 } from "readline/promises";
 async function chooseDefaultPreset() {
@@ -2965,7 +3325,7 @@ async function chooseDefaultPreset() {
   return { 1: "standard", 2: "lightweight", 3: "spec-driven", 4: "strict-review" }[answer.trim() || "1"] || "standard";
 }
 async function initProject(cwd) {
-  const dir = join21(cwd, ".maverick"), path = join21(dir, "config.json");
+  const dir = join22(cwd, ".maverick"), path = join22(dir, "config.json");
   if (await exists(path)) throw new Error(`configuration already exists: ${rel(cwd, path)}`);
   const preset = await chooseDefaultPreset(), map = await inspectProject(cwd);
   await mkdir10(dir, { recursive: true });
@@ -2977,7 +3337,7 @@ Default preset: ${getPreset(preset).name}${map.languages.length ? `
 Detected stack: ${map.language}` : ""}`);
 }
 async function mapProject(cwd, options = {}) {
-  const map = await inspectProject(cwd), dir = join21(cwd, ".maverick", "context"), path = join21(dir, "PROJECT_MAP.md");
+  const map = await inspectProject(cwd), dir = join22(cwd, ".maverick", "context"), path = join22(dir, "PROJECT_MAP.md");
   await mkdir10(dir, { recursive: true });
   await writeFile10(path, renderProjectMap(map));
   if (options.json) return output(JSON.stringify({ ...map, path: rel(cwd, path) }, null, 2));
@@ -3000,7 +3360,7 @@ async function showStack(cwd, options = {}) {
 }
 async function configCommand(cwd, action = "show", options = {}) {
   if (action === "path") {
-    const project = join21(cwd, ".maverick", "config.json");
+    const project = join22(cwd, ".maverick", "config.json");
     return output(options.json ? JSON.stringify({ project: rel(cwd, project), global: globalConfigPath() }) : `project: ${rel(cwd, project)}
 global:  ${globalConfigPath()}`);
   }
@@ -3015,12 +3375,12 @@ Layers: ${sources.map((source) => source.path ? `${source.scope} (${source.path}
 ${pretty(config)}`);
 }
 async function status(cwd, options = {}) {
-  const config = await loadConfig(cwd), base2 = join21(cwd, config.taskRoot);
+  const config = await loadConfig(cwd), base2 = join22(cwd, config.taskRoot);
   if (!await exists(base2)) return output(options.json ? "[]" : "No tasks yet. Run maverick task add-your-feature.");
   const tasks = [];
-  for (const entry of (await readdir10(base2, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const dir = join21(base2, entry.name), preset = await taskPreset(dir, config);
-    const evidence = await exists(join21(dir, "EVIDENCE.md")), findings = await exists(join21(dir, "REVIEW-FINDINGS.md"));
+  for (const entry of (await readdir11(base2, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const dir = join22(base2, entry.name), preset = await taskPreset(dir, config);
+    const evidence = await exists(join22(dir, "EVIDENCE.md")), findings = await exists(join22(dir, "REVIEW-FINDINGS.md"));
     tasks.push({ task: entry.name, preset, evidence, findings, next: evidence ? findings ? "complete human review" : "run review --diff" : "run verify" });
   }
   output(options.json ? JSON.stringify(tasks, null, 2) : tasks.map((task) => `${task.task}	${task.preset}	${task.next}`).join("\n"));
@@ -3045,13 +3405,13 @@ async function doctor(cwd, options = {}) {
   const checks = [
     ["Node >= 20", Number(process.versions.node.split(".")[0]) >= 20],
     ["Git available", gitAvailable()],
-    ["Git repository", await exists(join21(cwd, ".git"))],
+    ["Git repository", await exists(join22(cwd, ".git"))],
     ["Configuration valid", !configError, configError],
     ["Stack detected", map.languages.length > 0, map.languages.length ? map.language : "no known manifests at the root or first-level folders"],
     ["Repository instructions", map.instructions.length > 0],
     ["Verification commands", commands2.length > 0]
   ];
-  if (await exists(join21(cwd, LOCK_PATH))) {
+  if (await exists(join22(cwd, LOCK_PATH))) {
     const drifted = (await checkDrift(cwd, await readLock(cwd))).filter((item) => item.issues.length);
     checks.push(["Capabilities match lockfile", !drifted.length, drifted.length ? `${drifted.map((item) => item.ref).join(", ")} changed; run maverick installed` : void 0]);
   }
@@ -3064,7 +3424,7 @@ async function doctor(cwd, options = {}) {
   }).filter(Boolean))];
   for (const bin of binaries) {
     const where = commands2.find((item) => item.command.startsWith(bin))?.cwd;
-    checks.push([`Toolchain: ${bin}`, commandAvailable(bin, where ? join21(cwd, where) : cwd), "not found on PATH"]);
+    checks.push([`Toolchain: ${bin}`, commandAvailable(bin, where ? join22(cwd, where) : cwd), "not found on PATH"]);
   }
   const fixes = checks.filter(([, ok]) => !ok).map(([name2, , detail]) => `Add or configure: ${name2}${detail ? ` (${detail})` : ""}`);
   if (options.json) return output(JSON.stringify({ checks: checks.map(([name2, ok, detail]) => ({ name: name2, ok, ...detail && { detail } })), fixes }, null, 2));
@@ -3075,7 +3435,7 @@ ${fixes.map((fix) => `- ${fix}`).join("\n") || "- No fixes needed."}`);
 No telemetry is collected by Maverick.`);
 }
 async function dashboard(cwd, options = {}) {
-  const { startDashboard } = await import("./server-6JVLTT62.js");
+  const { startDashboard } = await import("./server-35LBCCZR.js");
   const port = Number(options.port || 4173), host = options.host || "127.0.0.1";
   const server = await startDashboard({ cwd, host, port, watch: !options.noWatch });
   const address = `http://${host}:${port}`;
@@ -3122,9 +3482,9 @@ var projectCommands = [
 ];
 
 // src/commands/index.js
-var ORDER = ["dashboard", "init", "task", "subtask", "flow", "agent", "map", "stack", "packet", "checkpoint", "impact", "guard", "learn", "handoff", "readiness", "policy", "adapter", "ci", "catalog", "add", "remove", "installed", "sync", "verify", "security", "deps", "pr", "presets", "suggest", "validate", "context", "plan", "review", "config", "doctor", "status", "info", "help"];
+var ORDER = ["dashboard", "init", "task", "subtask", "flow", "agent", "map", "stack", "graph", "hotspots", "mcp", "packet", "checkpoint", "impact", "guard", "learn", "handoff", "readiness", "policy", "adapter", "ci", "catalog", "add", "remove", "installed", "sync", "verify", "security", "deps", "pr", "presets", "suggest", "validate", "context", "plan", "review", "config", "doctor", "status", "info", "help"];
 var helpCommand = { id: "help", description: "Show usage and the command list.", aliases: ["--help", "-h"], usage: "help", run: () => help() };
-var commands = [...projectCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...agentCommands, helpCommand].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
+var commands = [...projectCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...agentCommands, ...intelCommands, helpCommand].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 var byName = new Map(commands.flatMap((command) => [command.id, ...command.aliases].map((name2) => [name2, command])));
 function findCommand(name2) {
   return byName.get(name2);
@@ -3149,15 +3509,24 @@ var commandRegistry = commands.map(({ id: id2, description, aliases, usage }) =>
 export {
   packageVersion,
   IGNORED_DIRS,
+  exists,
   replaceVars,
   sectionPresent,
   parseOptions,
   detectStack,
+  selectVerificationCommands,
   defaultConfig,
   loadConfig,
+  getTask,
   loadGraph,
+  loadCatalog,
+  searchCatalog,
   inspectProject,
+  buildGraph,
+  impactOf,
   recommendPreset,
+  churn,
+  rankHotspots,
   commandRegistry,
   findCommand
 };

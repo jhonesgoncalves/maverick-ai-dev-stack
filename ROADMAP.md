@@ -8,13 +8,14 @@
 - Capability manager: skills, agents, commands, and MCP servers installed into six AI tools from one portable definition, with planned changes, key-level merges, a hashed lockfile, drift detection, and rollback.
 - Contract-driven flows (typed gates, iteration caps, stall detection, explicit outcomes, human approvals) and acyclic subtask graphs.
 - Headless agent runtime for Claude Code, Codex, Cursor CLI, Gemini CLI, and custom CLIs: trusted providers, permission ceilings, routing by subtask type, hooks, transcripts, and agent-driven flow fixes.
+- Architecture intelligence across languages (resolved import graph, cycles, impact, hotspots, health) and a read-only MCP server.
 
 ## Next
 
 - Capabilities (hooks, templates), remote and signed catalogs, and TOML merging for Codex MCP configuration.
 - Agent-judged gates with rubrics and schema-validated verdicts, and deterministic multi-round review files, once the agent runtime lands.
 - Session resume across flow iterations, parallel subtask execution in isolated worktrees, and cost budgets per flow.
-- **Intelligence:** dependency graph with cycles, change impact, health and hotspots across languages, plus a read-only MCP server exposing the project map, tasks, and impact.
+- Deeper resolution (TypeScript path aliases, Python namespace packages, C# namespaces), ownership from Git history, and trend tracking of health over time.
 
 ## Later / exploratory
 

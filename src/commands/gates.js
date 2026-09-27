@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { executeCommand, findReferences, gitDiff, inspectProject, writeEvidence } from '../core/project-tools.js';
 import { selectVerificationCommands } from '../core/stack.js';
 import { getTask } from '../core/tasks.js';
+import { buildGraph, impactOf } from '../intel/graph.js';
 import { brand, changedFilesFromDiff, exists, output, packageRoot, pretty, readJson, rel } from '../core/util.js';
 import { showArtifact } from './task.js';
 
@@ -31,8 +32,11 @@ async function reviewDiff(cwd, slug, options = {}) {
   if (files.some(file => /(^|\/)(\.env|secrets?|credentials?)/i.test(file))) findings.push('Security: sensitive-looking path changed; confirm secrets and PII were not included.');
   if (files.some(file => LOCKFILE.test(file))) findings.push('Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities.');
   if (preset.strict && !await exists(join(dir, 'EVIDENCE.md'))) findings.push('Strict Review: test evidence is missing; run maverick verify first.');
+  // Blast radius: how far each changed source file reaches through the import graph.
+  const graph = files.length ? await buildGraph(cwd) : null;
+  const radius = graph ? files.map(file => ({ file, ...impactOf(graph, file) })).filter(item => item.known && item.dependents.length).sort((a, b) => b.dependents.length - a.dependents.length) : [];
   const path = join(dir, 'REVIEW-FINDINGS.md');
-  await writeFile(path, `# Diff Review Findings — ${slug}\n\nBase: ${options.against || 'HEAD'}\nChanged files:\n${files.map(file => `- \`${file}\``).join('\n') || '- none'}\n\n## Findings\n${findings.map(finding => `- ${finding}`).join('\n') || '- No automated findings. Complete the human review in REVIEW.md.'}\n`);
+  await writeFile(path, `# Diff Review Findings — ${slug}\n\nBase: ${options.against || 'HEAD'}\nChanged files:\n${files.map(file => `- \`${file}\``).join('\n') || '- none'}\n\n## Findings\n${findings.map(finding => `- ${finding}`).join('\n') || '- No automated findings. Complete the human review in REVIEW.md.'}\n\n## Blast radius\n${radius.map(item => `- \`${item.file}\`: ${item.direct.length} direct / ${item.dependents.length} transitive dependents; tests: ${item.tests.slice(0, 5).map(test => `\`${test}\``).join(', ') || 'none'}`).join('\n') || '- Changed files have no local dependents.'}\n`);
   output(options.json ? JSON.stringify({ files, findings, path: rel(cwd, path) }, null, 2) : `${brand()} / REVIEW\nChanged files: ${files.length}\nFindings: ${findings.length}\nReport: ${rel(cwd, path)}`);
 }
 
@@ -46,9 +50,15 @@ async function checkpoint(cwd, slug, options = {}) {
 
 async function impact(cwd, path, options = {}) {
   if (!path || path.includes('..')) throw new Error('provide a project-relative file path');
-  const references = await findReferences(cwd, path);
-  const payload = { path, references, count: references.length, truncated: references.length === 40 };
-  output(options.json ? JSON.stringify(payload, null, 2) : `${brand()} / IMPACT\nTarget: ${path}\nReferences:\n${references.map(file => `- ${file}`).join('\n') || '- none found'}`);
+  const target = path.replace(/^\.\//, '');
+  const graph = await buildGraph(cwd), result = impactOf(graph, target);
+  // Files outside the import graph (configs, docs, assets) fall back to a bounded text search.
+  const references = result.known ? [] : await findReferences(cwd, target);
+  const payload = { path: target, inGraph: result.known, direct: result.direct, dependents: result.dependents, tests: result.tests, references, count: result.known ? result.dependents.length : references.length, truncated: !result.known && references.length === 40 };
+  if (options.json) return output(JSON.stringify(payload, null, 2));
+  if (!result.known) return output(`${brand()} / IMPACT\nTarget: ${target} (not a source file in the import graph)\nText references:\n${references.map(file => `- ${file}`).join('\n') || '- none found'}`);
+  const production = result.dependents.filter(item => !item.test);
+  output(`${brand()} / IMPACT\nTarget: ${target}\nDirect dependents: ${result.direct.length} · transitive: ${result.dependents.length} (${result.tests.length} test file(s))\n\n${production.slice(0, 30).map(item => `${'  '.repeat(Math.min(item.depth - 1, 4))}- ${item.id}${item.depth > 1 ? ` (depth ${item.depth})` : ''}`).join('\n') || 'No production file imports it.'}${production.length > 30 ? `\n… ${production.length - 30} more` : ''}\n\nTests to run:\n${result.tests.map(file => `- ${file}`).join('\n') || '- none import it; consider adding one'}`);
 }
 
 async function guardScope(cwd, slug, options = {}) {

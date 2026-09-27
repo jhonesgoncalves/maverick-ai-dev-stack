@@ -279,6 +279,28 @@ Route work by subtask type or complexity, add other CLIs, and guard runs with ho
 
 Hooks receive the event as JSON on stdin. Exit `0` allows (a `before-agent-run` hook may print `{"appendPrompt": "..."}`), exit `2` denies with stderr as the reason; a failing `before-agent-run` hook fails closed, while `after-*` hooks only warn.
 
+## Architecture intelligence and MCP
+
+Maverick resolves static imports to real files in JavaScript/TypeScript, Python, Go, Rust, Java/Kotlin, Ruby, PHP, Dart, and C/C++, then derives metrics you can act on before a change:
+
+```bash
+maverick graph                      # health score, import cycles, hubs, most depended-on files
+maverick graph --format mermaid     # directory-level diagram (also: --format dot)
+maverick impact src/billing/tax.py  # transitive dependents and the tests to run
+maverick hotspots --since "3 months ago"
+```
+
+- **Cycles** use Tarjan's algorithm over static imports; lazy `import()` counts for impact but not for cycles, because it is a deliberate runtime boundary.
+- **Health** is `100 × (1 − 0.7 × share of files in import cycles − 0.3 × share of hub files)`, printed with every score so it can be challenged.
+- **Hotspots** rank files by `commits × (1 + fan-in) × log10(10 + lines)` from Git history: where change and coupling meet.
+- `maverick review <task> --diff` adds a blast-radius section to `REVIEW-FINDINGS.md`, and Lens shows fan-in, fan-out, instability, cycles and hotspots.
+
+`maverick mcp` serves the same intelligence to any MCP client over stdio, read-only: `project_overview`, `list_tasks`, `get_task`, `next_subtasks`, `impact`, `graph_summary`, and `search_capabilities`. Register it in every detected tool with the built-in capability:
+
+```bash
+maverick add mcp/maverick --to claude-code,cursor,gemini --allow-exec
+```
+
 ## Install capabilities into any AI tool
 
 Write a skill, agent, command, or MCP server once and install it into every AI coding tool the repository uses. Maverick ships a built-in catalog (reviewer, builder, test-engineer, security-reviewer, debugger and architect agents; the `maverick-workflow` skill; `preflight`, `review-diff` and `ship-check` commands) and also reads your own capabilities from `.maverick/capabilities/` and any `capabilities.catalogs` paths in configuration.
