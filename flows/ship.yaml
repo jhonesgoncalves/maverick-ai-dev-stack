@@ -1,0 +1,41 @@
+apiVersion: maverick.flow/v1
+name: ship
+description: Takes a task from implemented to ready for a human merge decision, running every evidence gate.
+contract:
+  goal: Every blocking gate for {{task}} passes and a human has recorded a review decision.
+  iterationCap: 3
+  noProgressWindow: 2
+gates:
+  - id: artifacts
+    type: maverick
+    run: validate
+    description: Task artifacts contain every required section.
+  - id: checks
+    type: maverick
+    run: verify
+    description: Lint, typecheck, tests and build pass for the detected stack.
+  - id: scope
+    type: maverick
+    run: guard
+    severity: warn
+    description: Changed files stay within the declared task scope.
+  - id: security
+    type: maverick
+    run: security
+    description: No high-signal security patterns in the diff.
+  - id: dependencies
+    type: maverick
+    run: deps
+    severity: warn
+    description: Dependency changes are reported for review.
+  - id: diff-review
+    type: maverick
+    run: review
+    severity: warn
+    description: Automated diff findings are written for the reviewer.
+  - id: human-review
+    type: approval
+    prompt: A human reviews the change and records the decision.
+    file: REVIEW.md
+    pattern: "- \\[[xX]\\] (?:approve|approve with follow-up)"
+    description: A human approved the change in REVIEW.md or with maverick flow approve.

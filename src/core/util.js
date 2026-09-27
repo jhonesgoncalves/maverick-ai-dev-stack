@@ -29,7 +29,15 @@ export async function readText(path) { try { return await readFile(path, 'utf8')
 export function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 export function pretty(value) { return `${JSON.stringify(value, null, 2)}\n`; }
 export function rel(cwd, path) { return relative(cwd, path) || '.'; }
-export function output(message) { console.log(message); }
+let sink = null;
+export function output(message) { if (sink) sink.push(String(message)); else console.log(message); }
+
+/** Runs fn while collecting everything it would print, so commands can be reused as building blocks. */
+export async function captureOutput(fn) {
+  const previous = sink, lines = [];
+  sink = lines;
+  try { return { value: await fn(), output: lines.join('\n') }; } catch (error) { error.output = lines.join('\n'); throw error; } finally { sink = previous; }
+}
 export function brand() { return process.env.NO_COLOR ? '⚔ MAVERICK' : '\x1b[38;5;208m⚔ MAVERICK\x1b[0m'; }
 
 export function replaceVars(text, vars) { return Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{{${k}}}`, v), text); }
@@ -48,10 +56,12 @@ export function parseOptions(args) {
   return { positional, options };
 }
 
-/** Splits a command line into argv, honouring single and double quotes. No shell is involved. */
+/** Splits a command line into argv, honouring quotes and `\"`/`\\` escapes inside double quotes. No shell is involved. */
 export function splitCommand(command) {
-  const argv = []; let current = '', quote = null, started = false;
-  for (const char of command.trim()) {
+  const argv = [], chars = [...command.trim()]; let current = '', quote = null, started = false;
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    if (quote === '"' && char === '\\' && (chars[i + 1] === '"' || chars[i + 1] === '\\')) { current += chars[++i]; continue; }
     if (quote) { if (char === quote) quote = null; else current += char; continue; }
     if (char === '"' || char === "'") { quote = char; started = true; continue; }
     if (/\s/.test(char)) { if (started || current) argv.push(current); current = ''; started = false; continue; }

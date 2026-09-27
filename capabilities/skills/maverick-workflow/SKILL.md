@@ -1,7 +1,7 @@
 ---
 name: maverick-workflow
 description: Runs AI-assisted changes through the Maverick workflow of scoped task, context, plan, verification evidence and human review. Use when starting, implementing, verifying or handing off a change in a repository that has a .maverick directory or when the user mentions Maverick.
-version: 1.0.0
+version: 1.1.0
 tags: [maverick, workflow, verification, review]
 ---
 
@@ -16,15 +16,42 @@ Maverick keeps AI-assisted changes explainable, verified and reviewable. The CLI
 3. Fill `TASK.md` (problem, goal, acceptance criteria, in/out of scope, verification) and `CONTEXT.md` (relevant paths, constraints, do-not-touch). Ask the human about anything that would change behavior.
 4. Run `maverick validate <slug>` until required sections are present.
 
+## Break it down
+
+For work with more than one step, create a subtask graph and follow it:
+
+```bash
+maverick subtask add <slug> "Add pagination to the API" --type backend
+maverick subtask add <slug> "Render the paginated list" --after 01 --type frontend
+maverick subtask next <slug> --json      # what is ready now
+maverick subtask set <slug> 01 in-progress
+maverick subtask set <slug> 01 done
+```
+
+Work only on subtasks reported as ready; dependencies are enforced.
+
 ## Implement
 
 - TASK.md is the contract: do not expand scope, add dependencies, or change public contracts without explicit permission.
 - Work criterion by criterion; run the narrowest relevant check after each step.
 - Use `maverick impact <path>` before changing shared files.
 
-## Verify and review
+## Verify with a flow
 
-Run these and read every report before claiming the work is done:
+Flows run typed gates under a contract with an iteration cap and stall detection. Loop on the exit code, and obey the outcome:
+
+```bash
+maverick flow run fix-checks <slug>   # bounded fix loop for lint, typecheck and tests
+maverick flow run ship <slug>         # every evidence gate up to the human decision
+```
+
+- `revise`: fix only the listed blocking issues, then run the flow again.
+- `done` or `awaiting-approval`: stop and hand over to the human.
+- `stalled` or `exhausted`: stop immediately and ask the human. Never pass `--reset` yourself.
+
+## Individual gates
+
+The same gates can be run one by one; read every report before claiming the work is done:
 
 ```bash
 maverick verify <slug>

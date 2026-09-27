@@ -197,6 +197,44 @@ Maverick detects the project stack from manifest files—nothing is executed dur
 
 Commands run without a shell; use a task-runner target for pipelines or `&&` chains. Configuration is layered—built-in defaults, then `~/.maverick/config.json` (or `$MAVERICK_HOME`), then the project—and validated on load; inspect it with `maverick config show`.
 
+## Bounded agent loops with contract-driven flows
+
+AI agents loop well and stop badly. A flow declares a goal, typed gates, and a contract that decides when to stop, so an agent can iterate on its own without looping forever:
+
+```bash
+maverick flow list
+maverick flow run fix-checks my-task   # lint, typecheck and tests for the detected stack
+maverick flow run ship my-task         # every evidence gate up to the human decision
+maverick flow status my-task
+```
+
+Each run evaluates every gate and ends in one outcome: `revise` (fix the listed blocking issues and run again), `done`, `awaiting-approval` (a human must sign off), `stalled` (the same blocking issues repeated across the no-progress window), or `exhausted` (the iteration cap was reached). Only `done` exits zero. After `stalled` or `exhausted` the flow refuses to run again until a human passes `--reset`. Results go to `FLOW-<NAME>.md` and `flows/<name>.json` inside the task.
+
+Gates are typed, never free text: `check` (stack-detected lint/typecheck/test/build), `maverick` (validate, verify, guard, security, deps, policy, review, readiness), `command`, `artifact` (file, sections, pattern), and `approval` (recorded with `maverick flow approve <flow> <task> <gate> [--reject --reason ...]`, or found in a task file such as a checked decision in `REVIEW.md`). A missing approval produces `awaiting-approval`, never `revise`, so agents are not asked to fix what only a human can decide. Gates marked `severity: warn` are reported without blocking. Add your own flows in `.maverick/flows/<name>.yaml`:
+
+```yaml
+apiVersion: maverick.flow/v1
+name: api-change
+description: Contract checks for public API changes.
+contract:
+  goal: The API change for {{task}} is compatible and signed off.
+  iterationCap: 3
+  noProgressWindow: 2
+gates:
+  - { id: checks, type: check, kinds: [lint, test] }
+  - { id: contract-tests, type: command, run: make contract-test }
+  - { id: api-owner, type: approval, prompt: API owner approves the change }
+```
+
+Large tasks can be split into a dependency graph that agents follow in order. `subtasks/_tasks.md` owns the edges, each `task_NN.md` owns its status, and cycles, unknown statuses, and unlisted files fail validation:
+
+```bash
+maverick subtask add my-task "Add pagination to the API" --type backend
+maverick subtask add my-task "Render the paginated list" --after 01 --type frontend
+maverick subtask next my-task --json
+maverick subtask set my-task 01 done
+```
+
 ## Install capabilities into any AI tool
 
 Write a skill, agent, command, or MCP server once and install it into every AI coding tool the repository uses. Maverick ships a built-in catalog (reviewer, builder, test-engineer, security-reviewer, debugger and architect agents; the `maverick-workflow` skill; `preflight`, `review-diff` and `ship-check` commands) and also reads your own capabilities from `.maverick/capabilities/` and any `capabilities.catalogs` paths in configuration.

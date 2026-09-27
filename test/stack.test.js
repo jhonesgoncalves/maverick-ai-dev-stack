@@ -142,6 +142,7 @@ test('splitCommand honours quotes without invoking a shell', () => {
   assert.deepEqual(splitCommand('cargo clippy -- -D warnings'), ['cargo', 'clippy', '--', '-D', 'warnings']);
   assert.deepEqual(splitCommand(`pytest -k "not slow" ''`), ['pytest', '-k', 'not slow', '']);
   assert.throws(() => splitCommand('echo "open'), /unbalanced quote/);
+  assert.deepEqual(splitCommand('node -e "console.log(\\"hi\\")" \'a\\b\''), ['node', '-e', 'console.log("hi")', 'a\\b']);
 });
 
 test('import extraction covers multiple languages', () => {

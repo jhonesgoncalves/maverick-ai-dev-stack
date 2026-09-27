@@ -11,6 +11,7 @@
     "dist",
     "templates",
     "capabilities",
+    "flows",
     "prompts",
     "agents",
     "workflows",

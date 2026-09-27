@@ -51,8 +51,22 @@ function pretty(value) {
 function rel(cwd, path) {
   return relative(cwd, path) || ".";
 }
+var sink = null;
 function output(message) {
-  console.log(message);
+  if (sink) sink.push(String(message));
+  else console.log(message);
+}
+async function captureOutput(fn) {
+  const previous = sink, lines = [];
+  sink = lines;
+  try {
+    return { value: await fn(), output: lines.join("\n") };
+  } catch (error) {
+    error.output = lines.join("\n");
+    throw error;
+  } finally {
+    sink = previous;
+  }
 }
 function brand() {
   return process.env.NO_COLOR ? "\u2694 MAVERICK" : "\x1B[38;5;208m\u2694 MAVERICK\x1B[0m";
@@ -81,9 +95,14 @@ function parseOptions(args) {
   return { positional, options };
 }
 function splitCommand(command) {
-  const argv = [];
+  const argv = [], chars = [...command.trim()];
   let current = "", quote = null, started = false;
-  for (const char of command.trim()) {
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    if (quote === '"' && char === "\\" && (chars[i + 1] === '"' || chars[i + 1] === "\\")) {
+      current += chars[++i];
+      continue;
+    }
     if (quote) {
       if (char === quote) quote = null;
       else current += char;
@@ -618,10 +637,10 @@ var argumentsAs = (body, token) => body.replaceAll("{{ARGUMENTS}}", token);
 var tomlString = (text) => text.includes("'''") ? JSON.stringify(text) : `'''
 ${text}'''`;
 function skillOutputs(capability, root) {
-  const base = `${root}/${capability.name}`;
+  const base2 = `${root}/${capability.name}`;
   return capability.files.map((file) => ({
     type: "file",
-    path: `${base}/${file}`,
+    path: `${base2}/${file}`,
     content: file === "SKILL.md" ? renderFrontmatter({ name: capability.name, description: capability.description, "allowed-tools": capability["allowed-tools"] }, capability.body) : capability.contents[file]
   }));
 }
@@ -724,7 +743,7 @@ async function resolveTargets(cwd, config = {}, to) {
   const requested = typeof to === "string" ? to.split(",").map((value) => value.trim()).filter(Boolean) : config.capabilities?.targets;
   if (requested?.length) {
     const ids = requested.includes("all") ? ADAPTER_IDS : requested;
-    const unknown = ids.filter((id) => !ADAPTER_IDS.includes(id));
+    const unknown = ids.filter((id2) => !ADAPTER_IDS.includes(id2));
     if (unknown.length) throw new Error(`unknown target ${unknown.join(", ")}; use ${ADAPTER_IDS.join(", ")} or all`);
     return ADAPTERS.filter((adapter2) => ids.includes(adapter2.id));
   }
@@ -863,7 +882,7 @@ async function planInstall(cwd, capability, adapters, lock, { force = false } = 
         if (current && owner !== capability.ref && op !== "unchanged") conflicts.push({ target: adapter2.id, path: output2.path, reason: owner ? `owned by ${owner}` : "exists and is not managed by Maverick" });
         changes.push({ target: adapter2.id, type: "file", op, path: output2.path, content, sha256: hash });
       } else {
-        const document = await readJsonFile(cwd, output2.path), current = getAt(document, output2.pointer), id = keyId(output2.path, output2.pointer), owner = owners.get(id);
+        const document = await readJsonFile(cwd, output2.path), current = getAt(document, output2.pointer), id2 = keyId(output2.path, output2.pointer), owner = owners.get(id2);
         const op = current === void 0 ? "create" : hashValue(current) === hashValue(output2.value) ? "unchanged" : "update";
         if (current !== void 0 && owner !== capability.ref && op !== "unchanged") conflicts.push({ target: adapter2.id, path: `${output2.path} \u2192 ${output2.pointer.join(".")}`, reason: owner ? `owned by ${owner}` : "key exists and is not managed by Maverick" });
         changes.push({ target: adapter2.id, type: "json-key", op, path: output2.path, pointer: output2.pointer, value: output2.value, sha256: hashValue(output2.value) });
@@ -963,12 +982,12 @@ function lockEntry(plan, { allowExec = false } = {}) {
 async function checkDrift(cwd, lock) {
   const report = [];
   for (const [ref, entry] of Object.entries(lock.capabilities)) {
-    const issues = [];
+    const issues2 = [];
     for (const [target, recorded] of Object.entries(entry.targets || {})) {
       for (const file of recorded.files || []) {
         const full = resolveInside(cwd, file.path);
-        if (!await exists(full)) issues.push({ target, path: file.path, status: "missing" });
-        else if (sha256(await readFile5(full)) !== file.sha256) issues.push({ target, path: file.path, status: "modified" });
+        if (!await exists(full)) issues2.push({ target, path: file.path, status: "missing" });
+        else if (sha256(await readFile5(full)) !== file.sha256) issues2.push({ target, path: file.path, status: "modified" });
       }
       for (const key of recorded.keys || []) {
         let current;
@@ -977,11 +996,11 @@ async function checkDrift(cwd, lock) {
         } catch {
           current = void 0;
         }
-        if (current === void 0) issues.push({ target, path: `${key.path} \u2192 ${key.pointer.join(".")}`, status: "missing" });
-        else if (hashValue(current) !== key.sha256) issues.push({ target, path: `${key.path} \u2192 ${key.pointer.join(".")}`, status: "modified" });
+        if (current === void 0) issues2.push({ target, path: `${key.path} \u2192 ${key.pointer.join(".")}`, status: "missing" });
+        else if (hashValue(current) !== key.sha256) issues2.push({ target, path: `${key.path} \u2192 ${key.pointer.join(".")}`, status: "modified" });
       }
     }
-    report.push({ ref, version: entry.version, source: entry.source, targets: Object.keys(entry.targets || {}), issues });
+    report.push({ ref, version: entry.version, source: entry.source, targets: Object.keys(entry.targets || {}), issues: issues2 });
   }
   return report;
 }
@@ -1302,8 +1321,12 @@ var deliveryCommands = [
   { id: "pr", description: "Generate an evidence-backed PR draft.", aliases: [], usage: "pr <task>", run: ({ cwd, arg, options }) => draftPr(cwd, arg, options) }
 ];
 
-// src/commands/gates.js
-import { mkdir as mkdir5, readFile as readFile10, writeFile as writeFile5 } from "fs/promises";
+// src/commands/flow.js
+import { readdir as readdir8 } from "fs/promises";
+import { join as join14 } from "path";
+
+// src/flows/engine.js
+import { mkdir as mkdir4, readFile as readFile10, writeFile as writeFile4 } from "fs/promises";
 import { join as join12 } from "path";
 
 // src/core/project-tools.js
@@ -1441,37 +1464,558 @@ async function findReferences(cwd, target, maxResults = 40) {
   return results;
 }
 
+// src/flows/model.js
+import { readdir as readdir6, readFile as readFile9 } from "fs/promises";
+import { basename as basename2, join as join11 } from "path";
+import { parse as parseYaml2 } from "yaml";
+import { z as z3 } from "zod";
+var MAVERICK_GATES = ["validate", "verify", "guard", "security", "deps", "policy", "review", "readiness"];
+var TERMINAL = ["stalled", "exhausted"];
+var id = z3.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/, "use a lowercase kebab-case id");
+var base = { id, description: z3.string().optional(), severity: z3.enum(["block", "warn"]).default("block") };
+var gate = z3.discriminatedUnion("type", [
+  z3.object({ ...base, type: z3.literal("check"), kinds: z3.array(z3.enum(CHECK_KINDS)).optional() }),
+  z3.object({ ...base, type: z3.literal("maverick"), run: z3.enum(MAVERICK_GATES) }),
+  z3.object({ ...base, type: z3.literal("command"), run: z3.string().min(1), cwd: z3.string().optional() }),
+  z3.object({ ...base, type: z3.literal("artifact"), file: z3.string().min(1), sections: z3.array(z3.string()).default([]), pattern: z3.string().optional(), noPlaceholders: z3.boolean().default(false) }),
+  // An approval is recorded with `maverick flow approve`, or found in a task file (e.g. a checked box in REVIEW.md).
+  z3.object({ ...base, type: z3.literal("approval"), prompt: z3.string().min(1), file: z3.string().optional(), pattern: z3.string().optional() })
+]);
+var flowSchema = z3.object({
+  apiVersion: z3.literal("maverick.flow/v1"),
+  name: id,
+  description: z3.string().min(10),
+  contract: z3.object({
+    goal: z3.string().min(1),
+    iterationCap: z3.number().int().min(1).max(20).default(3),
+    noProgressWindow: z3.number().int().min(2).max(10).default(2)
+  }),
+  gates: z3.array(gate).min(1)
+}).superRefine((flow, ctx) => {
+  const seen = /* @__PURE__ */ new Set();
+  flow.gates.forEach((item, index) => {
+    if (seen.has(item.id)) ctx.addIssue({ code: "custom", path: ["gates", index, "id"], message: `duplicate gate id "${item.id}"` });
+    seen.add(item.id);
+  });
+});
+function formatIssues3(error) {
+  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
+}
+async function loadFlowFile(path, source) {
+  const text = await readFile9(path, "utf8");
+  let data;
+  try {
+    data = parseYaml2(text);
+  } catch (error) {
+    throw new Error(`${path}: invalid YAML (${error.message})`);
+  }
+  const parsed = flowSchema.safeParse(data);
+  if (!parsed.success) throw new Error(`${path}: ${formatIssues3(parsed.error)}`);
+  if (parsed.data.name !== basename2(path).replace(/\.ya?ml$/, "")) throw new Error(`${path}: name "${parsed.data.name}" must match the file name`);
+  return { ...parsed.data, source, path, integrity: sha256(text) };
+}
+async function loadFlows(cwd) {
+  const flows = /* @__PURE__ */ new Map(), errors = [];
+  for (const [source, dir] of [["project", join11(cwd, ".maverick", "flows")], ["built-in", join11(packageRoot, "flows")]]) {
+    for (const file of (await readdir6(dir).catch(() => [])).filter((name2) => /\.ya?ml$/.test(name2)).sort()) {
+      try {
+        const flow = await loadFlowFile(join11(dir, file), source);
+        if (!flows.has(flow.name)) flows.set(flow.name, flow);
+      } catch (error) {
+        errors.push({ source, file, message: error.message.replace(`${join11(dir, file)}: `, "") });
+      }
+    }
+  }
+  return { flows: [...flows.values()], errors };
+}
+async function findFlow(cwd, name2) {
+  const { flows, errors } = await loadFlows(cwd);
+  const flow = flows.find((item) => item.name === name2);
+  if (flow) return flow;
+  const broken = errors.find((error) => error.file.replace(/\.ya?ml$/, "") === name2);
+  if (broken) throw new Error(`flow ${name2} is invalid: ${broken.message}`);
+  throw new Error(`flow not found: ${name2 || "(none)"}; available: ${flows.map((item) => item.name).join(", ") || "none"}`);
+}
+function interpolate(text, vars) {
+  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => vars[key] ?? match);
+}
+
+// src/flows/engine.js
+function parseJson2(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+  }
+  const start = text.indexOf("{");
+  try {
+    return start >= 0 ? JSON.parse(text.slice(start)) : null;
+  } catch {
+    return null;
+  }
+}
+var MAVERICK_RESULTS = {
+  validate: (json) => ({ pass: json.valid, issues: json.results.filter((item) => item.status === "FAIL").map((item) => `${item.file}: ${item.message}`) }),
+  verify: (json) => ({ pass: json.ok, issues: json.results.filter((item) => !item.ok).map((item) => `failed: ${item.command}`) }),
+  guard: (json) => ({ pass: json.ok, issues: json.findings }),
+  security: (json) => ({ pass: !json.findings.length, issues: json.findings }),
+  deps: (json) => ({ pass: true, issues: [], summary: `${json.manifests.length} manifest(s), ${json.lockfiles.length} lockfile(s) changed` }),
+  policy: (json) => ({ pass: json.ok, issues: json.findings }),
+  review: (json) => ({ pass: !json.findings.length, issues: json.findings }),
+  readiness: (json) => ({ pass: json.ready, issues: json.missing.map((item) => `missing: ${item}`) })
+};
+async function runChecks(context, gate2) {
+  const [config, map] = await Promise.all([loadConfig(context.cwd), inspectProject(context.cwd)]);
+  let commands2 = selectVerificationCommands(map.stack, config);
+  if (gate2.kinds) commands2 = commands2.filter((item) => gate2.kinds.includes(item.kind) || item.kind === "custom");
+  if (!commands2.length) return { pass: false, issues: [`no ${gate2.kinds?.join("/") || "verification"} commands detected; declare verification.commands in .maverick/config.json`] };
+  const results = [];
+  for (const item of commands2) results.push(await executeCommand(context.cwd, item.command, item.cwd));
+  await writeEvidence(context.taskDir, context.task, results);
+  return { pass: results.every((result) => result.ok), issues: results.filter((result) => !result.ok).map((result) => `failed: ${result.command}`), summary: `${results.filter((result) => result.ok).length}/${results.length} command(s) passed; evidence in EVIDENCE.md` };
+}
+async function runArtifact(context, gate2) {
+  const file = interpolate(gate2.file, { task: context.task });
+  if (file.split(/[\\/]/).includes("..")) return { pass: false, issues: [`artifact path must stay inside the task: ${file}`] };
+  const path = join12(context.taskDir, file);
+  if (!await exists(path)) return { pass: false, issues: [`missing ${file}`] };
+  const text = await readFile10(path, "utf8"), issues2 = [];
+  for (const section of gate2.sections) if (!sectionPresent(text, section)) issues2.push(`${file}: missing section "${section}"`);
+  if (gate2.pattern && !new RegExp(gate2.pattern, "m").test(text)) issues2.push(`${file}: ${gate2.description || `expected /${gate2.pattern}/`}`);
+  if (gate2.noPlaceholders && !hasMeaningfulContent(text)) issues2.push(`${file}: placeholders remain`);
+  return { pass: !issues2.length, issues: issues2 };
+}
+async function evaluateGate(context, gate2, state) {
+  const base2 = { id: gate2.id, type: gate2.type, severity: gate2.severity, description: gate2.description };
+  try {
+    if (gate2.type === "approval") {
+      const approval = state.approvals?.[gate2.id];
+      if (!approval && gate2.file && gate2.pattern) {
+        const recorded = await runArtifact(context, { file: gate2.file, sections: [], pattern: gate2.pattern });
+        if (recorded.pass) return { ...base2, status: "pass", issues: [], summary: `recorded in ${gate2.file}` };
+      }
+      if (!approval) return { ...base2, status: "pending", issues: [`awaiting approval: ${gate2.prompt}`], summary: `${gate2.file ? `record it in ${gate2.file} or run` : "run"} maverick flow approve ${context.flow} ${context.task} ${gate2.id}` };
+      return { ...base2, status: approval.decision === "approve" ? "pass" : "fail", issues: approval.decision === "approve" ? [] : [`rejected by ${approval.by}: ${approval.reason || "no reason given"}`], summary: `${approval.decision} by ${approval.by}` };
+    }
+    let result;
+    if (gate2.type === "check") result = await runChecks(context, gate2);
+    else if (gate2.type === "artifact") result = await runArtifact(context, gate2);
+    else if (gate2.type === "command") {
+      const command = interpolate(gate2.run, { task: context.task });
+      const run = await executeCommand(context.cwd, command, gate2.cwd || "");
+      result = { pass: run.ok, issues: run.ok ? [] : [`${command} exited ${run.code ?? "before starting"}`], summary: run.output.trim().split("\n").slice(-3).join(" | ").slice(0, 300) };
+    } else {
+      const args = [gate2.run, context.task, "--json", ...gate2.run === "review" ? ["--diff"] : []];
+      let captured;
+      try {
+        captured = (await captureOutput(() => context.invoke(args))).output;
+      } catch (error) {
+        captured = error.output;
+        const json = parseJson2(captured);
+        if (!json) return { ...base2, status: "fail", issues: [error.message] };
+      }
+      result = MAVERICK_RESULTS[gate2.run](parseJson2(captured));
+    }
+    return { ...base2, status: result.pass ? "pass" : "fail", issues: result.issues || [], summary: result.summary };
+  } catch (error) {
+    return { ...base2, status: "fail", issues: [`gate error: ${error.message}`] };
+  }
+}
+var issueKey = (results) => results.filter((result) => result.severity === "block" && result.status === "fail").flatMap((result) => result.issues.map((issue) => `${result.id}: ${issue}`)).sort().join("\n");
+function decideOutcome(results, history, contract) {
+  const blocking = results.filter((result) => result.severity === "block");
+  const failed = blocking.filter((result) => result.status === "fail"), pending2 = blocking.filter((result) => result.status === "pending");
+  if (!failed.length) return { outcome: pending2.length ? "awaiting-approval" : "done", iteration: history.filter((run) => run.outcome === "revise").length };
+  const failedRuns = history.filter((run) => ["revise", "stalled", "exhausted"].includes(run.outcome));
+  const iteration = failedRuns.length + 1, key = issueKey(results);
+  const recent = failedRuns.slice(-(contract.noProgressWindow - 1));
+  if (recent.length === contract.noProgressWindow - 1 && recent.every((run) => run.issueKey === key)) return { outcome: "stalled", iteration, issueKey: key };
+  if (iteration >= contract.iterationCap) return { outcome: "exhausted", iteration, issueKey: key };
+  return { outcome: "revise", iteration, issueKey: key };
+}
+function statePath(taskDir, flow) {
+  return join12(taskDir, "flows", `${flow}.json`);
+}
+async function readState(taskDir, flow) {
+  const path = statePath(taskDir, flow);
+  if (!await exists(path)) return { flow, runs: [], approvals: {} };
+  return JSON.parse(await readFile10(path, "utf8"));
+}
+async function writeState(taskDir, state) {
+  await mkdir4(join12(taskDir, "flows"), { recursive: true });
+  await writeFile4(statePath(taskDir, state.flow), pretty(state));
+}
+var NEXT_STEP = {
+  done: "All blocking gates pass. Hand the change to a human for the merge decision.",
+  revise: "Fix the blocking issues below without widening scope, then run the flow again.",
+  "awaiting-approval": "Blocking checks pass; a human must record the pending approval(s).",
+  stalled: "The same blocking issues repeated with no progress. Stop and ask a human; rerun only with --reset after they decide.",
+  exhausted: "The iteration cap was reached. Stop and ask a human; rerun only with --reset after they decide."
+};
+function renderReport(flow, task, run, contract) {
+  const icon = { pass: "\u2713", fail: "\u2717", pending: "\u2026" };
+  const gates = run.results.map((result) => `- ${icon[result.status]} **${result.id}** (${result.type}${result.severity === "warn" ? ", warn" : ""}) \u2014 ${result.status}${result.summary ? `: ${result.summary}` : ""}${result.issues.length ? `
+${result.issues.map((issue) => `  - ${issue}`).join("\n")}` : ""}`).join("\n");
+  return `# Flow ${flow.name} \u2014 ${task}
+
+Goal: ${interpolate(contract.goal, { task })}
+
+Outcome: **${run.outcome.toUpperCase()}** (failed iteration ${run.iteration}/${contract.iterationCap}, no-progress window ${contract.noProgressWindow})
+Run: ${run.at}
+
+## Next step
+${NEXT_STEP[run.outcome]}
+
+## Gates
+${gates}
+`;
+}
+async function runFlow(context, flow, { reset = false } = {}) {
+  let state = await readState(context.taskDir, flow.name);
+  const notes = [];
+  if (state.integrity && state.integrity !== flow.integrity) {
+    notes.push("flow definition changed since the last run; history was reset");
+    state = { ...state, runs: [] };
+  }
+  const last = state.runs.at(-1);
+  if (reset) {
+    if (state.runs.length) notes.push("history reset by request");
+    state = { ...state, runs: [], approvals: {} };
+  } else if (last && TERMINAL.includes(last.outcome)) throw new Error(`flow ${flow.name} is ${last.outcome} for ${context.task}; a human must decide next steps, then rerun with --reset`);
+  else if (last?.outcome === "done") state = { ...state, runs: [] };
+  const results = [];
+  for (const gate2 of flow.gates) results.push(await evaluateGate({ ...context, flow: flow.name }, gate2, state));
+  const decision = decideOutcome(results, state.runs, flow.contract);
+  const run = { at: (/* @__PURE__ */ new Date()).toISOString(), ...decision, results };
+  state = { ...state, flow: flow.name, integrity: flow.integrity, runs: [...state.runs, run], status: run.outcome };
+  await writeState(context.taskDir, state);
+  const reportPath = join12(context.taskDir, `FLOW-${flow.name.toUpperCase()}.md`);
+  await writeFile4(reportPath, renderReport(flow, context.task, run, flow.contract));
+  return { run, state, notes, reportPath, next: NEXT_STEP[run.outcome] };
+}
+
+// src/subtasks/graph.js
+import { mkdir as mkdir5, readdir as readdir7, readFile as readFile11, writeFile as writeFile5 } from "fs/promises";
+import { join as join13 } from "path";
+import { z as z4 } from "zod";
+var STATUSES = ["pending", "in-progress", "blocked", "done"];
+var COMPLEXITY = ["low", "medium", "high"];
+var MANIFEST = "_tasks.md";
+var nodeId = z4.string().regex(/^\d{2,3}$/, "use a two or three digit id such as 01");
+var manifestSchema = z4.object({
+  schema: z4.literal("maverick.subtasks/v1"),
+  nodes: z4.array(z4.object({ id: nodeId, file: z4.string().regex(/^task_\d{2,3}\.md$/) })),
+  edges: z4.array(z4.object({ from: nodeId, to: nodeId })).default([])
+});
+var itemSchema = z4.object({
+  title: z4.string().min(1),
+  status: z4.enum(STATUSES),
+  type: z4.string().regex(/^[a-z0-9-]+$/).optional(),
+  complexity: z4.enum(COMPLEXITY).optional()
+});
+var dirFor = (taskDir) => join13(taskDir, "subtasks");
+function issues(error) {
+  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
+}
+function findCycle(ids, edges) {
+  const next = new Map(ids.map((id2) => [id2, []]));
+  for (const edge of edges) next.get(edge.from)?.push(edge.to);
+  const state = /* @__PURE__ */ new Map(), stack = [];
+  const visit = (id2) => {
+    state.set(id2, "visiting");
+    stack.push(id2);
+    for (const to of next.get(id2) || []) {
+      if (state.get(to) === "visiting") return [...stack.slice(stack.indexOf(to)), to];
+      if (!state.has(to)) {
+        const cycle = visit(to);
+        if (cycle) return cycle;
+      }
+    }
+    state.set(id2, "done");
+    stack.pop();
+    return null;
+  };
+  for (const id2 of ids) if (!state.has(id2)) {
+    const cycle = visit(id2);
+    if (cycle) return cycle;
+  }
+  return null;
+}
+function topologicalOrder(ids, edges) {
+  const incoming = new Map(ids.map((id2) => [id2, 0]));
+  for (const edge of edges) incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
+  const ready = ids.filter((id2) => !incoming.get(id2)).sort(), order = [];
+  while (ready.length) {
+    const id2 = ready.shift();
+    order.push(id2);
+    for (const edge of edges.filter((item) => item.from === id2)) {
+      incoming.set(edge.to, incoming.get(edge.to) - 1);
+      if (!incoming.get(edge.to)) {
+        ready.push(edge.to);
+        ready.sort();
+      }
+    }
+  }
+  return order;
+}
+async function loadGraph(taskDir) {
+  const dir = dirFor(taskDir), manifestPath = join13(dir, MANIFEST);
+  if (!await exists(manifestPath)) return { exists: false, nodes: [], edges: [], items: [], problems: [] };
+  const problems = [];
+  const parsed = manifestSchema.safeParse(parseFrontmatter(await readFile11(manifestPath, "utf8")).data);
+  if (!parsed.success) return { exists: true, nodes: [], edges: [], items: [], problems: [`${MANIFEST}: ${issues(parsed.error)}`] };
+  const { nodes, edges } = parsed.data, ids = nodes.map((node) => node.id);
+  for (const id2 of ids.filter((value, index) => ids.indexOf(value) !== index)) problems.push(`duplicate node ${id2}`);
+  for (const edge of edges) {
+    if (!ids.includes(edge.from) || !ids.includes(edge.to)) problems.push(`edge ${edge.from} \u2192 ${edge.to} references an unknown node`);
+    if (edge.from === edge.to) problems.push(`node ${edge.from} depends on itself`);
+  }
+  const cycle = findCycle(ids, edges.filter((edge) => ids.includes(edge.from) && ids.includes(edge.to)));
+  if (cycle) problems.push(`dependency cycle: ${cycle.join(" \u2192 ")}`);
+  const items = [];
+  for (const node of nodes) {
+    const path = join13(dir, node.file);
+    if (!await exists(path)) {
+      problems.push(`${node.file} is listed in ${MANIFEST} but missing`);
+      continue;
+    }
+    const { data, body } = parseFrontmatter(await readFile11(path, "utf8"));
+    const item = itemSchema.safeParse(data);
+    if (!item.success) {
+      problems.push(`${node.file}: ${issues(item.error)}`);
+      continue;
+    }
+    items.push({ id: node.id, file: node.file, ...item.data, body, dependsOn: edges.filter((edge) => edge.to === node.id).map((edge) => edge.from) });
+  }
+  const listed = new Set(nodes.map((node) => node.file));
+  for (const file of (await readdir7(dir)).filter((name2) => /^task_\d{2,3}\.md$/.test(name2) && !listed.has(name2))) problems.push(`${file} is not listed in ${MANIFEST}`);
+  const order = cycle ? ids : topologicalOrder(ids, edges);
+  items.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  const done = new Set(items.filter((item) => item.status === "done").map((item) => item.id));
+  for (const item of items) item.ready = item.status === "pending" && item.dependsOn.every((id2) => done.has(id2));
+  return { exists: true, nodes, edges, items, problems };
+}
+async function writeManifest(taskDir, slug, nodes, edges, items) {
+  const table = items.map((item) => `| ${item.id} | ${item.title.replaceAll("|", "\\|")} | ${item.status} | ${item.dependsOn.join(", ") || "\u2014"} |`).join("\n");
+  await writeFile5(join13(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: "maverick.subtasks/v1", nodes, edges }, `# Subtasks \u2014 ${slug}
+
+The frontmatter is the source of truth for dependencies. Manage it with \`maverick subtask\`.
+
+| ID | Title | Status | Depends on |
+|---|---|---|---|
+${table}
+`));
+}
+async function addSubtask(taskDir, slug, { title, after = [], type, complexity }) {
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const ids = graph.nodes.map((node) => node.id);
+  const unknown = after.filter((id3) => !ids.includes(id3));
+  if (unknown.length) throw new Error(`unknown dependency ${unknown.join(", ")}; existing subtasks: ${ids.join(", ") || "none"}`);
+  if (complexity && !COMPLEXITY.includes(complexity)) throw new Error(`complexity must be one of ${COMPLEXITY.join(", ")}`);
+  const id2 = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, "0"), file = `task_${id2}.md`;
+  const nodes = [...graph.nodes, { id: id2, file }], edges = [...graph.edges, ...after.map((from) => ({ from, to: id2 }))];
+  await mkdir5(dirFor(taskDir), { recursive: true });
+  await writeFile5(join13(dirFor(taskDir), file), renderFrontmatter({ title, status: "pending", type, complexity }, `# ${title}
+
+## Goal
+FILL ME
+
+## Acceptance Criteria
+- FILL ME
+
+## Notes
+`));
+  await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id: id2, title, status: "pending", dependsOn: after }]);
+  return { id: id2, file };
+}
+async function setStatus(taskDir, slug, id2, status2) {
+  if (!STATUSES.includes(status2)) throw new Error(`status must be one of ${STATUSES.join(", ")}`);
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const item = graph.items.find((entry) => entry.id === id2);
+  if (!item) throw new Error(`subtask not found: ${id2}; existing: ${graph.items.map((entry) => entry.id).join(", ") || "none"}`);
+  const blockedBy = item.dependsOn.filter((dep) => graph.items.find((entry) => entry.id === dep)?.status !== "done");
+  if (["in-progress", "done"].includes(status2) && blockedBy.length) throw new Error(`subtask ${id2} depends on unfinished ${blockedBy.join(", ")}`);
+  const path = join13(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile11(path, "utf8"));
+  await writeFile5(path, renderFrontmatter({ ...data, status: status2 }, body));
+  item.status = status2;
+  await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
+  return item;
+}
+
+// src/commands/flow.js
+var ICON = { pass: "PASS", fail: "FAIL", pending: "WAIT" };
+async function flowCommand(cwd, [action, ...args], options = {}) {
+  if (!action || action === "list") {
+    const { flows, errors } = await loadFlows(cwd);
+    if (options.json) return output(JSON.stringify({ flows: flows.map(({ name: name2, description, source, contract, gates }) => ({ name: name2, description, source, contract, gates: gates.map((gate2) => gate2.id) })), errors }, null, 2));
+    return output(`${brand()} / FLOWS
+
+${flows.map((flow) => `${flow.name.padEnd(14)}${flow.description} [${flow.source}]`).join("\n") || "No flows found."}${errors.length ? `
+
+${errors.length} invalid flow(s); run maverick flow validate` : ""}
+
+Run with: maverick flow run <flow> <task>`);
+  }
+  if (action === "validate") {
+    const { flows, errors } = await loadFlows(cwd);
+    if (options.json) output(JSON.stringify({ valid: !errors.length, flows: flows.length, errors }, null, 2));
+    else {
+      output(`${brand()} / FLOW VALIDATE
+${flows.length} valid flow(s)`);
+      errors.forEach((error) => output(`FAIL ${error.file} [${error.source}]: ${error.message}`));
+    }
+    if (errors.length) throw new Error(`${errors.length} invalid flow(s)`);
+    return;
+  }
+  if (action === "show") {
+    const flow = await findFlow(cwd, args[0]);
+    if (options.json) return output(JSON.stringify(flow, null, 2));
+    return output(`${brand()} / FLOW
+
+${flow.name} [${flow.source}]
+${flow.description}
+
+Goal: ${flow.contract.goal}
+Iteration cap: ${flow.contract.iterationCap} \xB7 no-progress window: ${flow.contract.noProgressWindow}
+
+Gates:
+${flow.gates.map((gate2) => `  ${gate2.id.padEnd(14)}${gate2.type}${gate2.run ? `:${gate2.run}` : ""}${gate2.severity === "warn" ? " (warn)" : ""}${gate2.description ? ` \u2014 ${gate2.description}` : ""}`).join("\n")}`);
+  }
+  if (action === "run") {
+    const [name2, slug] = args, flow = await findFlow(cwd, name2), { dir } = await getTask(cwd, slug);
+    const invoke = async (argv) => (await import("./cli-F3CWBSQ2.js")).main(argv, cwd);
+    const { run, notes, reportPath, next } = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
+    if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: run.outcome, iteration: run.iteration, iterationCap: flow.contract.iterationCap, next, notes, report: rel(cwd, reportPath), gates: run.results }, null, 2));
+    else {
+      output(`${brand()} / FLOW ${flow.name.toUpperCase()}
+Goal: ${interpolate(flow.contract.goal, { task: slug })}
+`);
+      notes.forEach((note) => output(`NOTE ${note}`));
+      for (const result of run.results) {
+        output(`${ICON[result.status]} ${result.id}${result.severity === "warn" ? " (warn)" : ""}${result.summary ? ` \u2014 ${result.summary}` : ""}`);
+        result.issues.forEach((issue) => output(`     ${issue}`));
+      }
+      output(`
+Outcome: ${run.outcome.toUpperCase()} (failed iteration ${run.iteration}/${flow.contract.iterationCap})
+${next}
+Report: ${rel(cwd, reportPath)}`);
+    }
+    if (run.outcome !== "done") throw new Error(`flow ${flow.name} outcome: ${run.outcome}`);
+    return;
+  }
+  if (action === "status") {
+    const [slug] = args, { dir } = await getTask(cwd, slug);
+    const files = (await readdir8(join14(dir, "flows")).catch(() => [])).filter((file) => file.endsWith(".json"));
+    const states = await Promise.all(files.map((file) => readState(dir, file.replace(/\.json$/, ""))));
+    const summary = states.map((state) => ({ flow: state.flow, status: state.status || "not run", runs: state.runs.length, lastRun: state.runs.at(-1)?.at, approvals: state.approvals }));
+    if (options.json) return output(JSON.stringify(summary, null, 2));
+    return output(summary.length ? summary.map((item) => `${item.flow.padEnd(14)}${item.status.padEnd(18)}${item.runs} run(s)${item.lastRun ? `, last ${item.lastRun}` : ""}`).join("\n") : `No flows have run for ${slug}. Try: maverick flow run ship ${slug}`);
+  }
+  if (action === "approve") {
+    const [name2, slug, gateId] = args, flow = await findFlow(cwd, name2), { dir } = await getTask(cwd, slug);
+    const gate2 = flow.gates.find((item) => item.id === gateId);
+    if (!gate2 || gate2.type !== "approval") throw new Error(`${flow.name} has no approval gate "${gateId || ""}"; approval gates: ${flow.gates.filter((item) => item.type === "approval").map((item) => item.id).join(", ") || "none"}`);
+    if (options.reject && (!options.reason || options.reason === true)) throw new Error('explain the rejection with --reason "..."');
+    const state = await readState(dir, flow.name);
+    const approval = { decision: options.reject ? "reject" : "approve", by: typeof options.by === "string" ? options.by : process.env.USER || "human", at: (/* @__PURE__ */ new Date()).toISOString(), ...typeof options.reason === "string" && { reason: options.reason } };
+    await writeState(dir, { ...state, flow: flow.name, approvals: { ...state.approvals, [gate2.id]: approval } });
+    return output(options.json ? JSON.stringify(approval) : `${brand()} / FLOW APPROVAL
+\u2713 ${gate2.id}: ${approval.decision} by ${approval.by}
+Run maverick flow run ${flow.name} ${slug} to re-evaluate.`);
+  }
+  throw new Error("use flow list, flow show <flow>, flow validate, flow run <flow> <task>, flow status <task>, or flow approve <flow> <task> <gate>");
+}
+async function subtaskCommand(cwd, [action, slug, ...args], options = {}) {
+  const actions = ["add", "list", "next", "set", "validate"];
+  if (!actions.includes(action)) throw new Error(`use subtask ${actions.join("|")} <task> ...`);
+  const { dir } = await getTask(cwd, slug);
+  if (action === "add") {
+    const title = args.join(" ").trim();
+    if (!title) throw new Error('give the subtask a title, for example: maverick subtask add my-task "Add pagination to the API"');
+    const after = typeof options.after === "string" ? options.after.split(",").map((value) => value.trim().padStart(2, "0")).filter(Boolean) : [];
+    const created = await addSubtask(dir, slug, { title, after, type: typeof options.type === "string" ? options.type : void 0, complexity: typeof options.complexity === "string" ? options.complexity : void 0 });
+    return output(options.json ? JSON.stringify(created) : `${brand()} / SUBTASK
+\u2713 ${created.id}: ${title}${after.length ? ` (after ${after.join(", ")})` : ""}
+File: ${rel(cwd, join14(dir, "subtasks", created.file))}`);
+  }
+  if (action === "set") {
+    const [id2, status2] = args;
+    const item = await setStatus(dir, slug, (id2 || "").padStart(2, "0"), status2);
+    return output(options.json ? JSON.stringify({ id: item.id, status: item.status }) : `\u2713 ${item.id} ${item.title}: ${item.status}`);
+  }
+  const graph = await loadGraph(dir);
+  if (action === "validate") {
+    if (options.json) output(JSON.stringify({ valid: !graph.problems.length, subtasks: graph.items.length, problems: graph.problems }, null, 2));
+    else {
+      output(`${brand()} / SUBTASK VALIDATE
+${graph.items.length} subtask(s)`);
+      graph.problems.forEach((problem) => output(`FAIL ${problem}`));
+      if (!graph.problems.length) output("PASS the subtask graph is valid and acyclic");
+    }
+    if (graph.problems.length) throw new Error(`${graph.problems.length} subtask graph problem(s)`);
+    return;
+  }
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  if (action === "next") {
+    const ready = graph.items.filter((item) => item.ready), inProgress = graph.items.filter((item) => item.status === "in-progress");
+    const allDone = graph.items.length > 0 && graph.items.every((item) => item.status === "done");
+    if (options.json) return output(JSON.stringify({ inProgress: inProgress.map(({ body: _body, ...item }) => item), ready: ready.map(({ body: _body, ...item }) => item), allDone }, null, 2));
+    if (!graph.items.length) return output(`No subtasks yet. Add one with: maverick subtask add ${slug} "<title>"`);
+    if (allDone) return output("All subtasks are done.");
+    const lines = [...inProgress.map((item) => `IN PROGRESS ${item.id} ${item.title}`), ...ready.map((item) => `READY       ${item.id} ${item.title}${item.type ? ` [${item.type}]` : ""}`)];
+    return output(lines.join("\n") || "Nothing is ready: remaining subtasks are blocked or waiting on dependencies.");
+  }
+  const counts = Object.fromEntries(STATUSES.map((status2) => [status2, graph.items.filter((item) => item.status === status2).length]));
+  if (options.json) return output(JSON.stringify({ counts, items: graph.items.map(({ body: _body, ...item }) => item) }, null, 2));
+  if (!graph.items.length) return output(`No subtasks yet. Add one with: maverick subtask add ${slug} "<title>"`);
+  output(`${brand()} / SUBTASKS ${slug}
+
+${graph.items.map((item) => `${item.id}  ${item.status.padEnd(12)}${item.ready ? "\u25B6 " : "  "}${item.title}${item.dependsOn.length ? `  (after ${item.dependsOn.join(", ")})` : ""}${item.type ? ` [${item.type}]` : ""}`).join("\n")}
+
+${counts.done}/${graph.items.length} done \xB7 \u25B6 ready to start`);
+}
+var flowCommands = [
+  { id: "flow", description: "Run contract-driven flows with typed gates, iteration caps, and stall detection.", aliases: [], usage: "flow list|show|validate|run <flow> <task>|status <task>|approve", run: ({ cwd, rest, options }) => flowCommand(cwd, rest, options) },
+  { id: "subtask", description: "Break a task into a dependency graph of subtasks.", aliases: [], usage: "subtask add|list|next|set|validate <task>", run: ({ cwd, rest, options }) => subtaskCommand(cwd, rest, options) }
+];
+
+// src/commands/gates.js
+import { mkdir as mkdir7, readFile as readFile13, writeFile as writeFile7 } from "fs/promises";
+import { join as join16 } from "path";
+
 // src/commands/task.js
-import { mkdir as mkdir4, readFile as readFile9, writeFile as writeFile4 } from "fs/promises";
-import { join as join11 } from "path";
+import { mkdir as mkdir6, readFile as readFile12, writeFile as writeFile6 } from "fs/promises";
+import { join as join15 } from "path";
 async function createTask(cwd, slug, options = {}) {
   const config = await loadConfig(cwd), preset = requirePreset(options.preset || config.workflow.defaultPreset || "standard"), dir = taskPath(cwd, config, slug);
   if (await exists(dir)) throw new Error(`task already exists: ${rel(cwd, dir)}; choose another slug or remove it deliberately`);
-  await mkdir4(dir, { recursive: true });
+  await mkdir6(dir, { recursive: true });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), artifacts = [...preset.artifacts];
   if ((options.riskDoc || config.workflow.riskDocumentation) && preset.strict) artifacts.push({ id: "RISK", file: "RISK.md", template: "risk.md", sections: ["Risk Assessment", "Mitigations", "Rollback", "Approval"] });
-  for (const item of artifacts) await writeFile4(join11(dir, item.file), replaceVars(await readFile9(join11(packageRoot, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
-  await writeFile4(join11(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
+  for (const item of artifacts) await writeFile6(join15(dir, item.file), replaceVars(await readFile12(join15(packageRoot, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
+  await writeFile6(join15(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
   output(`${brand()}
 \u2713 task created: ${rel(cwd, dir)}
 Preset: ${preset.name}
 Stages: ${preset.stages.map((s) => s.toUpperCase()).join(" \u2192 ")}`);
 }
 async function showArtifact(cwd, slug, filename, label) {
-  const { dir } = await getTask(cwd, slug), path = join11(dir, filename);
+  const { dir } = await getTask(cwd, slug), path = join15(dir, filename);
   output(`${label}: ${rel(cwd, path)}${await exists(path) ? "" : " (not included by this preset)"}`);
 }
 async function taskPacket(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const mapPath = join11(cwd, ".maverick", "context", "PROJECT_MAP.md"), contents = [];
-  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists(join11(dir, file))) contents.push(`## ${file}
+  const mapPath = join15(cwd, ".maverick", "context", "PROJECT_MAP.md"), contents = [];
+  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists(join15(dir, file))) contents.push(`## ${file}
 
-${await readFile9(join11(dir, file), "utf8")}`);
+${await readFile12(join15(dir, file), "utf8")}`);
   if (await exists(mapPath)) contents.unshift(`## PROJECT_MAP.md
 
-${await readFile9(mapPath, "utf8")}`);
-  const path = join11(dir, "TASK-PACKET.md");
-  await writeFile4(path, `# Maverick Task Packet
+${await readFile12(mapPath, "utf8")}`);
+  const path = join15(dir, "TASK-PACKET.md");
+  await writeFile6(path, `# Maverick Task Packet
 
 Preset: ${preset.name}
 Agent: ${options.agent || "generic"}
@@ -1494,14 +2038,14 @@ async function validate(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
   let errors = 0, warnings = 0;
   const results = [];
-  for (const item of validatorArtifacts(preset, await exists(join11(dir, "RISK.md")))) {
-    const path = join11(dir, item.file);
+  for (const item of validatorArtifacts(preset, await exists(join15(dir, "RISK.md")))) {
+    const path = join15(dir, item.file);
     if (!await exists(path)) {
       results.push({ file: item.file, status: "FAIL", message: "missing" });
       errors++;
       continue;
     }
-    const text = await readFile9(path, "utf8");
+    const text = await readFile12(path, "utf8");
     for (const section of item.sections) if (!sectionPresent(text, section)) {
       results.push({ file: item.file, status: "FAIL", message: `missing section "${section}"` });
       errors++;
@@ -1520,9 +2064,9 @@ Preset: ${preset.name}`);
   }
   if (errors) throw new Error(`${errors} validation error(s)`);
 }
-function showPresets(id) {
-  if (id) {
-    const p = requirePreset(id);
+function showPresets(id2) {
+  if (id2) {
+    const p = requirePreset(id2);
     return output(`${brand()} / PRESET
 
 Preset:
@@ -1559,7 +2103,7 @@ var taskCommands = [
 
 // src/commands/gates.js
 var LOCKFILE = /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|pdm\.lock|Pipfile\.lock|requirements[\w.-]*\.txt|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock|mix\.lock|pubspec\.lock|packages\.lock\.json|gradle\.lockfile|Package\.resolved)$/;
-var MANIFEST = /(?:^|\/)(?:package\.json|pyproject\.toml|Pipfile|setup\.py|setup\.cfg|go\.mod|Cargo\.toml|Gemfile|composer\.json|mix\.exs|pubspec\.yaml|pom\.xml|build\.gradle(?:\.kts)?|[^/]+\.(?:csproj|fsproj|vbproj)|Directory\.Packages\.props|Package\.swift)$/;
+var MANIFEST2 = /(?:^|\/)(?:package\.json|pyproject\.toml|Pipfile|setup\.py|setup\.cfg|go\.mod|Cargo\.toml|Gemfile|composer\.json|mix\.exs|pubspec\.yaml|pom\.xml|build\.gradle(?:\.kts)?|[^/]+\.(?:csproj|fsproj|vbproj)|Directory\.Packages\.props|Package\.swift)$/;
 async function verifyTask(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
   const map = await inspectProject(cwd);
@@ -1583,9 +2127,9 @@ async function reviewDiff(cwd, slug, options = {}) {
   if (!diff) findings.push("No git diff found against the selected base.");
   if (files.some((file) => /(^|\/)(\.env|secrets?|credentials?)/i.test(file))) findings.push("Security: sensitive-looking path changed; confirm secrets and PII were not included.");
   if (files.some((file) => LOCKFILE.test(file))) findings.push("Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities.");
-  if (preset.strict && !await exists(join12(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
-  const path = join12(dir, "REVIEW-FINDINGS.md");
-  await writeFile5(path, `# Diff Review Findings \u2014 ${slug}
+  if (preset.strict && !await exists(join16(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
+  const path = join16(dir, "REVIEW-FINDINGS.md");
+  await writeFile7(path, `# Diff Review Findings \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
 Changed files:
@@ -1602,8 +2146,8 @@ Report: ${rel(cwd, path)}`);
 async function checkpoint(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const [status2, diff] = await Promise.all([executeCommand(cwd, "git status --short"), gitDiff(cwd, options.against || "HEAD")]);
-  const path = join12(dir, "CHECKPOINT.md");
-  await writeFile5(path, `# Checkpoint \u2014 ${slug}
+  const path = join16(dir, "CHECKPOINT.md");
+  await writeFile7(path, `# Checkpoint \u2014 ${slug}
 
 Created: ${(/* @__PURE__ */ new Date()).toISOString()}
 Base: ${options.against || "HEAD"}
@@ -1632,14 +2176,14 @@ ${references.map((file) => `- ${file}`).join("\n") || "- none found"}`);
 }
 async function guardScope(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
-  const task = await readFile10(join12(dir, "TASK.md"), "utf8");
+  const task = await readFile13(join16(dir, "TASK.md"), "utf8");
   const changed = changedFilesFromDiff(await gitDiff(cwd, options.against || "HEAD"));
   const expected = (task.match(/^## Expected Changed Files\n([\s\S]*?)(?=^## |$)/m)?.[1].match(/`([^`]+)`/g) || []).map((value) => value.slice(1, -1)).filter((value) => !/FILL ME/i.test(value));
   const outsideScope = expected.length ? changed.filter((file) => !expected.includes(file)) : [];
   const maxFiles = config.maxChangedFilesGuideline || 8;
   const findings = [changed.length > maxFiles ? `Change budget exceeded: ${changed.length}/${maxFiles} files.` : null, ...outsideScope.map((file) => `Not listed in Expected Changed Files: ${file}`)].filter(Boolean);
-  const report = join12(dir, "SCOPE-GUARD.md");
-  await writeFile5(report, `# Scope Guard \u2014 ${slug}
+  const report = join16(dir, "SCOPE-GUARD.md");
+  await writeFile7(report, `# Scope Guard \u2014 ${slug}
 
 Changed files: ${changed.length}
 Expected files: ${expected.length || "not specified"}
@@ -1658,11 +2202,11 @@ async function readiness(cwd, slug, options = {}) {
   const required = ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md"];
   if (preset.strict) required.push("CHECKPOINT.md");
   const available = [], missing = [];
-  for (const file of required) (await exists(join12(dir, file)) ? available : missing).push(file);
-  const review = await exists(join12(dir, "REVIEW.md")) ? await readFile10(join12(dir, "REVIEW.md"), "utf8") : "";
+  for (const file of required) (await exists(join16(dir, file)) ? available : missing).push(file);
+  const review = await exists(join16(dir, "REVIEW.md")) ? await readFile13(join16(dir, "REVIEW.md"), "utf8") : "";
   if (!/- \[[xX]\] (?:approve|approve with follow-up|request changes)/.test(review)) missing.push("Human decision in REVIEW.md");
-  const ready = missing.length === 0, path = join12(dir, "MERGE-READINESS.md");
-  await writeFile5(path, `# Merge Readiness \u2014 ${slug}
+  const ready = missing.length === 0, path = join16(dir, "MERGE-READINESS.md");
+  await writeFile7(path, `# Merge Readiness \u2014 ${slug}
 
 Preset: ${preset.name}
 Status: ${ready ? "READY FOR HUMAN MERGE DECISION" : "NOT READY"}
@@ -1683,11 +2227,11 @@ Report: ${payload.path}`);
   if (!ready) throw new Error("merge readiness gates are incomplete");
 }
 async function policy(cwd, action, slug, options = {}) {
-  const dir = join12(cwd, ".maverick"), path = join12(dir, "policy.json");
+  const dir = join16(cwd, ".maverick"), path = join16(dir, "policy.json");
   if (action === "init") {
     if (await exists(path)) throw new Error(`policy already exists: ${rel(cwd, path)}`);
-    await mkdir5(dir, { recursive: true });
-    await writeFile5(path, await readFile10(join12(packageRoot, "templates", "policy.json"), "utf8"));
+    await mkdir7(dir, { recursive: true });
+    await writeFile7(path, await readFile13(join16(packageRoot, "templates", "policy.json"), "utf8"));
     return output(`${brand()} / POLICY
 \u2713 policy created: ${rel(cwd, path)}`);
   }
@@ -1702,8 +2246,8 @@ ${pretty(rules)}`);
   const findings = [];
   if (changed.length > (rules.maxChangedFiles || Infinity)) findings.push(`Changed ${changed.length} files; policy maximum is ${rules.maxChangedFiles}.`);
   if (sensitive.length && preset.id !== rules.requiredPresetForSensitivePaths) findings.push(`Sensitive paths require preset ${rules.requiredPresetForSensitivePaths}: ${sensitive.join(", ")}.`);
-  const report = join12(taskDir, "POLICY-CHECK.md");
-  await writeFile5(report, `# Policy Check \u2014 ${slug}
+  const report = join16(taskDir, "POLICY-CHECK.md");
+  await writeFile7(report, `# Policy Check \u2014 ${slug}
 
 Policy: ${rel(cwd, path)}
 
@@ -1727,8 +2271,8 @@ async function securityScan(cwd, slug, options = {}) {
     { name: "Likely cloud/API secret assignment", pattern: /(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"][^'"\s]{12,}/i },
     { name: "Potentially unsafe dynamic execution", pattern: /(?:eval\(|child_process\.exec\(|shell:\s*true)/ }
   ];
-  const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name), path = join12(dir, "SECURITY-REPORT.md");
-  await writeFile5(path, `# Security Scan \u2014 ${slug}
+  const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name), path = join16(dir, "SECURITY-REPORT.md");
+  await writeFile7(path, `# Security Scan \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
 
@@ -1749,9 +2293,9 @@ Report: ${payload.path}`);
 async function dependencyReview(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const changed = changedFilesFromDiff(await gitDiff(cwd, options.against || "HEAD"));
-  const lockfiles = changed.filter((file) => LOCKFILE.test(file)), manifests = changed.filter((file) => MANIFEST.test(file));
-  const path = join12(dir, "DEPENDENCY-REVIEW.md");
-  await writeFile5(path, `# Dependency Review \u2014 ${slug}
+  const lockfiles = changed.filter((file) => LOCKFILE.test(file)), manifests = changed.filter((file) => MANIFEST2.test(file));
+  const path = join16(dir, "DEPENDENCY-REVIEW.md");
+  await writeFile7(path, `# Dependency Review \u2014 ${slug}
 
 ## Changed manifests
 ${manifests.map((file) => `- \`${file}\``).join("\n") || "- none"}
@@ -1781,8 +2325,8 @@ var gateCommands = [
 ];
 
 // src/commands/project.js
-import { mkdir as mkdir6, readdir as readdir6, writeFile as writeFile6 } from "fs/promises";
-import { join as join13 } from "path";
+import { mkdir as mkdir8, readdir as readdir9, writeFile as writeFile8 } from "fs/promises";
+import { join as join17 } from "path";
 import { execFileSync } from "child_process";
 import { createInterface as createInterface2 } from "readline/promises";
 async function chooseDefaultPreset() {
@@ -1794,21 +2338,21 @@ async function chooseDefaultPreset() {
   return { 1: "standard", 2: "lightweight", 3: "spec-driven", 4: "strict-review" }[answer.trim() || "1"] || "standard";
 }
 async function initProject(cwd) {
-  const dir = join13(cwd, ".maverick"), path = join13(dir, "config.json");
+  const dir = join17(cwd, ".maverick"), path = join17(dir, "config.json");
   if (await exists(path)) throw new Error(`configuration already exists: ${rel(cwd, path)}`);
   const preset = await chooseDefaultPreset(), map = await inspectProject(cwd);
-  await mkdir6(dir, { recursive: true });
+  await mkdir8(dir, { recursive: true });
   const name2 = cwd.split(/[\\/]/).filter(Boolean).pop() || "my-project";
-  await writeFile6(path, pretty({ ...defaultConfig, workflow: { ...defaultConfig.workflow, defaultPreset: preset }, project: { name: name2, language: map.languages[0] || "", framework: map.frameworks[0] || "" } }));
+  await writeFile8(path, pretty({ ...defaultConfig, workflow: { ...defaultConfig.workflow, defaultPreset: preset }, project: { name: name2, language: map.languages[0] || "", framework: map.frameworks[0] || "" } }));
   output(`${brand()}
 \u2713 project initialized: ${rel(cwd, path)}
 Default preset: ${getPreset(preset).name}${map.languages.length ? `
 Detected stack: ${map.language}` : ""}`);
 }
 async function mapProject(cwd, options = {}) {
-  const map = await inspectProject(cwd), dir = join13(cwd, ".maverick", "context"), path = join13(dir, "PROJECT_MAP.md");
-  await mkdir6(dir, { recursive: true });
-  await writeFile6(path, renderProjectMap(map));
+  const map = await inspectProject(cwd), dir = join17(cwd, ".maverick", "context"), path = join17(dir, "PROJECT_MAP.md");
+  await mkdir8(dir, { recursive: true });
+  await writeFile8(path, renderProjectMap(map));
   if (options.json) return output(JSON.stringify({ ...map, path: rel(cwd, path) }, null, 2));
   output(`${brand()} / MAP
 \u2713 project map: ${rel(cwd, path)}
@@ -1829,7 +2373,7 @@ async function showStack(cwd, options = {}) {
 }
 async function configCommand(cwd, action = "show", options = {}) {
   if (action === "path") {
-    const project = join13(cwd, ".maverick", "config.json");
+    const project = join17(cwd, ".maverick", "config.json");
     return output(options.json ? JSON.stringify({ project: rel(cwd, project), global: globalConfigPath() }) : `project: ${rel(cwd, project)}
 global:  ${globalConfigPath()}`);
   }
@@ -1844,12 +2388,12 @@ Layers: ${sources.map((source) => source.path ? `${source.scope} (${source.path}
 ${pretty(config)}`);
 }
 async function status(cwd, options = {}) {
-  const config = await loadConfig(cwd), base = join13(cwd, config.taskRoot);
-  if (!await exists(base)) return output(options.json ? "[]" : "No tasks yet. Run maverick task add-your-feature.");
+  const config = await loadConfig(cwd), base2 = join17(cwd, config.taskRoot);
+  if (!await exists(base2)) return output(options.json ? "[]" : "No tasks yet. Run maverick task add-your-feature.");
   const tasks = [];
-  for (const entry of (await readdir6(base, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const dir = join13(base, entry.name), preset = await taskPreset(dir, config);
-    const evidence = await exists(join13(dir, "EVIDENCE.md")), findings = await exists(join13(dir, "REVIEW-FINDINGS.md"));
+  for (const entry of (await readdir9(base2, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const dir = join17(base2, entry.name), preset = await taskPreset(dir, config);
+    const evidence = await exists(join17(dir, "EVIDENCE.md")), findings = await exists(join17(dir, "REVIEW-FINDINGS.md"));
     tasks.push({ task: entry.name, preset, evidence, findings, next: evidence ? findings ? "complete human review" : "run review --diff" : "run verify" });
   }
   output(options.json ? JSON.stringify(tasks, null, 2) : tasks.map((task) => `${task.task}	${task.preset}	${task.next}`).join("\n"));
@@ -1874,13 +2418,13 @@ async function doctor(cwd, options = {}) {
   const checks = [
     ["Node >= 20", Number(process.versions.node.split(".")[0]) >= 20],
     ["Git available", gitAvailable()],
-    ["Git repository", await exists(join13(cwd, ".git"))],
+    ["Git repository", await exists(join17(cwd, ".git"))],
     ["Configuration valid", !configError, configError],
     ["Stack detected", map.languages.length > 0, map.languages.length ? map.language : "no known manifests at the root or first-level folders"],
     ["Repository instructions", map.instructions.length > 0],
     ["Verification commands", commands2.length > 0]
   ];
-  if (await exists(join13(cwd, LOCK_PATH))) {
+  if (await exists(join17(cwd, LOCK_PATH))) {
     const drifted = (await checkDrift(cwd, await readLock(cwd))).filter((item) => item.issues.length);
     checks.push(["Capabilities match lockfile", !drifted.length, drifted.length ? `${drifted.map((item) => item.ref).join(", ")} changed; run maverick installed` : void 0]);
   }
@@ -1893,7 +2437,7 @@ async function doctor(cwd, options = {}) {
   }).filter(Boolean))];
   for (const bin of binaries) {
     const where = commands2.find((item) => item.command.startsWith(bin))?.cwd;
-    checks.push([`Toolchain: ${bin}`, commandAvailable(bin, where ? join13(cwd, where) : cwd), "not found on PATH"]);
+    checks.push([`Toolchain: ${bin}`, commandAvailable(bin, where ? join17(cwd, where) : cwd), "not found on PATH"]);
   }
   const fixes = checks.filter(([, ok]) => !ok).map(([name2, , detail]) => `Add or configure: ${name2}${detail ? ` (${detail})` : ""}`);
   if (options.json) return output(JSON.stringify({ checks: checks.map(([name2, ok, detail]) => ({ name: name2, ok, ...detail && { detail } })), fixes }, null, 2));
@@ -1904,7 +2448,7 @@ ${fixes.map((fix) => `- ${fix}`).join("\n") || "- No fixes needed."}`);
 No telemetry is collected by Maverick.`);
 }
 async function dashboard(cwd, options = {}) {
-  const { startDashboard } = await import("./server-NWWF5JXY.js");
+  const { startDashboard } = await import("./server-QOOESNCP.js");
   const port = Number(options.port || 4173), host = options.host || "127.0.0.1";
   const server = await startDashboard({ cwd, host, port, watch: !options.noWatch });
   const address = `http://${host}:${port}`;
@@ -1951,9 +2495,9 @@ var projectCommands = [
 ];
 
 // src/commands/index.js
-var ORDER = ["dashboard", "init", "task", "map", "stack", "packet", "checkpoint", "impact", "guard", "learn", "handoff", "readiness", "policy", "adapter", "ci", "catalog", "add", "remove", "installed", "sync", "verify", "security", "deps", "pr", "presets", "suggest", "validate", "context", "plan", "review", "config", "doctor", "status", "info", "help"];
+var ORDER = ["dashboard", "init", "task", "subtask", "flow", "map", "stack", "packet", "checkpoint", "impact", "guard", "learn", "handoff", "readiness", "policy", "adapter", "ci", "catalog", "add", "remove", "installed", "sync", "verify", "security", "deps", "pr", "presets", "suggest", "validate", "context", "plan", "review", "config", "doctor", "status", "info", "help"];
 var helpCommand = { id: "help", description: "Show usage and the command list.", aliases: ["--help", "-h"], usage: "help", run: () => help() };
-var commands = [...projectCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, helpCommand].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
+var commands = [...projectCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, helpCommand].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 var byName = new Map(commands.flatMap((command) => [command.id, ...command.aliases].map((name2) => [name2, command])));
 function findCommand(name2) {
   return byName.get(name2);
@@ -1973,7 +2517,7 @@ Standard is the default. Every preset includes human review.`);
 }
 
 // src/core/command-registry.js
-var commandRegistry = commands.map(({ id, description, aliases, usage }) => ({ id, command: `maverick ${id}`, description, aliases, example: usage }));
+var commandRegistry = commands.map(({ id: id2, description, aliases, usage }) => ({ id: id2, command: `maverick ${id2}`, description, aliases, example: usage }));
 
 export {
   packageVersion,
@@ -1985,6 +2529,7 @@ export {
   defaultConfig,
   loadConfig,
   inspectProject,
+  loadGraph,
   recommendPreset,
   commandRegistry,
   findCommand

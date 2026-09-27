@@ -3,8 +3,9 @@ import {
   commandRegistry,
   inspectProject,
   loadConfig,
+  loadGraph,
   packageVersion
-} from "./chunk-JI6VU5OH.js";
+} from "./chunk-KH3FF5VE.js";
 import {
   presets,
   requirePreset
@@ -127,6 +128,25 @@ async function git(cwd, args) {
     return "";
   }
 }
+async function subtaskSummary(dir) {
+  try {
+    const graph = await loadGraph(dir);
+    return { total: graph.items.length, done: graph.items.filter((item) => item.status === "done").length, ready: graph.items.filter((item) => item.ready).map((item) => item.id), problems: graph.problems.length };
+  } catch {
+    return { total: 0, done: 0, ready: [], problems: 1 };
+  }
+}
+async function flowSummary(dir) {
+  const states = [];
+  for (const entry of await entries(join(dir, "flows"))) if (entry.name.endsWith(".json")) {
+    try {
+      const state = JSON.parse(await text(join(dir, "flows", entry.name)));
+      states.push({ flow: state.flow, status: state.status || "not run", runs: state.runs?.length || 0 });
+    } catch {
+    }
+  }
+  return states;
+}
 async function buildProjectIndex(cwd) {
   const root = resolve(cwd), [config, project] = await Promise.all([loadConfig(root), inspectProject(root)]);
   const taskBase = join(root, config.taskRoot);
@@ -138,7 +158,7 @@ async function buildProjectIndex(cwd) {
     const preset = requirePreset(meta.preset || config.workflow.defaultPreset || "standard");
     const files = (await entries(dir)).filter((x) => x.isFile()).map((x) => x.name);
     const reports = files.filter((x) => /EVIDENCE|FINDINGS|SECURITY|DEPENDENCY|SCOPE|HANDOFF|READINESS|CHECKPOINT|POLICY/i.test(x));
-    tasks.push({ id: entry.name, title: title(taskBody, entry.name), preset: preset.id, stages: preset.stages, goal: section(taskBody, "Goal"), acceptanceCriteria: section(taskBody, "Acceptance Criteria"), scope: section(taskBody, "In Scope"), outOfScope: section(taskBody, "Out of Scope"), verification: section(taskBody, "Verification"), artifacts: files, reports, validation: files.includes("EVIDENCE.md") ? "evidence captured" : "verification pending", updated: (await stat(dir)).mtime.toISOString() });
+    tasks.push({ id: entry.name, title: title(taskBody, entry.name), preset: preset.id, stages: preset.stages, goal: section(taskBody, "Goal"), acceptanceCriteria: section(taskBody, "Acceptance Criteria"), scope: section(taskBody, "In Scope"), outOfScope: section(taskBody, "Out of Scope"), verification: section(taskBody, "Verification"), artifacts: files, reports, validation: files.includes("EVIDENCE.md") ? "evidence captured" : "verification pending", subtasks: await subtaskSummary(dir), flows: await flowSummary(dir), updated: (await stat(dir)).mtime.toISOString() });
   }
   const docs = [];
   const modules = [];
@@ -174,7 +194,7 @@ async function buildProjectIndex(cwd) {
     ...specs.filter((spec) => spec.status === "draft").map((spec) => ({ id: `spec-${spec.path.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, title: `Complete specification: ${spec.title}`, detail: "Unresolved specification content was detected.", kind: "specification", preset: "spec-driven" })),
     ...tasks.filter((task) => task.validation !== "evidence captured").map((task) => ({ id: `evidence-${task.id}`, title: `Capture verification for ${task.id}`, detail: "The task has no EVIDENCE.md yet.", kind: "verification", preset: task.preset || "standard" }))
   ].slice(0, 12);
-  const capabilities = [{ id: "workflow", name: "Preset-driven task workflows", category: "workflow", description: "Task stages and artifacts are shared with the CLI.", status: "available", commands: ["task", "presets", "validate"] }, { id: "project-map", name: "Project intelligence", category: "project-intelligence", description: "Languages, frameworks, verification commands, instructions and top-level areas for any stack.", status: "available", commands: ["map", "stack", "impact", "doctor"] }, { id: "review", name: "Evidence and review gates", category: "review", description: "Verification, scope, security, dependencies and merge readiness.", status: "available", commands: ["verify", "review", "guard", "security", "deps", "readiness"] }, { id: "governance", name: "Governance and handoff", category: "automation", description: "Policy, handoff, learnings, PR draft and CI generator.", status: "available", commands: ["policy", "handoff", "learn", "pr", "ci"] }, { id: "adapters", name: "AI adapters", category: "adapter", description: "Local adapter templates for supported coding tools.", status: "available", commands: ["adapter"] }, { id: "capabilities", name: "Capability manager", category: "adapter", description: "Install skills, agents, commands and MCP servers into Claude Code, Codex, Cursor, Copilot, Gemini CLI and Windsurf with a lockfile and drift detection.", status: "available", commands: ["catalog", "add", "remove", "installed", "sync"] }, { id: "lab", name: "Maverick Lab", category: "lab", description: "Experiments and measurement scorecards.", status: lab.length ? "available" : "not configured", commands: [] }];
+  const capabilities = [{ id: "workflow", name: "Preset-driven task workflows", category: "workflow", description: "Task stages, subtask graphs and contract-driven flows are shared with the CLI.", status: "available", commands: ["task", "subtask", "flow", "presets", "validate"] }, { id: "project-map", name: "Project intelligence", category: "project-intelligence", description: "Languages, frameworks, verification commands, instructions and top-level areas for any stack.", status: "available", commands: ["map", "stack", "impact", "doctor"] }, { id: "review", name: "Evidence and review gates", category: "review", description: "Verification, scope, security, dependencies and merge readiness.", status: "available", commands: ["verify", "review", "guard", "security", "deps", "readiness"] }, { id: "governance", name: "Governance and handoff", category: "automation", description: "Policy, handoff, learnings, PR draft and CI generator.", status: "available", commands: ["policy", "handoff", "learn", "pr", "ci"] }, { id: "adapters", name: "AI adapters", category: "adapter", description: "Local adapter templates for supported coding tools.", status: "available", commands: ["adapter"] }, { id: "capabilities", name: "Capability manager", category: "adapter", description: "Install skills, agents, commands and MCP servers into Claude Code, Codex, Cursor, Copilot, Gemini CLI and Windsurf with a lockfile and drift detection.", status: "available", commands: ["catalog", "add", "remove", "installed", "sync"] }, { id: "lab", name: "Maverick Lab", category: "lab", description: "Experiments and measurement scorecards.", status: lab.length ? "available" : "not configured", commands: [] }];
   return { generatedAt: (/* @__PURE__ */ new Date()).toISOString(), project: { ...project, root, version: packageVersion, activePreset: config.workflow.defaultPreset, activeAdapter: config.adapter, packageManager: project.packageManagers[0] || "unknown" }, commands: commandRegistry, presets: Object.values(presets).map((p) => ({ ...p, usageCount: tasks.filter((t) => t.preset === p.id).length, source: "built-in" })), tasks, specs, docs, adrs, modules, couplings, improvements, git: { branch: branch || "not a Git repository", changes: status.split("\n").filter(Boolean), commits: log.split("\n").filter(Boolean) }, adapters, agents, workflows, lab, capabilities, signals };
 }
 async function cacheProjectIndex(cwd, index) {
@@ -222,7 +242,7 @@ async function startDashboard({ cwd, host = "127.0.0.1", port = 4173, watch = tr
       const body = await requestBody(req), slug = String(body.slug || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 81);
       if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(slug)) return json(res, 400, { error: "A valid improvement title is required." });
       try {
-        const { main } = await import("./cli-AU2LXHSR.js");
+        const { main } = await import("./cli-F3CWBSQ2.js");
         await main(["task", slug, "--preset", body.preset === "strict-review" ? "strict-review" : "spec-driven"], cwd);
         await refresh();
         return json(res, 201, { slug, preset: body.preset === "strict-review" ? "strict-review" : "spec-driven" });
