@@ -9,6 +9,9 @@ import { recommendPreset } from '../src/core/preset-suggestion.js';
 import { buildProjectIndex, cacheProjectIndex } from '../src/core/lens-index.js';
 import { commandRegistry } from '../src/core/command-registry.js';
 
+// Keep tests independent of the developer's ~/.maverick/config.json.
+process.env.MAVERICK_HOME = await mkdtemp(join(tmpdir(), 'maverick-home-'));
+
 test('replaceVars replaces all variables', () => {
   assert.equal(replaceVars('{{A}}-{{A}}-{{B}}',{A:'x',B:'y'}),'x-x-y');
 });

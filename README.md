@@ -146,6 +146,7 @@ maverick init
 maverick task <slug> --preset <preset>
 maverick presets [show <preset>]
 maverick map
+maverick stack [--json]
 maverick impact <path>
 maverick packet|run <task> --agent <name>
 maverick verify <task> [--json]
@@ -161,10 +162,40 @@ maverick pr <task>
 maverick adapter list|install <name>
 maverick ci github <task>
 maverick status [--json]
+maverick config show|validate|path
+maverick doctor [--fix]
 maverick dashboard|dash|lens [--open]
 ```
 
 Run `maverick help` for the current command reference. Most operational commands also support `--json`, making them useful in CI and other developer tools.
+
+## Works with any stack
+
+Maverick detects the project stack from manifest files—nothing is executed during detection—and picks the conventional verification commands for each ecosystem:
+
+| Ecosystem | Detected from | Default checks |
+|---|---|---|
+| JavaScript / TypeScript | `package.json` (npm, pnpm, yarn, bun) | `lint`, `typecheck`, `test`, `build` scripts |
+| Python | `pyproject.toml`, `requirements*.txt`, `Pipfile` (pip, uv, poetry, pdm, pipenv) | ruff/flake8, mypy/pyright, pytest/unittest/Django |
+| Go | `go.mod` | `go vet` or golangci-lint, `go test ./...`, `go build ./...` |
+| Rust | `Cargo.toml` | `cargo clippy`, `cargo check`, `cargo test`, `cargo build` |
+| Java / Kotlin | `pom.xml`, `build.gradle(.kts)` (wrappers preferred) | `test`, `package`/`assemble` |
+| C# / F# | `*.sln`, `*.csproj`, `*.fsproj` | `dotnet format`, `dotnet test`, `dotnet build` |
+| Ruby, PHP, Elixir, Dart/Flutter, Swift | `Gemfile`, `composer.json`, `mix.exs`, `pubspec.yaml`, `Package.swift` | rspec/rubocop, phpunit/pest/phpstan, mix, flutter/dart, swift |
+
+`Makefile`, `justfile`, and `Taskfile.yml` targets named `lint`, `typecheck`, `test`, or `build` take precedence, because they express the project's own intent. Polyglot repositories are supported: first-level folders such as `backend/` and `frontend/` are detected as subprojects and verified when the root declares no checks. Run `maverick stack` to see exactly what `verify` will run, and override it in `.maverick/config.json`:
+
+```json
+{
+  "verification": {
+    "commands": ["cargo nextest run", { "name": "e2e", "command": "npm run e2e", "cwd": "web" }],
+    "kinds": ["lint", "test"],
+    "subprojects": "auto"
+  }
+}
+```
+
+Commands run without a shell; use a task-runner target for pipelines or `&&` chains. Configuration is layered—built-in defaults, then `~/.maverick/config.json` (or `$MAVERICK_HOME`), then the project—and validated on load; inspect it with `maverick config show`.
 
 ## Repository policy and team learning
 
