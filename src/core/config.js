@@ -40,6 +40,10 @@ export const configSchema = z.looseObject({
     commands: z.array(verificationCommand).optional(),
     kinds: z.array(z.enum(CHECK_KINDS)).optional(),
     subprojects: z.enum(['auto', 'always', 'never']).optional()
+  }).optional(),
+  capabilities: z.object({
+    targets: z.array(z.string().min(1)).optional(),
+    catalogs: z.array(z.string().min(1)).optional()
   }).optional()
 });
 

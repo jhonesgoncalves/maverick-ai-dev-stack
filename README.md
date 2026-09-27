@@ -197,6 +197,41 @@ Maverick detects the project stack from manifest files—nothing is executed dur
 
 Commands run without a shell; use a task-runner target for pipelines or `&&` chains. Configuration is layered—built-in defaults, then `~/.maverick/config.json` (or `$MAVERICK_HOME`), then the project—and validated on load; inspect it with `maverick config show`.
 
+## Install capabilities into any AI tool
+
+Write a skill, agent, command, or MCP server once and install it into every AI coding tool the repository uses. Maverick ships a built-in catalog (reviewer, builder, test-engineer, security-reviewer, debugger and architect agents; the `maverick-workflow` skill; `preflight`, `review-diff` and `ship-check` commands) and also reads your own capabilities from `.maverick/capabilities/` and any `capabilities.catalogs` paths in configuration.
+
+```bash
+maverick catalog                                  # browse; also: search <text>, show <name>, validate
+maverick add reviewer maverick-workflow --to claude-code,cursor --dry-run
+maverick add reviewer maverick-workflow --to claude-code,cursor --yes
+maverick installed                                # versions, drift, and available updates
+maverick sync                                     # restore edited or deleted managed files
+maverick remove reviewer
+```
+
+| Kind (entry file) | Claude Code | Codex | Cursor | Copilot | Gemini CLI | Windsurf |
+|---|---|---|---|---|---|---|
+| Skill (`SKILL.md`) | `.claude/skills/` | `.agents/skills/` | `.cursor/skills/` | `.github/skills/` | `.gemini/skills/` | `.windsurf/skills/` |
+| Agent (`AGENT.md`) | `.claude/agents/` | `.codex/agents/*.toml` | `.cursor/agents/` | `.github/agents/*.agent.md` | `.gemini/agents/` | not supported |
+| Command (`COMMAND.md`) | `.claude/commands/` | not supported | not supported (use skills) | `.github/prompts/*.prompt.md` | `.gemini/commands/*.toml` | `.windsurf/workflows/` |
+| MCP server (`MCP.json`) | `.mcp.json` | not yet (TOML) | `.cursor/mcp.json` | `.vscode/mcp.json` | `.gemini/settings.json` | user-level only |
+
+Targets come from `--to`, then `capabilities.targets` in configuration, then the tools detected in the repository. Every install shows a plan first and needs `--yes` (or an interactive confirmation). Files and JSON keys Maverick did not create are never overwritten without `--force`, and shared files such as `.mcp.json` are merged key by key. MCP servers that start a local process also need `--allow-exec`. `.maverick/capabilities.lock.json` records versions and SHA-256 hashes so `installed`, `sync`, and `doctor` can detect drift; commit it with the generated files. A failed install restores every file it touched.
+
+A capability is a folder with one entry file. Agents declare portable permissions (`read`, `edit`, `shell`, `web`) that each adapter maps to its own tool names, and commands use `{{ARGUMENTS}}`, which is translated to `$ARGUMENTS`, `{{args}}`, or `${input:args}`:
+
+```markdown
+---
+name: release-notes
+description: Drafts release notes from merged changes. Use when preparing a release.
+version: 1.0.0
+argument-hint: <version>
+---
+
+Draft release notes for {{ARGUMENTS}} from the commits since the previous tag.
+```
+
 ## Repository policy and team learning
 
 Create a repository-local policy with a change budget and sensitive paths:

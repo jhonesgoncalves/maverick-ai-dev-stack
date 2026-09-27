@@ -4,7 +4,7 @@ import {
   inspectProject,
   loadConfig,
   packageVersion
-} from "./chunk-Y574ZDFG.js";
+} from "./chunk-JI6VU5OH.js";
 import {
   presets,
   requirePreset
@@ -174,7 +174,7 @@ async function buildProjectIndex(cwd) {
     ...specs.filter((spec) => spec.status === "draft").map((spec) => ({ id: `spec-${spec.path.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, title: `Complete specification: ${spec.title}`, detail: "Unresolved specification content was detected.", kind: "specification", preset: "spec-driven" })),
     ...tasks.filter((task) => task.validation !== "evidence captured").map((task) => ({ id: `evidence-${task.id}`, title: `Capture verification for ${task.id}`, detail: "The task has no EVIDENCE.md yet.", kind: "verification", preset: task.preset || "standard" }))
   ].slice(0, 12);
-  const capabilities = [{ id: "workflow", name: "Preset-driven task workflows", category: "workflow", description: "Task stages and artifacts are shared with the CLI.", status: "available", commands: ["task", "presets", "validate"] }, { id: "project-map", name: "Project intelligence", category: "project-intelligence", description: "Languages, frameworks, verification commands, instructions and top-level areas for any stack.", status: "available", commands: ["map", "stack", "impact", "doctor"] }, { id: "review", name: "Evidence and review gates", category: "review", description: "Verification, scope, security, dependencies and merge readiness.", status: "available", commands: ["verify", "review", "guard", "security", "deps", "readiness"] }, { id: "governance", name: "Governance and handoff", category: "automation", description: "Policy, handoff, learnings, PR draft and CI generator.", status: "available", commands: ["policy", "handoff", "learn", "pr", "ci"] }, { id: "adapters", name: "AI adapters", category: "adapter", description: "Local adapter templates for supported coding tools.", status: "available", commands: ["adapter"] }, { id: "lab", name: "Maverick Lab", category: "lab", description: "Experiments and measurement scorecards.", status: lab.length ? "available" : "not configured", commands: [] }];
+  const capabilities = [{ id: "workflow", name: "Preset-driven task workflows", category: "workflow", description: "Task stages and artifacts are shared with the CLI.", status: "available", commands: ["task", "presets", "validate"] }, { id: "project-map", name: "Project intelligence", category: "project-intelligence", description: "Languages, frameworks, verification commands, instructions and top-level areas for any stack.", status: "available", commands: ["map", "stack", "impact", "doctor"] }, { id: "review", name: "Evidence and review gates", category: "review", description: "Verification, scope, security, dependencies and merge readiness.", status: "available", commands: ["verify", "review", "guard", "security", "deps", "readiness"] }, { id: "governance", name: "Governance and handoff", category: "automation", description: "Policy, handoff, learnings, PR draft and CI generator.", status: "available", commands: ["policy", "handoff", "learn", "pr", "ci"] }, { id: "adapters", name: "AI adapters", category: "adapter", description: "Local adapter templates for supported coding tools.", status: "available", commands: ["adapter"] }, { id: "capabilities", name: "Capability manager", category: "adapter", description: "Install skills, agents, commands and MCP servers into Claude Code, Codex, Cursor, Copilot, Gemini CLI and Windsurf with a lockfile and drift detection.", status: "available", commands: ["catalog", "add", "remove", "installed", "sync"] }, { id: "lab", name: "Maverick Lab", category: "lab", description: "Experiments and measurement scorecards.", status: lab.length ? "available" : "not configured", commands: [] }];
   return { generatedAt: (/* @__PURE__ */ new Date()).toISOString(), project: { ...project, root, version: packageVersion, activePreset: config.workflow.defaultPreset, activeAdapter: config.adapter, packageManager: project.packageManagers[0] || "unknown" }, commands: commandRegistry, presets: Object.values(presets).map((p) => ({ ...p, usageCount: tasks.filter((t) => t.preset === p.id).length, source: "built-in" })), tasks, specs, docs, adrs, modules, couplings, improvements, git: { branch: branch || "not a Git repository", changes: status.split("\n").filter(Boolean), commits: log.split("\n").filter(Boolean) }, adapters, agents, workflows, lab, capabilities, signals };
 }
 async function cacheProjectIndex(cwd, index) {
@@ -222,7 +222,7 @@ async function startDashboard({ cwd, host = "127.0.0.1", port = 4173, watch = tr
       const body = await requestBody(req), slug = String(body.slug || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 81);
       if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(slug)) return json(res, 400, { error: "A valid improvement title is required." });
       try {
-        const { main } = await import("./cli-MXBJZ3SG.js");
+        const { main } = await import("./cli-AU2LXHSR.js");
         await main(["task", slug, "--preset", body.preset === "strict-review" ? "strict-review" : "spec-driven"], cwd);
         await refresh();
         return json(res, 201, { slug, preset: body.preset === "strict-review" ? "strict-review" : "spec-driven" });

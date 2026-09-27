@@ -2,6 +2,7 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
+import { checkDrift, LOCK_PATH, readLock } from '../capabilities/engine.js';
 import { defaultConfig, globalConfigPath, loadConfig, resolveConfig } from '../core/config.js';
 import { getPreset } from '../core/presets.js';
 import { inspectProject, renderProjectMap } from '../core/project-tools.js';
@@ -88,6 +89,10 @@ async function doctor(cwd, options = {}) {
     ['Repository instructions', map.instructions.length > 0],
     ['Verification commands', commands.length > 0]
   ];
+  if (await exists(join(cwd, LOCK_PATH))) {
+    const drifted = (await checkDrift(cwd, await readLock(cwd))).filter(item => item.issues.length);
+    checks.push(['Capabilities match lockfile', !drifted.length, drifted.length ? `${drifted.map(item => item.ref).join(', ')} changed; run maverick installed` : undefined]);
+  }
   // Each distinct toolchain binary must be installed for `verify` to succeed.
   const binaries = [...new Set(commands.map(item => { try { return splitCommand(item.command)[0]; } catch { return null; } }).filter(Boolean))];
   for (const bin of binaries) {
