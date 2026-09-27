@@ -1,0 +1,110 @@
+# Diff Review Findings — add-cursor-pagination-orders-endpoint
+
+Base: HEAD
+Changed files:
+- `.agents/skills/maverick-build/SKILL.md`
+- `.agents/skills/maverick-new/SKILL.md`
+- `.agents/skills/maverick-prd/SKILL.md`
+- `.agents/skills/maverick-prd/references/prd-format.md`
+- `.agents/skills/maverick-prd/references/question-protocol.md`
+- `.agents/skills/maverick-review/SKILL.md`
+- `.agents/skills/maverick-ship/SKILL.md`
+- `.agents/skills/maverick-spec/SKILL.md`
+- `.agents/skills/maverick-spec/references/spec-format.md`
+- `.agents/skills/maverick-status/SKILL.md`
+- `.agents/skills/maverick-sync/SKILL.md`
+- `.agents/skills/maverick-tasks/SKILL.md`
+- `.agents/skills/maverick-tasks/references/task-format.md`
+- `.agents/skills/maverick-techspec/SKILL.md`
+- `.agents/skills/maverick-techspec/references/techspec-format.md`
+- `.claude/skills`
+- `.cursor/skills`
+- `.env.example`
+- `.gemini/skills`
+- `.gitignore`
+- `.kiro/skills`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `GEMINI.md`
+- `README.md`
+- `docs/api.md`
+- `docs/decisions/adr-001-cursor-pagination.md`
+- `eslint.config.mjs`
+- `nest-cli.json`
+- `package-lock.json`
+- `package.json`
+- `scripts/setup-playground.sh`
+- `seed/add-cursor-pagination.patch`
+- `seed/tasks/add-cursor-pagination/PRD.md`
+- `seed/tasks/add-cursor-pagination/TECHSPEC.md`
+- `seed/tasks/add-cursor-pagination/subtasks/_tasks.md`
+- `seed/tasks/add-cursor-pagination/subtasks/task_01.md`
+- `seed/tasks/add-cursor-pagination/subtasks/task_02.md`
+- `src/app.module.ts`
+- `src/common/cache/cache.module.ts`
+- `src/common/cache/cache.service.ts`
+- `src/common/guards/api-key.guard.ts`
+- `src/config/configuration.ts`
+- `src/customers/customer.entity.ts`
+- `src/customers/customers.controller.ts`
+- `src/customers/customers.module.ts`
+- `src/customers/customers.repository.ts`
+- `src/customers/customers.service.ts`
+- `src/health/health.controller.ts`
+- `src/main.ts`
+- `src/notifications/notifications.listener.ts`
+- `src/notifications/notifications.module.ts`
+- `src/orders/dto/create-order.dto.ts`
+- `src/orders/dto/list-orders.dto.ts`
+- `src/orders/order-pricing.ts`
+- `src/orders/order.entity.ts`
+- `src/orders/orders.controller.ts`
+- `src/orders/orders.module.ts`
+- `src/orders/orders.repository.ts`
+- `src/orders/orders.service.spec.ts`
+- `src/orders/orders.service.ts`
+- `src/payments/currency.ts`
+- `src/payments/payments.module.ts`
+- `src/payments/payments.service.ts`
+- `src/payments/webhooks.controller.ts`
+- `src/reports/reports.controller.ts`
+- `src/reports/reports.module.ts`
+- `src/reports/reports.service.ts`
+- `test/jest-e2e.json`
+- `test/orders.e2e-spec.ts`
+- `tsconfig.build.json`
+- `tsconfig.json`
+
+## Findings
+- Security: sensitive-looking path changed; confirm secrets and PII were not included.
+- Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities.
+
+## Blast radius
+- `src/orders/order.entity.ts`: 5 direct / 16 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/customers/customer.entity.ts`: 2 direct / 14 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/customers/customers.repository.ts`: 3 direct / 13 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/orders/order-pricing.ts`: 5 direct / 13 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/payments/currency.ts`: 2 direct / 13 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/customers/customers.service.ts`: 5 direct / 12 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/common/guards/api-key.guard.ts`: 3 direct / 10 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/orders/orders.repository.ts`: 4 direct / 10 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/common/cache/cache.service.ts`: 3 direct / 9 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/payments/payments.service.ts`: 3 direct / 9 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/orders/dto/create-order.dto.ts`: 2 direct / 8 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/orders/dto/list-orders.dto.ts`: 2 direct / 8 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/customers/customers.controller.ts`: 1 direct / 7 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/orders/orders.service.ts`: 3 direct / 7 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/customers/customers.module.ts`: 3 direct / 6 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/payments/webhooks.controller.ts`: 1 direct / 6 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/orders/orders.controller.ts`: 1 direct / 5 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/payments/payments.module.ts`: 2 direct / 5 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/reports/reports.service.ts`: 2 direct / 5 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/config/configuration.ts`: 2 direct / 4 transitive dependents; tests: `src/orders/orders.service.spec.ts`, `test/orders.e2e-spec.ts`
+- `src/notifications/notifications.listener.ts`: 1 direct / 4 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/orders/orders.module.ts`: 2 direct / 4 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/reports/reports.controller.ts`: 1 direct / 4 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/common/cache/cache.module.ts`: 1 direct / 3 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/health/health.controller.ts`: 1 direct / 3 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/notifications/notifications.module.ts`: 1 direct / 3 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/reports/reports.module.ts`: 1 direct / 3 transitive dependents; tests: `test/orders.e2e-spec.ts`
+- `src/app.module.ts`: 2 direct / 2 transitive dependents; tests: `test/orders.e2e-spec.ts`
