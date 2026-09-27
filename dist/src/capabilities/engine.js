@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { exists, pretty } from '../core/util.js';
 import { sha256 } from './model.js';
+import { formatFor } from './structured.js';
 
 export const LOCK_PATH = '.maverick/capabilities.lock.json';
 
@@ -13,7 +14,6 @@ export function resolveInside(cwd, path) {
 }
 
 const keyId = (path, pointer) => `${path}#${pointer.join('.')}`;
-const hashValue = value => sha256(JSON.stringify(value));
 const toBuffer = content => (Buffer.isBuffer(content) ? content : Buffer.from(content));
 
 export async function readLock(cwd) {
@@ -40,23 +40,10 @@ function ownership(lock) {
   return owners;
 }
 
-async function readJsonFile(cwd, path) {
+/** Reads a file as text for key-level edits; null when it does not exist. */
+async function readText(cwd, path) {
   const full = resolveInside(cwd, path);
-  if (!await exists(full)) return undefined;
-  const text = await readFile(full, 'utf8');
-  if (!text.trim()) return {};
-  try { return JSON.parse(text); } catch { throw new Error(`cannot merge into ${path}: it is not plain JSON (comments are not supported)`); }
-}
-
-const getAt = (object, pointer) => pointer.reduce((node, key) => (node && typeof node === 'object' ? node[key] : undefined), object);
-function setAt(object, pointer, value) {
-  let node = object;
-  for (const key of pointer.slice(0, -1)) { if (!node[key] || typeof node[key] !== 'object') node[key] = {}; node = node[key]; }
-  node[pointer.at(-1)] = value;
-}
-function deleteAt(object, pointer) {
-  const parent = getAt(object, pointer.slice(0, -1));
-  if (parent && typeof parent === 'object') delete parent[pointer.at(-1)];
+  return await exists(full) ? readFile(full, 'utf8') : null;
 }
 
 /**
@@ -68,7 +55,7 @@ export async function planInstall(cwd, capability, adapters, lock, { force = fal
   const owners = ownership(lock), changes = [], skipped = [], conflicts = [], outputsByTarget = {};
   for (const adapter of adapters) {
     if (capability.targets && !capability.targets.includes(adapter.id)) { skipped.push({ target: adapter.id, reason: `the capability is limited to ${capability.targets.join(', ')}` }); continue; }
-    const support = adapter.supports(capability.kind);
+    const support = adapter.supports(capability.kind, capability);
     if (support !== true) { skipped.push({ target: adapter.id, reason: support || `${adapter.name} does not support ${capability.kind} capabilities at project level` }); continue; }
     const outputs = adapter.render(capability);
     outputsByTarget[adapter.id] = outputs;
@@ -80,10 +67,11 @@ export async function planInstall(cwd, capability, adapters, lock, { force = fal
         if (current && owner !== capability.ref && op !== 'unchanged') conflicts.push({ target: adapter.id, path: output.path, reason: owner ? `owned by ${owner}` : 'exists and is not managed by Maverick' });
         changes.push({ target: adapter.id, type: 'file', op, path: output.path, content, sha256: hash });
       } else {
-        const document = await readJsonFile(cwd, output.path), current = getAt(document, output.pointer), id = keyId(output.path, output.pointer), owner = owners.get(id);
-        const op = current === undefined ? 'create' : hashValue(current) === hashValue(output.value) ? 'unchanged' : 'update';
+        const format = formatFor(output.path), expected = format.fingerprint(output.pointer, output.value);
+        const current = format.read(await readText(cwd, output.path), output.pointer, output.path), owner = owners.get(keyId(output.path, output.pointer));
+        const op = current === undefined ? 'create' : current === expected ? 'unchanged' : 'update';
         if (current !== undefined && owner !== capability.ref && op !== 'unchanged') conflicts.push({ target: adapter.id, path: `${output.path} → ${output.pointer.join('.')}`, reason: owner ? `owned by ${owner}` : 'key exists and is not managed by Maverick' });
-        changes.push({ target: adapter.id, type: 'json-key', op, path: output.path, pointer: output.pointer, value: output.value, sha256: hashValue(output.value) });
+        changes.push({ target: adapter.id, type: 'json-key', op, path: output.path, pointer: output.pointer, value: output.value, sha256: expected });
       }
     }
   }
@@ -109,9 +97,9 @@ export async function planRemove(cwd, ref, lock, { force = false } = {}) {
       changes.push({ target, type: 'file', op: 'delete', path: file.path });
     }
     for (const key of recorded.keys || []) {
-      const current = getAt(await readJsonFile(cwd, key.path), key.pointer);
+      const current = formatFor(key.path).read(await readText(cwd, key.path), key.pointer, key.path);
       if (current === undefined) continue;
-      if (hashValue(current) !== key.sha256) conflicts.push({ target, path: `${key.path} → ${key.pointer.join('.')}`, reason: 'edited since install' });
+      if (current !== key.sha256) conflicts.push({ target, path: `${key.path} → ${key.pointer.join('.')}`, reason: 'edited since install' });
       changes.push({ target, type: 'json-key', op: 'delete', path: key.path, pointer: key.pointer });
     }
   }
@@ -140,9 +128,8 @@ export async function applyChanges(cwd, changes) {
   };
   for (const change of changes.filter(item => item.op !== 'unchanged')) {
     if (change.type === 'file') { await load(change.path); staged.set(change.path, change.op === 'delete' ? null : change.content); continue; }
-    const current = await load(change.path), document = current ? JSON.parse(current.toString('utf8') || '{}') : {};
-    if (change.op === 'delete') deleteAt(document, change.pointer); else setAt(document, change.pointer, change.value);
-    staged.set(change.path, Buffer.from(pretty(document)));
+    const current = await load(change.path), text = current ? current.toString('utf8') : null, format = formatFor(change.path);
+    staged.set(change.path, Buffer.from(change.op === 'delete' ? format.remove(text, change.pointer, change.path) : format.write(text, change.pointer, change.value, change.path)));
   }
   const written = [];
   try {
@@ -186,9 +173,9 @@ export async function checkDrift(cwd, lock) {
       }
       for (const key of recorded.keys || []) {
         let current;
-        try { current = getAt(await readJsonFile(cwd, key.path), key.pointer); } catch { current = undefined; }
+        try { current = formatFor(key.path).read(await readText(cwd, key.path), key.pointer, key.path); } catch { current = undefined; }
         if (current === undefined) issues.push({ target, path: `${key.path} → ${key.pointer.join('.')}`, status: 'missing' });
-        else if (hashValue(current) !== key.sha256) issues.push({ target, path: `${key.path} → ${key.pointer.join('.')}`, status: 'modified' });
+        else if (current !== key.sha256) issues.push({ target, path: `${key.path} → ${key.pointer.join('.')}`, status: 'modified' });
       }
     }
     report.push({ ref, version: entry.version, source: entry.source, targets: Object.keys(entry.targets || {}), issues });

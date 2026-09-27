@@ -38,10 +38,12 @@ export const ADAPTERS = [
   },
   {
     id: 'codex', name: 'OpenAI Codex', detect: ['AGENTS.md', '.codex', '.agents'],
-    supports: kind => (kind === 'command' ? 'Codex has no project-level custom commands (prompts are user-level and deprecated); install the matching skill instead'
-      : kind === 'mcp' ? 'Codex reads MCP servers from .codex/config.toml, which Maverick does not edit yet; add the server there manually' : true),
+    supports: (kind, capability) => (kind === 'command' ? 'Codex has no project-level custom commands (prompts are user-level and deprecated); install the matching skill instead'
+      : kind === 'mcp' && !capability?.server?.command ? 'Maverick only writes stdio MCP servers to .codex/config.toml; add remote servers manually' : true),
     render(capability) {
       if (capability.kind === 'skill') return skillOutputs(capability, '.agents/skills');
+      // Codex only loads project .codex/config.toml in trusted projects; Maverick owns just this table.
+      if (capability.kind === 'mcp') return [{ type: 'json-key', path: '.codex/config.toml', pointer: ['mcp_servers', capability.name], value: stdioOrRemote(capability.server) }];
       const lines = [`name = ${JSON.stringify(capability.name)}`, `description = ${JSON.stringify(capability.description)}`, ...(capability.model ? [`model = ${JSON.stringify(capability.model)}`] : []), `developer_instructions = ${tomlString(capability.body.trim() + '\n')}`];
       return [{ type: 'file', path: `.codex/agents/${capability.name}.toml`, content: `${lines.join('\n')}\n` }];
     }

@@ -168,3 +168,30 @@ test('loadCapability hashes every shipped file into its integrity', async () => 
   await writeFile(join(cwd, 'cap/demo/a.txt'), 'b');
   assert.notEqual((await loadCapability(join(cwd, 'cap/demo'))).integrity, before);
 });
+
+test('Codex MCP servers are managed as TOML tables without touching the rest of the file', async () => {
+  const original = '# my codex settings\nmodel = "gpt-5"\n\n[mcp_servers.mine]\ncommand = "mine" # keep me\n\n[profiles.fast]\nmodel = "mini"\n';
+  const cwd = await project({ ...mcp('files', { command: 'npx', args: ['-y', 'files-mcp'], env: { ROOT: '.' } }), ...mcp('docs', { url: 'https://example.com/mcp' }), '.codex/config.toml': original });
+  await main(['add', 'mcp/files', '--to', 'codex', '--yes', '--allow-exec'], cwd);
+  const written = await read(cwd, '.codex/config.toml');
+  assert.ok(written.startsWith(original.trimEnd()), 'existing content, comments and order are preserved');
+  assert.match(written, /\n\n\[mcp_servers\.files\]\ncommand = "npx"\nargs = \["-y", "files-mcp"\]\n\n\[mcp_servers\.files\.env\]\nROOT = "\."\n$/);
+  await main(['add', 'mcp/files', '--to', 'codex', '--yes', '--allow-exec'], cwd);
+  assert.equal(await read(cwd, '.codex/config.toml'), written, 'reinstalling is idempotent');
+  await assert.rejects(main(['add', 'mcp/docs', '--to', 'codex', '--yes'], cwd), /only writes stdio MCP servers/);
+
+  await writeFile(join(cwd, '.codex/config.toml'), written.replace('"files-mcp"', '"edited"'));
+  assert.match((await import('../src/capabilities/engine.js').then(engine => engine.readLock(cwd).then(lock => engine.checkDrift(cwd, lock))))[0].issues[0].status, /modified/);
+  await main(['sync', '--yes'], cwd);
+  assert.equal(await read(cwd, '.codex/config.toml'), written, 'sync restores the managed table');
+  await main(['remove', 'files', '--yes'], cwd);
+  assert.equal(await read(cwd, '.codex/config.toml'), original);
+});
+
+test('TOML tables defined with dotted keys or inline tables are refused, not rewritten', async () => {
+  for (const content of ['mcp_servers.files.command = "x"\n', '[mcp_servers]\nfiles = { command = "x" }\n']) {
+    const cwd = await project({ ...mcp('files', { command: 'npx', args: [] }), '.codex/config.toml': content });
+    await assert.rejects(main(['add', 'mcp/files', '--to', 'codex', '--yes', '--allow-exec'], cwd), /dotted keys or an inline table/);
+    assert.equal(await read(cwd, '.codex/config.toml'), content);
+  }
+});

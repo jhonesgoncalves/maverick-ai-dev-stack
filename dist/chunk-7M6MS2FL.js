@@ -1,7 +1,7 @@
 import {
   findCommand,
   parseOptions
-} from "./chunk-ZAV7KFMK.js";
+} from "./chunk-Z534XCKI.js";
 
 // src/cli.js
 async function main(args, cwd = process.cwd()) {

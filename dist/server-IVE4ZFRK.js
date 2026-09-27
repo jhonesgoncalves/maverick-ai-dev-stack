@@ -1,6 +1,6 @@
 import {
   buildProjectIndex
-} from "./chunk-RDSEVEBN.js";
+} from "./chunk-F6ICJLR2.js";
 import {
   buildGraph,
   churn,
@@ -15,7 +15,7 @@ import {
   rankHotspots,
   searchCatalog,
   selectVerificationCommands
-} from "./chunk-ZAV7KFMK.js";
+} from "./chunk-Z534XCKI.js";
 import "./chunk-YM2BQGIU.js";
 
 // src/mcp/server.js

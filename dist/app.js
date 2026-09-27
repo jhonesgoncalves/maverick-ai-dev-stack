@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import {
   main
-} from "./chunk-KQTXNVAP.js";
-import "./chunk-ZAV7KFMK.js";
+} from "./chunk-7M6MS2FL.js";
+import "./chunk-Z534XCKI.js";
 import "./chunk-YM2BQGIU.js";
 
 // src/cli/app.tsx

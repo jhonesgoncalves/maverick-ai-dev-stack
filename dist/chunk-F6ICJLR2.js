@@ -8,7 +8,7 @@ import {
   loadGraph,
   packageVersion,
   rankHotspots
-} from "./chunk-ZAV7KFMK.js";
+} from "./chunk-Z534XCKI.js";
 import {
   presets,
   requirePreset

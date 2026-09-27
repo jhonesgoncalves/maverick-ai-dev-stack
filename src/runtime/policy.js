@@ -1,5 +1,6 @@
-/** Portable permission levels, ordered from least to most capable. */
-export const PERMISSIONS = ['read-only', 'edit', 'full'];
+import { PERMISSIONS } from '../core/enums.js';
+
+export { PERMISSIONS };
 const rank = level => PERMISSIONS.indexOf(level);
 
 function matches(route, subtask) {

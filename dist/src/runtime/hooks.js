@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { splitCommand } from '../core/util.js';
 import { runProcess } from './process.js';
 
-export const HOOK_EVENTS = ['before-agent-run', 'after-agent-run', 'after-flow-run'];
+export { HOOK_EVENTS } from '../core/enums.js';
 // "before" hooks guard an action and fail closed; "after" hooks observe and fail open.
 const BLOCKING = new Set(['before-agent-run']);
 

@@ -1,8 +1,8 @@
 import {
   buildProjectIndex,
   cacheProjectIndex
-} from "./chunk-RDSEVEBN.js";
-import "./chunk-ZAV7KFMK.js";
+} from "./chunk-F6ICJLR2.js";
+import "./chunk-Z534XCKI.js";
 import "./chunk-YM2BQGIU.js";
 
 // src/dashboard/server.js
@@ -46,7 +46,7 @@ async function startDashboard({ cwd, host = "127.0.0.1", port = 4173, watch = tr
       const body = await requestBody(req), slug = String(body.slug || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 81);
       if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(slug)) return json(res, 400, { error: "A valid improvement title is required." });
       try {
-        const { main } = await import("./cli-XXWE434X.js");
+        const { main } = await import("./cli-LH2Y2MN5.js");
         await main(["task", slug, "--preset", body.preset === "strict-review" ? "strict-review" : "spec-driven"], cwd);
         await refresh();
         return json(res, 201, { slug, preset: body.preset === "strict-review" ? "strict-review" : "spec-driven" });
