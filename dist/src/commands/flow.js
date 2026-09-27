@@ -3,10 +3,29 @@ import { join } from 'node:path';
 import { readState, runFlow, writeState } from '../flows/engine.js';
 import { findFlow, interpolate, loadFlows } from '../flows/model.js';
 import { addSubtask, loadGraph, setStatus, STATUSES } from '../subtasks/graph.js';
+import { loadConfig } from '../core/config.js';
 import { getTask } from '../core/tasks.js';
+import { runHooks } from '../runtime/hooks.js';
+import { printer, startAgentRun } from './agent.js';
 import { brand, output, rel } from '../core/util.js';
 
 const ICON = { pass: 'PASS', fail: 'FAIL', pending: 'WAIT' };
+
+function report(cwd, flow, slug, { run, notes, reportPath, next }, options) {
+  if (options.json) return;
+  output(`${brand()} / FLOW ${flow.name.toUpperCase()}\nGoal: ${interpolate(flow.contract.goal, { task: slug })}\n`);
+  notes.forEach(note => output(`NOTE ${note}`));
+  for (const result of run.results) {
+    output(`${ICON[result.status]} ${result.id}${result.severity === 'warn' ? ' (warn)' : ''}${result.summary ? ` — ${result.summary}` : ''}`);
+    result.issues.forEach(issue => output(`     ${issue}`));
+  }
+  output(`\nOutcome: ${run.outcome.toUpperCase()} (failed iteration ${run.iteration}/${flow.contract.iterationCap})\n${next}\nReport: ${rel(cwd, reportPath)}`);
+}
+
+async function afterFlowHook(cwd, config, flow, slug, { run }) {
+  const hooks = await runHooks(cwd, config, 'after-flow-run', { task: slug, flow: flow.name, outcome: run.outcome, iteration: run.iteration });
+  hooks.warnings.forEach(warning => output(`WARN ${warning}`));
+}
 
 async function flowCommand(cwd, [action, ...args], options = {}) {
   if (!action || action === 'list') {
@@ -27,21 +46,32 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
     return output(`${brand()} / FLOW\n\n${flow.name} [${flow.source}]\n${flow.description}\n\nGoal: ${flow.contract.goal}\nIteration cap: ${flow.contract.iterationCap} · no-progress window: ${flow.contract.noProgressWindow}\n\nGates:\n${flow.gates.map(gate => `  ${gate.id.padEnd(14)}${gate.type}${gate.run ? `:${gate.run}` : ''}${gate.severity === 'warn' ? ' (warn)' : ''}${gate.description ? ` — ${gate.description}` : ''}`).join('\n')}`);
   }
   if (action === 'run') {
-    const [name, slug] = args, flow = await findFlow(cwd, name), { dir } = await getTask(cwd, slug);
+    const [name, slug] = args, flow = await findFlow(cwd, name), { dir } = await getTask(cwd, slug), config = await loadConfig(cwd);
     const invoke = async argv => (await import('../cli.js')).main(argv, cwd);
-    const { run, notes, reportPath, next } = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
-    if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: run.outcome, iteration: run.iteration, iterationCap: flow.contract.iterationCap, next, notes, report: rel(cwd, reportPath), gates: run.results }, null, 2));
-    else {
-      output(`${brand()} / FLOW ${flow.name.toUpperCase()}\nGoal: ${interpolate(flow.contract.goal, { task: slug })}\n`);
-      notes.forEach(note => output(`NOTE ${note}`));
-      for (const result of run.results) {
-        output(`${ICON[result.status]} ${result.id}${result.severity === 'warn' ? ' (warn)' : ''}${result.summary ? ` — ${result.summary}` : ''}`);
-        result.issues.forEach(issue => output(`     ${issue}`));
+    const agentRuns = [];
+    let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
+    report(cwd, flow, slug, result, options);
+    await afterFlowHook(cwd, config, flow, slug, result);
+    // With --agent, "revise" hands the blocking issues to the agent and re-runs the gates.
+    // The flow contract (iteration cap, no-progress window) is what guarantees termination.
+    while (options.agent && result.run.outcome === 'revise') {
+      const issues = result.run.results.filter(item => item.severity === 'block' && item.status === 'fail').flatMap(item => item.issues.map(issue => `${item.id}: ${issue}`));
+      if (!options.json) output(`\n${brand()} / AGENT FIX (iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
+      const { run: agent } = await startAgentRun(cwd, { slug, dir, config, issues, instruction: `Fix the blocking issues so the "${flow.name}" flow passes. Goal: ${interpolate(flow.contract.goal, { task: slug })}`, options, onEvent: printer(options) });
+      agentRuns.push({ ok: agent.ok, status: agent.result?.status || null, summary: agent.result?.summary || null, transcript: rel(cwd, agent.transcript) });
+      if (!agent.ok) throw new Error(`agent fix run failed: ${agent.problems.join('; ')}`);
+      if (agent.result && agent.result.status !== 'done') {
+        if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, agentRuns, questions: agent.result.questions }, null, 2));
+        else { output(`\nThe agent stopped: ${agent.result.status}. ${agent.result.summary}`); agent.result.questions.forEach(question => output(`? ${question}`)); }
+        throw new Error(`agent needs a human: ${agent.result.status}`);
       }
-      output(`\nOutcome: ${run.outcome.toUpperCase()} (failed iteration ${run.iteration}/${flow.contract.iterationCap})\n${next}\nReport: ${rel(cwd, reportPath)}`);
+      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow);
+      report(cwd, flow, slug, result, options);
+      await afterFlowHook(cwd, config, flow, slug, result);
     }
+    if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, iteration: result.run.iteration, iterationCap: flow.contract.iterationCap, next: result.next, notes: result.notes, report: rel(cwd, result.reportPath), gates: result.run.results, agentRuns }, null, 2));
     // Only "done" exits zero, so scripts and agents can loop on the exit code safely.
-    if (run.outcome !== 'done') throw new Error(`flow ${flow.name} outcome: ${run.outcome}`);
+    if (result.run.outcome !== 'done') throw new Error(`flow ${flow.name} outcome: ${result.run.outcome}`);
     return;
   }
   if (action === 'status') {

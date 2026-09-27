@@ -4,6 +4,8 @@ import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { PRESET_IDS } from './presets.js';
 import { CHECK_KINDS } from './stack.js';
+import { HOOK_EVENTS } from '../runtime/hooks.js';
+import { PERMISSIONS } from '../runtime/policy.js';
 import { exists, rel } from './util.js';
 
 export const defaultConfig = {
@@ -44,7 +46,25 @@ export const configSchema = z.looseObject({
   capabilities: z.object({
     targets: z.array(z.string().min(1)).optional(),
     catalogs: z.array(z.string().min(1)).optional()
-  }).optional()
+  }).optional(),
+  // Agent runtime. This file is the trust boundary: flags can lower permissions, never raise them.
+  runtime: z.object({
+    trusted: z.array(z.string().min(1)).optional(),
+    maxPermission: z.enum(PERMISSIONS).optional(),
+    defaultPermission: z.enum(PERMISSIONS).optional(),
+    default: z.object({ provider: z.string().min(1), model: z.string().optional() }).optional(),
+    routes: z.array(z.object({
+      match: z.object({ type: z.string().optional(), complexity: z.enum(['low', 'medium', 'high']).optional() }),
+      provider: z.string().min(1), model: z.string().optional(), permission: z.enum(PERMISSIONS).optional()
+    })).optional(),
+    timeoutMinutes: z.number().positive().max(24 * 60).optional(),
+    bins: z.record(z.string(), z.string().min(1)).optional(),
+    custom: z.array(z.object({
+      id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/), name: z.string().optional(),
+      command: z.string().min(1), permissions: z.array(z.enum(PERMISSIONS)).optional()
+    })).optional()
+  }).optional(),
+  hooks: z.array(z.object({ event: z.enum(HOOK_EVENTS), run: z.string().min(1), cwd: projectPath.optional(), timeoutMs: z.number().int().positive().optional(), description: z.string().optional() })).optional()
 });
 
 const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);

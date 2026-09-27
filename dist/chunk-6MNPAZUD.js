@@ -175,14 +175,14 @@ var ECOSYSTEM_RULES = [
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
       const scripts = pkg.scripts || {};
       const script = (...names) => names.find((name2) => scripts[name2] && !/no test specified/.test(scripts[name2]));
-      const run = (name2) => name2 && `${packageManager} run ${name2}`;
+      const run2 = (name2) => name2 && `${packageManager} run ${name2}`;
       return {
         name: pkg.name,
         packageManager,
         scripts,
         languages: [ctx.has("tsconfig.json") || deps.typescript ? "TypeScript" : "JavaScript"],
         frameworks: NODE_FRAMEWORKS.filter(([dep]) => dep in deps).map(([, name2]) => name2),
-        commands: { lint: run(script("lint")), typecheck: run(script("typecheck", "type-check", "types")), test: run(script("test")), build: run(script("build")) }
+        commands: { lint: run2(script("lint")), typecheck: run2(script("typecheck", "type-check", "types")), test: run2(script("test")), build: run2(script("build")) }
       };
     }
   },
@@ -449,8 +449,150 @@ function selectVerificationCommands(stack, config = {}) {
 // src/core/config.js
 import { readFile as readFile3 } from "fs/promises";
 import { homedir } from "os";
-import { isAbsolute, join as join3 } from "path";
+import { isAbsolute, join as join4 } from "path";
 import { z } from "zod";
+
+// src/runtime/hooks.js
+import { join as join3 } from "path";
+
+// src/runtime/process.js
+import { spawn } from "child_process";
+import { clearTimeout, setTimeout } from "timers";
+function runProcess({ bin, args = [], cwd, input, env, timeoutMs = 0, signal, onLine = () => {
+}, onStderr = () => {
+} }) {
+  return new Promise((resolve3) => {
+    const started = Date.now();
+    let child;
+    try {
+      child = spawn(bin, args, { cwd, env: env || process.env, shell: false, stdio: [input === void 0 ? "ignore" : "pipe", "pipe", "pipe"] });
+    } catch (error) {
+      resolve3({ code: null, signal: null, timedOut: false, aborted: false, error: error.message, stderr: "", durationMs: 0 });
+      return;
+    }
+    let buffer = "", stderr = "", timedOut = false, aborted = false, settled = false;
+    const kill = () => {
+      if (child.exitCode === null) {
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (child.exitCode === null) child.kill("SIGKILL");
+        }, 3e3).unref();
+      }
+    };
+    const timer = timeoutMs > 0 ? setTimeout(() => {
+      timedOut = true;
+      kill();
+    }, timeoutMs) : null;
+    const onAbort = () => {
+      aborted = true;
+      kill();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk;
+      let index;
+      while ((index = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, index).replace(/\r$/, "");
+        buffer = buffer.slice(index + 1);
+        if (line) onLine(line);
+      }
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk).slice(-16e3);
+      onStderr(chunk);
+    });
+    if (input !== void 0) {
+      child.stdin.on("error", () => {
+      });
+      child.stdin.end(input);
+    }
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      if (buffer.trim()) onLine(buffer.replace(/\r$/, ""));
+      resolve3({ ...result, timedOut, aborted, stderr, durationMs: Date.now() - started });
+    };
+    child.on("error", (error) => finish({ code: null, signal: null, error: error.message }));
+    child.on("close", (code, closeSignal) => finish({ code, signal: closeSignal }));
+  });
+}
+
+// src/runtime/hooks.js
+var HOOK_EVENTS = ["before-agent-run", "after-agent-run", "after-flow-run"];
+var BLOCKING = /* @__PURE__ */ new Set(["before-agent-run"]);
+async function runHooks(cwd, config, event, payload) {
+  const hooks = (config.hooks || []).filter((hook) => hook.event === event);
+  const blocking = BLOCKING.has(event), outcome = { allowed: true, appendPrompt: [], warnings: [], ran: [] };
+  for (const hook of hooks) {
+    let argv;
+    try {
+      argv = splitCommand(hook.run);
+    } catch (error) {
+      argv = null;
+      outcome.warnings.push(`${hook.run}: ${error.message}`);
+    }
+    const result = argv ? await runProcess({ bin: argv[0], args: argv.slice(1), cwd: hook.cwd ? join3(cwd, hook.cwd) : cwd, input: JSON.stringify({ event, ...payload }), timeoutMs: hook.timeoutMs || 3e4, onLine: (line) => {
+      outcome.stdout = `${outcome.stdout || ""}${line}
+`;
+    } }) : { code: null, error: "invalid command" };
+    outcome.ran.push({ run: hook.run, code: result.code, timedOut: result.timedOut });
+    const reason = (result.stderr || "").trim().split("\n").slice(-3).join(" ") || result.error || (result.timedOut ? "timed out" : `exited ${result.code}`);
+    if (result.code === 0) {
+      try {
+        const data = JSON.parse(outcome.stdout || "{}");
+        if (typeof data.appendPrompt === "string") outcome.appendPrompt.push(data.appendPrompt);
+      } catch {
+      }
+      outcome.stdout = "";
+      continue;
+    }
+    outcome.stdout = "";
+    if (result.code === 2 || blocking) {
+      outcome.allowed = false;
+      outcome.reason = `hook "${hook.run}" ${result.code === 2 ? "denied" : "failed"}: ${reason}`;
+      return outcome;
+    }
+    outcome.warnings.push(`hook "${hook.run}" failed: ${reason}`);
+  }
+  return outcome;
+}
+
+// src/runtime/policy.js
+var PERMISSIONS = ["read-only", "edit", "full"];
+var rank = (level) => PERMISSIONS.indexOf(level);
+function matches(route, subtask) {
+  const match = route.match || {};
+  return Object.entries(match).every(([key, value]) => subtask?.[key] === value);
+}
+function resolveRun(config, { provider, model, permission, subtask } = {}, providers = []) {
+  const runtime = config.runtime || {};
+  const route = (runtime.routes || []).find((item) => matches(item, subtask));
+  const chosen = provider || route?.provider || runtime.default?.provider;
+  if (!chosen) throw new Error("no agent provider selected; pass --provider or set runtime.default.provider in .maverick/config.json");
+  const definition = providers.find((item) => item.id === chosen);
+  if (!definition) throw new Error(`unknown provider ${chosen}; available: ${providers.map((item) => item.id).join(", ")}`);
+  const trusted = runtime.trusted || [];
+  if (!trusted.includes(chosen)) throw new Error(`provider ${chosen} is not trusted in this repository; review it, then run maverick agent trust ${chosen}`);
+  const ceiling = runtime.maxPermission || "edit";
+  const requested = permission || route?.permission || runtime.defaultPermission || (rank(ceiling) < rank("edit") ? ceiling : "edit");
+  if (!PERMISSIONS.includes(requested)) throw new Error(`permission must be one of ${PERMISSIONS.join(", ")}`);
+  if (rank(requested) > rank(ceiling)) throw new Error(`permission ${requested} exceeds runtime.maxPermission (${ceiling}); raise it in .maverick/config.json only after review`);
+  const support = definition.permissions?.[requested];
+  if (support === false || typeof support === "string") throw new Error(`${definition.name} cannot run with ${requested} permission${typeof support === "string" ? `: ${support}` : ""}`);
+  return {
+    provider: definition,
+    permission: requested,
+    // A route's or default's model only applies when that entry also chose this provider.
+    model: model || (route?.provider === chosen ? route.model : void 0) || (runtime.default?.provider === chosen ? runtime.default.model : void 0),
+    route: provider ? "flag" : route ? `route ${JSON.stringify(route.match || {})}` : "default"
+  };
+}
+
+// src/core/config.js
 var defaultConfig = {
   version: 1,
   project: { name: "", language: "", framework: "" },
@@ -489,7 +631,29 @@ var configSchema = z.looseObject({
   capabilities: z.object({
     targets: z.array(z.string().min(1)).optional(),
     catalogs: z.array(z.string().min(1)).optional()
-  }).optional()
+  }).optional(),
+  // Agent runtime. This file is the trust boundary: flags can lower permissions, never raise them.
+  runtime: z.object({
+    trusted: z.array(z.string().min(1)).optional(),
+    maxPermission: z.enum(PERMISSIONS).optional(),
+    defaultPermission: z.enum(PERMISSIONS).optional(),
+    default: z.object({ provider: z.string().min(1), model: z.string().optional() }).optional(),
+    routes: z.array(z.object({
+      match: z.object({ type: z.string().optional(), complexity: z.enum(["low", "medium", "high"]).optional() }),
+      provider: z.string().min(1),
+      model: z.string().optional(),
+      permission: z.enum(PERMISSIONS).optional()
+    })).optional(),
+    timeoutMinutes: z.number().positive().max(24 * 60).optional(),
+    bins: z.record(z.string(), z.string().min(1)).optional(),
+    custom: z.array(z.object({
+      id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+      name: z.string().optional(),
+      command: z.string().min(1),
+      permissions: z.array(z.enum(PERMISSIONS)).optional()
+    })).optional()
+  }).optional(),
+  hooks: z.array(z.object({ event: z.enum(HOOK_EVENTS), run: z.string().min(1), cwd: projectPath.optional(), timeoutMs: z.number().int().positive().optional(), description: z.string().optional() })).optional()
 });
 var isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function mergeConfig(...layers) {
@@ -500,7 +664,7 @@ function mergeConfig(...layers) {
   }, {});
 }
 function globalConfigPath() {
-  return join3(process.env.MAVERICK_HOME || join3(homedir(), ".maverick"), "config.json");
+  return join4(process.env.MAVERICK_HOME || join4(homedir(), ".maverick"), "config.json");
 }
 async function readLayer(path) {
   try {
@@ -516,7 +680,7 @@ async function resolveConfig(cwd) {
   const layers = [{ scope: "defaults", path: null, values: defaultConfig }];
   const global = globalConfigPath();
   if (await exists(global)) layers.push({ scope: "global", path: global, values: await readLayer(global) });
-  const canonical = join3(cwd, ".maverick", "config.json"), legacy = join3(cwd, "maverick.config.json");
+  const canonical = join4(cwd, ".maverick", "config.json"), legacy = join4(cwd, "maverick.config.json");
   const project = await exists(canonical) ? canonical : await exists(legacy) ? legacy : null;
   if (project) layers.push({ scope: "project", path: project, values: await readLayer(project) });
   const merged = mergeConfig(...layers.map((layer) => layer.values));
@@ -544,40 +708,354 @@ function recommendPreset({ risk, type, complexity, openQuestions = 0, estimatedF
   return { preset: "standard", reason: "Standard is the default workflow for routine engineering changes." };
 }
 
-// src/commands/capabilities.js
+// src/commands/agent.js
+import { mkdir as mkdir3, readdir as readdir4, readFile as readFile8, writeFile as writeFile3 } from "fs/promises";
+import { join as join10 } from "path";
 import { createInterface } from "readline/promises";
 
-// src/capabilities/adapters.js
+// src/core/tasks.js
+import { readFile as readFile4 } from "fs/promises";
 import { join as join5 } from "path";
+function taskPath(cwd, config, slug) {
+  requireSlug(slug);
+  return join5(cwd, config.taskRoot, slug);
+}
+async function taskPreset(dir, config) {
+  const meta = join5(dir, "TASK.json");
+  if (await exists(meta)) return (await readJson(meta)).preset || config.workflow.defaultPreset;
+  const file = join5(dir, "TASK.md");
+  if (await exists(file)) {
+    const match = (await readFile4(file, "utf8")).match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    const preset = match?.[1].match(/^preset:\s*([^\s#]+)\s*$/m)?.[1];
+    if (preset) return preset;
+  }
+  return config.workflow.defaultPreset || "standard";
+}
+async function getTask(cwd, slug) {
+  const config = await loadConfig(cwd), dir = taskPath(cwd, config, slug);
+  if (!await exists(dir)) throw new Error(`task not found: ${rel(cwd, dir)}; run maverick task ${slug} first`);
+  return { config, dir, preset: requirePreset(await taskPreset(dir, config)) };
+}
+
+// src/runtime/providers.js
+var json = (line) => {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+};
+var short = (value, size = 80) => {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  return text.length > size ? `${text.slice(0, size - 1)}\u2026` : text;
+};
+var toolDetail = (input) => short(input?.file_path || input?.path || input?.command || input?.pattern || input?.url || input?.description || "");
+var claude = {
+  id: "claude-code",
+  name: "Claude Code",
+  bin: "claude",
+  permissions: { "read-only": true, edit: true, full: true },
+  invocation({ prompt, model, permission }) {
+    const modes = {
+      // --tools is a hard allow-list; dontAsk denies anything else instead of prompting.
+      "read-only": ["--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob"],
+      edit: ["--permission-mode", "acceptEdits"],
+      full: ["--permission-mode", "bypassPermissions"]
+    };
+    return { args: ["-p", "--output-format", "stream-json", "--verbose", ...model ? ["--model", model] : [], ...modes[permission]], input: prompt };
+  },
+  parse(line) {
+    const event = json(line);
+    if (!event) return [];
+    if (event.type === "system" && event.subtype === "init") return [{ type: "session", id: event.session_id }];
+    if (event.type === "assistant") return (event.message?.content || []).flatMap((part) => part.type === "text" ? [{ type: "text", text: part.text }] : part.type === "tool_use" ? [{ type: "tool", name: part.name, detail: toolDetail(part.input) }] : []);
+    if (event.type === "result") {
+      const denials = (event.permission_denials || []).map((denial) => ({ type: "error", message: `permission denied: ${denial.tool_name || short(denial)}` }));
+      return [...denials, { type: "result", ok: !event.is_error && event.subtype === "success", text: event.result ?? "", cost: event.total_cost_usd, error: event.is_error ? event.result || event.subtype : void 0 }];
+    }
+    return [];
+  }
+};
+var codex = {
+  id: "codex",
+  name: "OpenAI Codex",
+  bin: "codex",
+  permissions: { "read-only": true, edit: true, full: true },
+  invocation({ prompt, model, permission }) {
+    const sandbox = { "read-only": "read-only", edit: "workspace-write", full: "danger-full-access" }[permission];
+    return { args: ["exec", "--json", "--sandbox", sandbox, ...model ? ["-m", model] : [], "-"], input: prompt };
+  },
+  parse(line, state) {
+    const event = json(line);
+    if (!event) return [];
+    if (event.type === "thread.started") return [{ type: "session", id: event.thread_id }];
+    if (event.type === "item.completed") {
+      const item = event.item || {};
+      if (item.type === "agent_message") {
+        state.last = item.text;
+        return [{ type: "text", text: item.text }];
+      }
+      if (item.type === "command_execution") return [{ type: "tool", name: "shell", detail: short(item.command) }];
+      if (item.type === "file_change") return [{ type: "tool", name: "edit", detail: short((item.changes || []).map((change) => change.path).join(", ")) }];
+      if (item.type === "mcp_tool_call") return [{ type: "tool", name: `${item.server}:${item.tool}` }];
+      return [];
+    }
+    if (event.type === "turn.completed") return [{ type: "result", ok: true, text: state.last ?? "" }];
+    if (event.type === "turn.failed") return [{ type: "result", ok: false, text: state.last ?? "", error: event.error?.message || "turn failed" }];
+    if (event.type === "error") return [{ type: "error", message: event.message }];
+    return [];
+  }
+};
+var gemini = {
+  id: "gemini",
+  name: "Gemini CLI",
+  bin: "gemini",
+  permissions: { "read-only": true, edit: true, full: true },
+  invocation({ prompt, model, permission }) {
+    const approval = { "read-only": "plan", edit: "auto_edit", full: "yolo" }[permission];
+    return { args: ["-o", "stream-json", "--approval-mode", approval, ...model ? ["-m", model] : [], "-p", prompt] };
+  },
+  parse(line, state) {
+    const event = json(line);
+    if (!event) return [];
+    if (event.type === "init") return [{ type: "session", id: event.session_id }];
+    if (event.type === "message" && event.role === "assistant") {
+      state.text = `${state.text || ""}${event.content || ""}`;
+      return event.delta ? [] : [{ type: "text", text: event.content || "" }];
+    }
+    if (event.type === "tool_use") return [{ type: "tool", name: event.tool_name, detail: toolDetail(event.parameters) }];
+    if (event.type === "error") return [{ type: "error", message: event.message || short(event) }];
+    if (event.type === "result") return [...state.text ? [{ type: "text", text: state.text }] : [], { type: "result", ok: event.status === "success", text: state.text || "", error: event.status === "success" ? void 0 : event.error?.message || event.status }];
+    return [];
+  }
+};
+var cursor = {
+  // `agent` is the current binary; `cursor-agent` is the legacy name.
+  id: "cursor",
+  name: "Cursor CLI",
+  bin: ["agent", "cursor-agent"],
+  permissions: { "read-only": true, edit: "Cursor CLI applies edits only with --force, which also allows shell commands; use full or another provider", full: true },
+  invocation({ prompt, model, permission }) {
+    const mode = permission === "read-only" ? ["--mode", "ask"] : ["--force"];
+    return { args: ["-p", "--output-format", "stream-json", "--trust", ...mode, ...model ? ["--model", model] : [], prompt] };
+  },
+  parse(line) {
+    const event = json(line);
+    if (!event) return [];
+    if (event.type === "system" && event.subtype === "init") return [{ type: "session", id: event.session_id }];
+    if (event.type === "assistant") return (event.message?.content || []).filter((part) => part.type === "text").map((part) => ({ type: "text", text: part.text }));
+    if (event.type === "tool_call" && event.subtype === "started") {
+      const [name2, call] = Object.entries(event.tool_call || {})[0] || [];
+      return name2 ? [{ type: "tool", name: name2.replace(/ToolCall$/, ""), detail: toolDetail(call?.args) }] : [];
+    }
+    if (event.type === "result") return [{ type: "result", ok: !event.is_error, text: event.result ?? "", error: event.is_error ? event.result : void 0 }];
+    return [];
+  }
+};
+function customProvider(definition) {
+  const template = splitCommand(definition.command);
+  const allowed = definition.permissions || ["edit"];
+  return {
+    id: definition.id,
+    name: definition.name || definition.id,
+    bin: template[0],
+    custom: true,
+    permissions: Object.fromEntries(["read-only", "edit", "full"].map((level) => [level, allowed.includes(level) || `not enabled for ${definition.id} in runtime.custom`])),
+    invocation({ prompt, model }) {
+      const usesPrompt = template.some((part) => part.includes("{prompt}"));
+      const args = [];
+      for (const part of template.slice(1)) {
+        if (part.includes("{model}") && !model) {
+          if (args.at(-1)?.startsWith("-") && part === "{model}") args.pop();
+          continue;
+        }
+        args.push(part.replaceAll("{prompt}", prompt).replaceAll("{model}", model || ""));
+      }
+      return { args, input: usesPrompt ? void 0 : prompt };
+    },
+    parse(line, state) {
+      state.lines = [...state.lines || [], line];
+      return [{ type: "text", text: line }];
+    },
+    finish(state) {
+      return [{ type: "result", ok: true, text: (state.lines || []).join("\n") }];
+    }
+  };
+}
+var BUILTIN_PROVIDERS = [claude, codex, cursor, gemini];
+function resolveBin(provider, config, cwd) {
+  const configured = config.runtime?.bins?.[provider.id];
+  if (configured) return configured;
+  const candidates = [provider.bin].flat();
+  return candidates.find((bin) => commandAvailable(bin, cwd)) || candidates[0];
+}
+function providersFor(config = {}) {
+  const custom = (config.runtime?.custom || []).map(customProvider);
+  return [...BUILTIN_PROVIDERS.filter((provider) => !custom.some((item) => item.id === provider.id)), ...custom];
+}
+
+// src/runtime/prompt.js
+import { readFile as readFile5 } from "fs/promises";
+import { join as join6 } from "path";
+import { z as z2 } from "zod";
+var HEADLESS_RULES = `You are running non-interactively under Maverick. Follow these rules:
+- Work only inside this repository and only within the task scope below. TASK.md is the scope contract.
+- Do not commit, push, open pull requests, publish packages, or change CI/CD, credentials, or secrets. A human does that after review.
+- Do not add dependencies or change public contracts unless the task explicitly allows it.
+- If you are blocked or need a decision, stop and ask in the result block instead of guessing.
+- Run the relevant verification commands before finishing and report their real results.
+- End your final message with exactly one fenced block in this format:
+
+\`\`\`maverick-result
+{"status": "done" | "blocked" | "needs-input", "summary": "one or two sentences", "questions": [], "filesChanged": []}
+\`\`\``;
+var resultSchema = z2.object({
+  status: z2.enum(["done", "blocked", "needs-input"]),
+  summary: z2.string().default(""),
+  questions: z2.array(z2.string()).default([]),
+  filesChanged: z2.array(z2.string()).default([])
+});
+function parseResultBlock(text = "") {
+  const blocks = [...text.matchAll(/```maverick-result\s*\n([\s\S]*?)```/g)];
+  if (!blocks.length) return null;
+  try {
+    const parsed = resultSchema.safeParse(JSON.parse(blocks.at(-1)[1]));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+var TASK_FILES = ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"];
+async function buildPrompt({ taskDir, task, subtask, instruction, issues: issues2 = [] }) {
+  const sections = [HEADLESS_RULES, `# Task: ${task}`];
+  for (const file of TASK_FILES) {
+    const path = join6(taskDir, file);
+    if (await exists(path)) sections.push(`## ${file}
+
+${(await readFile5(path, "utf8")).trim()}`);
+  }
+  if (subtask) sections.push(`## Current subtask ${subtask.id}: ${subtask.title}
+
+Work only on this subtask. Its dependencies (${subtask.dependsOn.join(", ") || "none"}) are done.
+
+${subtask.body.trim()}`);
+  if (issues2.length) sections.push(`## Blocking issues to fix
+
+The last verification run failed. Fix these without widening scope, then re-run the checks:
+
+${issues2.map((issue) => `- ${issue}`).join("\n")}`);
+  sections.push(`## Instruction
+
+${instruction || (subtask ? `Implement subtask ${subtask.id}.` : "Implement the task criterion by criterion.")}`);
+  return sections.join("\n\n");
+}
+
+// src/runtime/session.js
+import { appendFile, mkdir, writeFile } from "fs/promises";
+import { join as join7 } from "path";
+function stamp() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+}
+async function transcriptFile(taskDir, providerId) {
+  const dir = join7(taskDir, "runs");
+  await mkdir(dir, { recursive: true });
+  if (!await exists(join7(dir, ".gitignore"))) await writeFile(join7(dir, ".gitignore"), "# Agent transcripts may contain tool output and secrets.\n*\n!.gitignore\n");
+  return join7(dir, `${stamp()}-${providerId}.jsonl`);
+}
+async function runAgent({ cwd, config, taskDir, task, provider, model, permission, prompt, timeoutMs, signal, onEvent = () => {
+} }) {
+  const bin = resolveBin(provider, config, cwd);
+  if (!commandAvailable(bin, cwd)) throw new Error(`${provider.name} is not installed (${bin} not found on PATH)`);
+  const before = await runHooks(cwd, config, "before-agent-run", { task, provider: provider.id, model, permission, prompt });
+  if (!before.allowed) throw new Error(before.reason);
+  const finalPrompt = [prompt, ...before.appendPrompt].join("\n\n");
+  const { args, input } = provider.invocation({ prompt: finalPrompt, model, permission });
+  const transcript = await transcriptFile(taskDir, provider.id);
+  const events = [], state = {};
+  let writing = Promise.resolve();
+  const record = (event) => {
+    events.push(event);
+    onEvent(event);
+    const line = `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...event })}
+`;
+    writing = writing.then(() => appendFile(transcript, line));
+    return writing;
+  };
+  await record({ type: "start", provider: provider.id, model: model || null, permission, argv: [bin, ...args.map((arg) => arg === finalPrompt ? "<prompt>" : arg)] });
+  const pending2 = [];
+  const processResult = await runProcess({
+    bin,
+    args,
+    cwd,
+    input,
+    signal,
+    timeoutMs,
+    onLine: (line) => {
+      for (const event of provider.parse(line, state)) pending2.push(record(event));
+    }
+  });
+  await Promise.all(pending2);
+  for (const event of provider.finish?.(state) || []) await record(event);
+  const resultEvent = events.findLast((event) => event.type === "result");
+  const text = resultEvent?.text ?? events.filter((event) => event.type === "text").map((event) => event.text).join("\n");
+  const problems = [
+    processResult.error && `could not start ${bin}: ${processResult.error}`,
+    processResult.timedOut && `timed out after ${Math.round(timeoutMs / 1e3)}s`,
+    processResult.aborted && "aborted",
+    processResult.code !== 0 && !processResult.timedOut && !processResult.aborted && !processResult.error && `${bin} exited ${processResult.code}${processResult.stderr.trim() ? `: ${processResult.stderr.trim().split("\n").slice(-2).join(" ")}` : ""}`,
+    resultEvent?.ok === false && (resultEvent.error || "the agent reported an error")
+  ].filter(Boolean);
+  const summary = {
+    ok: !problems.length,
+    problems,
+    exitCode: processResult.code,
+    durationMs: processResult.durationMs,
+    sessionId: events.find((event) => event.type === "session")?.id,
+    cost: resultEvent?.cost,
+    text,
+    result: parseResultBlock(text),
+    transcript,
+    tools: events.filter((event) => event.type === "tool").length
+  };
+  await record({ type: "end", ok: summary.ok, problems, exitCode: summary.exitCode, durationMs: summary.durationMs, status: summary.result?.status || null });
+  const after = await runHooks(cwd, config, "after-agent-run", { task, provider: provider.id, ok: summary.ok, status: summary.result?.status, summary: summary.result?.summary, transcript });
+  summary.warnings = after.warnings;
+  return summary;
+}
+
+// src/subtasks/graph.js
+import { mkdir as mkdir2, readdir as readdir3, readFile as readFile7, writeFile as writeFile2 } from "fs/promises";
+import { join as join9 } from "path";
+import { z as z4 } from "zod";
 
 // src/capabilities/model.js
 import { createHash } from "crypto";
-import { readdir as readdir2, readFile as readFile4 } from "fs/promises";
-import { basename, join as join4, relative as relative2, sep } from "path";
+import { readdir as readdir2, readFile as readFile6 } from "fs/promises";
+import { basename, join as join8, relative as relative2, sep } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { z as z2 } from "zod";
+import { z as z3 } from "zod";
 var ENTRY_FILES = { skill: "SKILL.md", agent: "AGENT.md", command: "COMMAND.md", mcp: "MCP.json" };
 var KINDS = Object.keys(ENTRY_FILES);
 var AGENT_TOOLS = ["read", "edit", "shell", "web"];
-var name = z2.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "use a lowercase kebab-case name");
-var version = z2.string().regex(/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/, "use a semantic version such as 1.0.0");
+var name = z3.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "use a lowercase kebab-case name");
+var version = z3.string().regex(/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/, "use a semantic version such as 1.0.0");
 var common = {
   name,
   version: version.default("1.0.0"),
-  description: z2.string().min(10, "describe when an agent should use it (10+ characters)").max(1024),
-  tags: z2.array(z2.string()).default([]),
-  targets: z2.array(z2.string()).optional()
+  description: z3.string().min(10, "describe when an agent should use it (10+ characters)").max(1024),
+  tags: z3.array(z3.string()).default([]),
+  targets: z3.array(z3.string()).optional()
 };
-var serverSchema = z2.union([
-  z2.object({ command: z2.string().min(1), args: z2.array(z2.string()).default([]), env: z2.record(z2.string(), z2.string()).default({}) }),
-  z2.object({ url: z2.url(), type: z2.enum(["http", "sse"]).default("http"), headers: z2.record(z2.string(), z2.string()).default({}) })
+var serverSchema = z3.union([
+  z3.object({ command: z3.string().min(1), args: z3.array(z3.string()).default([]), env: z3.record(z3.string(), z3.string()).default({}) }),
+  z3.object({ url: z3.url(), type: z3.enum(["http", "sse"]).default("http"), headers: z3.record(z3.string(), z3.string()).default({}) })
 ]);
 var SCHEMAS = {
-  skill: z2.object({ ...common, "allowed-tools": z2.array(z2.string()).optional() }),
+  skill: z3.object({ ...common, "allowed-tools": z3.array(z3.string()).optional() }),
   // Portable permissions; each adapter maps them to its own tool names.
-  agent: z2.object({ ...common, tools: z2.array(z2.enum(AGENT_TOOLS)).optional(), model: z2.string().optional() }),
-  command: z2.object({ ...common, "argument-hint": z2.string().optional() }),
-  mcp: z2.object({ ...common, server: serverSchema })
+  agent: z3.object({ ...common, tools: z3.array(z3.enum(AGENT_TOOLS)).optional(), model: z3.string().optional() }),
+  command: z3.object({ ...common, "argument-hint": z3.string().optional() }),
+  mcp: z3.object({ ...common, server: serverSchema })
 };
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -599,7 +1077,7 @@ async function listFiles(dir, root = dir) {
   const files = [];
   for (const entry of (await readdir2(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name.startsWith(".")) continue;
-    const path = join4(dir, entry.name);
+    const path = join8(dir, entry.name);
     if (entry.isDirectory()) files.push(...await listFiles(path, root));
     else if (entry.isFile()) files.push(relative2(root, path).split(sep).join("/"));
   }
@@ -613,7 +1091,7 @@ async function loadCapability(dir, source = "local") {
   const kinds = KINDS.filter((kind2) => entries.includes(ENTRY_FILES[kind2]));
   if (kinds.length !== 1) throw new Error(`${dir}: expected exactly one of ${Object.values(ENTRY_FILES).join(", ")}`);
   const kind = kinds[0], entry = ENTRY_FILES[kind];
-  const text = await readFile4(join4(dir, entry), "utf8");
+  const text = await readFile6(join8(dir, entry), "utf8");
   let data, body = "";
   if (kind === "mcp") {
     try {
@@ -627,12 +1105,309 @@ async function loadCapability(dir, source = "local") {
   if (parsed.data.name !== basename(dir)) throw new Error(`${dir}/${entry}: name "${parsed.data.name}" must match its directory "${basename(dir)}"`);
   if (kind !== "mcp" && !body.trim()) throw new Error(`${dir}/${entry}: the body is empty; add the instructions the agent should follow`);
   const files = kind === "skill" ? await listFiles(dir) : [entry];
-  const contents = Object.fromEntries(await Promise.all(files.map(async (file) => [file, await readFile4(join4(dir, file))])));
+  const contents = Object.fromEntries(await Promise.all(files.map(async (file) => [file, await readFile6(join8(dir, file))])));
   const integrity = sha256(files.map((file) => `${file}\0${sha256(contents[file])}`).join("\n"));
   return { ref: `${kind}/${parsed.data.name}`, kind, ...parsed.data, body, dir, source, entry, files, contents, integrity };
 }
 
+// src/subtasks/graph.js
+var STATUSES = ["pending", "in-progress", "blocked", "done"];
+var COMPLEXITY = ["low", "medium", "high"];
+var MANIFEST = "_tasks.md";
+var nodeId = z4.string().regex(/^\d{2,3}$/, "use a two or three digit id such as 01");
+var manifestSchema = z4.object({
+  schema: z4.literal("maverick.subtasks/v1"),
+  nodes: z4.array(z4.object({ id: nodeId, file: z4.string().regex(/^task_\d{2,3}\.md$/) })),
+  edges: z4.array(z4.object({ from: nodeId, to: nodeId })).default([])
+});
+var itemSchema = z4.object({
+  title: z4.string().min(1),
+  status: z4.enum(STATUSES),
+  type: z4.string().regex(/^[a-z0-9-]+$/).optional(),
+  complexity: z4.enum(COMPLEXITY).optional()
+});
+var dirFor = (taskDir) => join9(taskDir, "subtasks");
+function issues(error) {
+  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
+}
+function findCycle(ids, edges) {
+  const next = new Map(ids.map((id2) => [id2, []]));
+  for (const edge of edges) next.get(edge.from)?.push(edge.to);
+  const state = /* @__PURE__ */ new Map(), stack = [];
+  const visit = (id2) => {
+    state.set(id2, "visiting");
+    stack.push(id2);
+    for (const to of next.get(id2) || []) {
+      if (state.get(to) === "visiting") return [...stack.slice(stack.indexOf(to)), to];
+      if (!state.has(to)) {
+        const cycle = visit(to);
+        if (cycle) return cycle;
+      }
+    }
+    state.set(id2, "done");
+    stack.pop();
+    return null;
+  };
+  for (const id2 of ids) if (!state.has(id2)) {
+    const cycle = visit(id2);
+    if (cycle) return cycle;
+  }
+  return null;
+}
+function topologicalOrder(ids, edges) {
+  const incoming = new Map(ids.map((id2) => [id2, 0]));
+  for (const edge of edges) incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
+  const ready = ids.filter((id2) => !incoming.get(id2)).sort(), order = [];
+  while (ready.length) {
+    const id2 = ready.shift();
+    order.push(id2);
+    for (const edge of edges.filter((item) => item.from === id2)) {
+      incoming.set(edge.to, incoming.get(edge.to) - 1);
+      if (!incoming.get(edge.to)) {
+        ready.push(edge.to);
+        ready.sort();
+      }
+    }
+  }
+  return order;
+}
+async function loadGraph(taskDir) {
+  const dir = dirFor(taskDir), manifestPath = join9(dir, MANIFEST);
+  if (!await exists(manifestPath)) return { exists: false, nodes: [], edges: [], items: [], problems: [] };
+  const problems = [];
+  const parsed = manifestSchema.safeParse(parseFrontmatter(await readFile7(manifestPath, "utf8")).data);
+  if (!parsed.success) return { exists: true, nodes: [], edges: [], items: [], problems: [`${MANIFEST}: ${issues(parsed.error)}`] };
+  const { nodes, edges } = parsed.data, ids = nodes.map((node) => node.id);
+  for (const id2 of ids.filter((value, index) => ids.indexOf(value) !== index)) problems.push(`duplicate node ${id2}`);
+  for (const edge of edges) {
+    if (!ids.includes(edge.from) || !ids.includes(edge.to)) problems.push(`edge ${edge.from} \u2192 ${edge.to} references an unknown node`);
+    if (edge.from === edge.to) problems.push(`node ${edge.from} depends on itself`);
+  }
+  const cycle = findCycle(ids, edges.filter((edge) => ids.includes(edge.from) && ids.includes(edge.to)));
+  if (cycle) problems.push(`dependency cycle: ${cycle.join(" \u2192 ")}`);
+  const items = [];
+  for (const node of nodes) {
+    const path = join9(dir, node.file);
+    if (!await exists(path)) {
+      problems.push(`${node.file} is listed in ${MANIFEST} but missing`);
+      continue;
+    }
+    const { data, body } = parseFrontmatter(await readFile7(path, "utf8"));
+    const item = itemSchema.safeParse(data);
+    if (!item.success) {
+      problems.push(`${node.file}: ${issues(item.error)}`);
+      continue;
+    }
+    items.push({ id: node.id, file: node.file, ...item.data, body, dependsOn: edges.filter((edge) => edge.to === node.id).map((edge) => edge.from) });
+  }
+  const listed = new Set(nodes.map((node) => node.file));
+  for (const file of (await readdir3(dir)).filter((name2) => /^task_\d{2,3}\.md$/.test(name2) && !listed.has(name2))) problems.push(`${file} is not listed in ${MANIFEST}`);
+  const order = cycle ? ids : topologicalOrder(ids, edges);
+  items.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  const done = new Set(items.filter((item) => item.status === "done").map((item) => item.id));
+  for (const item of items) item.ready = item.status === "pending" && item.dependsOn.every((id2) => done.has(id2));
+  return { exists: true, nodes, edges, items, problems };
+}
+async function writeManifest(taskDir, slug, nodes, edges, items) {
+  const table = items.map((item) => `| ${item.id} | ${item.title.replaceAll("|", "\\|")} | ${item.status} | ${item.dependsOn.join(", ") || "\u2014"} |`).join("\n");
+  await writeFile2(join9(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: "maverick.subtasks/v1", nodes, edges }, `# Subtasks \u2014 ${slug}
+
+The frontmatter is the source of truth for dependencies. Manage it with \`maverick subtask\`.
+
+| ID | Title | Status | Depends on |
+|---|---|---|---|
+${table}
+`));
+}
+async function addSubtask(taskDir, slug, { title, after = [], type, complexity }) {
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const ids = graph.nodes.map((node) => node.id);
+  const unknown = after.filter((id3) => !ids.includes(id3));
+  if (unknown.length) throw new Error(`unknown dependency ${unknown.join(", ")}; existing subtasks: ${ids.join(", ") || "none"}`);
+  if (complexity && !COMPLEXITY.includes(complexity)) throw new Error(`complexity must be one of ${COMPLEXITY.join(", ")}`);
+  const id2 = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, "0"), file = `task_${id2}.md`;
+  const nodes = [...graph.nodes, { id: id2, file }], edges = [...graph.edges, ...after.map((from) => ({ from, to: id2 }))];
+  await mkdir2(dirFor(taskDir), { recursive: true });
+  await writeFile2(join9(dirFor(taskDir), file), renderFrontmatter({ title, status: "pending", type, complexity }, `# ${title}
+
+## Goal
+FILL ME
+
+## Acceptance Criteria
+- FILL ME
+
+## Notes
+`));
+  await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id: id2, title, status: "pending", dependsOn: after }]);
+  return { id: id2, file };
+}
+async function setStatus(taskDir, slug, id2, status2) {
+  if (!STATUSES.includes(status2)) throw new Error(`status must be one of ${STATUSES.join(", ")}`);
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const item = graph.items.find((entry) => entry.id === id2);
+  if (!item) throw new Error(`subtask not found: ${id2}; existing: ${graph.items.map((entry) => entry.id).join(", ") || "none"}`);
+  const blockedBy = item.dependsOn.filter((dep) => graph.items.find((entry) => entry.id === dep)?.status !== "done");
+  if (["in-progress", "done"].includes(status2) && blockedBy.length) throw new Error(`subtask ${id2} depends on unfinished ${blockedBy.join(", ")}`);
+  const path = join9(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile7(path, "utf8"));
+  await writeFile2(path, renderFrontmatter({ ...data, status: status2 }, body));
+  item.status = status2;
+  await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
+  return item;
+}
+
+// src/commands/agent.js
+var str = (value) => typeof value === "string" ? value : void 0;
+function printer(options) {
+  if (options.json || options.quiet) return () => {
+  };
+  return (event) => {
+    if (event.type === "start") output(`\u25B6 ${event.provider}${event.model ? ` (${event.model})` : ""} \xB7 permission ${event.permission}`);
+    else if (event.type === "text" && event.text.trim()) output(event.text.trim());
+    else if (event.type === "tool") output(`  \u2192 ${event.name}${event.detail ? ` ${event.detail}` : ""}`);
+    else if (event.type === "error") output(`  ! ${event.message}`);
+  };
+}
+async function selectSubtask(taskDir, reference) {
+  if (!reference) return void 0;
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
+  const subtask = reference === "next" ? graph.items.find((item) => item.ready) : graph.items.find((item) => item.id === String(reference).padStart(2, "0"));
+  if (!subtask) throw new Error(reference === "next" ? "no subtask is ready; run maverick subtask list" : `subtask not found: ${reference}`);
+  if (subtask.status !== "in-progress" && !subtask.ready) throw new Error(`subtask ${subtask.id} is not ready (status ${subtask.status}, depends on ${subtask.dependsOn.join(", ") || "nothing"})`);
+  return subtask;
+}
+async function startAgentRun(cwd, { slug, dir, config, subtask, instruction, issues: issues2, options, onEvent }) {
+  const plan = resolveRun(config, { provider: str(options.provider) || str(options.agent), model: str(options.model), permission: str(options.permission), subtask }, providersFor(config));
+  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, instruction, issues: issues2 });
+  const timeoutMs = Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 6e4);
+  if (options.dryRun) return { dryRun: true, plan, prompt, invocation: plan.provider.invocation({ prompt: "<prompt>", model: plan.model, permission: plan.permission }) };
+  const controller = new globalThis.AbortController(), abort = () => controller.abort();
+  process.once("SIGINT", abort);
+  try {
+    const run2 = await runAgent({ cwd, config, taskDir: dir, task: slug, provider: plan.provider, model: plan.model, permission: plan.permission, prompt, timeoutMs, signal: controller.signal, onEvent });
+    return { plan, run: run2 };
+  } finally {
+    process.removeListener("SIGINT", abort);
+  }
+}
+async function run(cwd, slug, options) {
+  const { dir } = await getTask(cwd, slug), config = await loadConfig(cwd);
+  const subtask = await selectSubtask(dir, str(options.subtask) || (options.subtask === true ? "next" : void 0));
+  if (subtask && subtask.status === "pending" && !options.dryRun) await setStatus(dir, slug, subtask.id, "in-progress");
+  const outcome = await startAgentRun(cwd, { slug, dir, config, subtask, instruction: str(options.prompt), options, onEvent: printer(options) });
+  if (outcome.dryRun) {
+    const { plan: plan2, prompt, invocation } = outcome;
+    const argv = [resolveBin(plan2.provider, config, cwd), ...invocation.args];
+    if (options.json) return output(JSON.stringify({ provider: plan2.provider.id, model: plan2.model || null, permission: plan2.permission, route: plan2.route, argv, stdin: invocation.input !== void 0, prompt }, null, 2));
+    return output(`${brand()} / AGENT (dry run)
+Provider: ${plan2.provider.name} (${plan2.route})
+Model: ${plan2.model || "provider default"}
+Permission: ${plan2.permission}
+Command: ${argv.join(" ")}${invocation.input !== void 0 ? " < prompt" : ""}
+
+----- prompt -----
+${prompt}`);
+  }
+  const { plan, run: result } = outcome;
+  const payload = { provider: plan.provider.id, model: plan.model || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
+  if (options.json) output(JSON.stringify(payload, null, 2));
+  else {
+    output(`
+${brand()} / AGENT ${result.ok ? "FINISHED" : "FAILED"} in ${Math.round(result.durationMs / 1e3)}s${payload.cost != null ? ` \xB7 $${Number(payload.cost).toFixed(4)}` : ""}`);
+    result.problems.forEach((problem) => output(`! ${problem}`));
+    result.warnings.forEach((warning) => output(`WARN ${warning}`));
+    if (result.result) {
+      output(`Status: ${result.result.status}
+${result.result.summary}`);
+      result.result.questions.forEach((question) => output(`? ${question}`));
+    } else if (result.ok) output("The agent did not return a maverick-result block; review its output before trusting it.");
+    output(`Transcript: ${payload.transcript}${subtask ? `
+When verified: maverick subtask set ${slug} ${subtask.id} done` : ""}
+Next: maverick flow run ship ${slug}`);
+  }
+  if (!result.ok) throw new Error("agent run failed");
+}
+async function confirm(question, options) {
+  if (options.yes) return true;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("rerun with --yes to confirm");
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await prompt.question(`${question} [y/N] `);
+  prompt.close();
+  return /^y(es)?$/i.test(answer.trim());
+}
+async function trust(cwd, id2, options, add2 = true) {
+  const config = await loadConfig(cwd), providers = providersFor(config);
+  const provider = providers.find((item) => item.id === id2);
+  if (!provider) throw new Error(`unknown provider ${id2 || ""}; available: ${providers.map((item) => item.id).join(", ")}`);
+  const path = join10(cwd, ".maverick", "config.json");
+  const current = await exists(path) ? JSON.parse(await readFile8(path, "utf8")) : { version: 1 };
+  const runtime = { ...current.runtime };
+  const trusted = new Set(runtime.trusted || []);
+  if (add2) trusted.add(id2);
+  else trusted.delete(id2);
+  runtime.trusted = [...trusted].sort();
+  const max = str(options.maxPermission);
+  if (max && !PERMISSIONS.includes(max)) throw new Error(`--max-permission must be one of ${PERMISSIONS.join(", ")}`);
+  if (add2 && max) runtime.maxPermission = max;
+  if (add2 && !runtime.default) runtime.default = { provider: id2 };
+  if (!add2 && runtime.default?.provider === id2) delete runtime.default;
+  const ceiling = runtime.maxPermission || "edit";
+  const message = add2 ? `Trust ${provider.name} to run in ${cwd} with up to "${ceiling}" permission? It will run ${[provider.bin].flat().join(" or ")} with your user account.` : `Stop trusting ${provider.name}?`;
+  if (!await confirm(message, options)) return output("Nothing changed.");
+  await mkdir3(join10(cwd, ".maverick"), { recursive: true });
+  await writeFile3(path, pretty({ ...current, runtime }));
+  output(options.json ? JSON.stringify({ trusted: runtime.trusted, maxPermission: ceiling, default: runtime.default || null }) : `${brand()} / AGENT
+\u2713 ${add2 ? "trusted" : "untrusted"} ${id2}; runtime written to ${rel(cwd, path)}
+Max permission: ${ceiling}. Commit this file so the team reviews the decision.`);
+}
+async function list(cwd, options) {
+  const config = await loadConfig(cwd), trusted = config.runtime?.trusted || [];
+  const rows = providersFor(config).map((provider) => ({ id: provider.id, name: provider.name, bin: resolveBin(provider, config, cwd), installed: commandAvailable(resolveBin(provider, config, cwd), cwd), trusted: trusted.includes(provider.id), permissions: PERMISSIONS.filter((level) => provider.permissions[level] === true), custom: Boolean(provider.custom) }));
+  if (options.json) return output(JSON.stringify({ providers: rows, maxPermission: config.runtime?.maxPermission || "edit", default: config.runtime?.default || null, routes: config.runtime?.routes || [] }, null, 2));
+  output(`${brand()} / AGENTS
+
+${rows.map((row) => `${row.id.padEnd(13)}${(row.installed ? "installed" : "missing").padEnd(11)}${(row.trusted ? "trusted" : "\u2014").padEnd(9)}${row.permissions.join(", ")}${row.custom ? "  [custom]" : ""}`).join("\n")}
+
+Max permission: ${config.runtime?.maxPermission || "edit"} \xB7 default: ${config.runtime?.default?.provider || "not set"}
+Trust one with: maverick agent trust <provider>`);
+}
+async function runs(cwd, slug, options) {
+  const { dir } = await getTask(cwd, slug);
+  const files = (await readdir4(join10(dir, "runs")).catch(() => [])).filter((file) => file.endsWith(".jsonl")).sort();
+  const items = [];
+  for (const file of files) {
+    const events = (await readFile8(join10(dir, "runs", file), "utf8")).split("\n").filter(Boolean).map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+    const start = events.find((event) => event.type === "start"), end = events.findLast((event) => event.type === "end");
+    items.push({ file: rel(cwd, join10(dir, "runs", file)), provider: start?.provider, at: start?.at, ok: end?.ok ?? null, status: end?.status ?? null, durationMs: end?.durationMs ?? null });
+  }
+  if (options.json) return output(JSON.stringify(items, null, 2));
+  output(items.length ? items.map((item) => `${item.at}  ${String(item.provider).padEnd(12)}${item.ok === null ? "incomplete" : item.ok ? "ok" : "failed"}${item.status ? ` \xB7 ${item.status}` : ""}  ${item.file}`).join("\n") : `No agent runs for ${slug} yet.`);
+}
+async function agentCommand(cwd, [action, target], options = {}) {
+  if (!action || action === "list") return list(cwd, options);
+  if (action === "run") return run(cwd, target, options);
+  if (action === "trust") return trust(cwd, target, options, true);
+  if (action === "untrust") return trust(cwd, target, options, false);
+  if (action === "runs") return runs(cwd, target, options);
+  throw new Error("use agent list, agent trust <provider>, agent untrust <provider>, agent run <task>, or agent runs <task>");
+}
+var agentCommands = [
+  { id: "agent", description: "Run trusted AI coding agents headlessly with scoped permissions.", aliases: [], usage: "agent list|trust|untrust|run <task>|runs <task>", run: ({ cwd, rest, options }) => agentCommand(cwd, rest, options) }
+];
+
+// src/commands/capabilities.js
+import { createInterface as createInterface2 } from "readline/promises";
+
 // src/capabilities/adapters.js
+import { join as join11 } from "path";
 var argumentsAs = (body, token) => body.replaceAll("{{ARGUMENTS}}", token);
 var tomlString = (text) => text.includes("'''") ? JSON.stringify(text) : `'''
 ${text}'''`;
@@ -736,7 +1511,7 @@ ${body}
 var ADAPTER_IDS = ADAPTERS.map((adapter2) => adapter2.id);
 async function detectAdapters(cwd) {
   const detected = [];
-  for (const adapter2 of ADAPTERS) if ((await Promise.all(adapter2.detect.map((path) => exists(join5(cwd, path))))).some(Boolean)) detected.push(adapter2);
+  for (const adapter2 of ADAPTERS) if ((await Promise.all(adapter2.detect.map((path) => exists(join11(cwd, path))))).some(Boolean)) detected.push(adapter2);
   return detected;
 }
 async function resolveTargets(cwd, config = {}, to) {
@@ -753,21 +1528,21 @@ async function resolveTargets(cwd, config = {}, to) {
 }
 
 // src/capabilities/catalog.js
-import { readdir as readdir3 } from "fs/promises";
-import { join as join6, resolve as resolve2 } from "path";
+import { readdir as readdir5 } from "fs/promises";
+import { join as join12, resolve as resolve2 } from "path";
 var entryNames = new Set(Object.values(ENTRY_FILES));
 async function capabilityDirs(root, depth = 0) {
-  const entries = await readdir3(root, { withFileTypes: true }).catch(() => []);
+  const entries = await readdir5(root, { withFileTypes: true }).catch(() => []);
   if (entries.some((entry) => entry.isFile() && entryNames.has(entry.name))) return [root];
   if (depth >= 4) return [];
-  const nested = await Promise.all(entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules").map((entry) => capabilityDirs(join6(root, entry.name), depth + 1)));
+  const nested = await Promise.all(entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules").map((entry) => capabilityDirs(join12(root, entry.name), depth + 1)));
   return nested.flat();
 }
 function catalogRoots(cwd, config = {}) {
   return [
-    { source: "project", path: join6(cwd, ".maverick", "capabilities") },
+    { source: "project", path: join12(cwd, ".maverick", "capabilities") },
     ...(config.capabilities?.catalogs || []).map((path) => ({ source: `catalog:${path}`, path: resolve2(cwd, path) })),
-    { source: "built-in", path: join6(packageRoot, "capabilities") }
+    { source: "built-in", path: join12(packageRoot, "capabilities") }
   ];
 }
 async function loadCatalog(cwd, config = {}) {
@@ -801,30 +1576,30 @@ function searchCatalog(catalog, query = "") {
 }
 
 // src/capabilities/engine.js
-import { mkdir, readdir as readdir4, readFile as readFile5, rm, rmdir, writeFile } from "fs/promises";
-import { dirname as dirname2, isAbsolute as isAbsolute2, join as join7, normalize, relative as relative3, sep as sep2 } from "path";
+import { mkdir as mkdir4, readdir as readdir6, readFile as readFile9, rm, rmdir, writeFile as writeFile4 } from "fs/promises";
+import { dirname as dirname2, isAbsolute as isAbsolute2, join as join13, normalize, relative as relative3, sep as sep2 } from "path";
 var LOCK_PATH = ".maverick/capabilities.lock.json";
 function resolveInside(cwd, path) {
   const normalized = normalize(path);
   if (isAbsolute2(normalized) || normalized === ".." || normalized.startsWith(`..${sep2}`)) throw new Error(`refusing to write outside the project: ${path}`);
-  return join7(cwd, normalized);
+  return join13(cwd, normalized);
 }
 var keyId = (path, pointer) => `${path}#${pointer.join(".")}`;
 var hashValue = (value) => sha256(JSON.stringify(value));
 var toBuffer = (content) => Buffer.isBuffer(content) ? content : Buffer.from(content);
 async function readLock(cwd) {
-  const path = join7(cwd, LOCK_PATH);
+  const path = join13(cwd, LOCK_PATH);
   if (!await exists(path)) return { version: 1, capabilities: {} };
   try {
-    return JSON.parse(await readFile5(path, "utf8"));
+    return JSON.parse(await readFile9(path, "utf8"));
   } catch (error) {
     throw new Error(`invalid lockfile ${LOCK_PATH}: ${error.message}`);
   }
 }
 async function writeLock(cwd, lock) {
   const sorted = { version: 1, capabilities: Object.fromEntries(Object.entries(lock.capabilities).sort(([a], [b]) => a.localeCompare(b))) };
-  await mkdir(dirname2(join7(cwd, LOCK_PATH)), { recursive: true });
-  await writeFile(join7(cwd, LOCK_PATH), pretty(sorted));
+  await mkdir4(dirname2(join13(cwd, LOCK_PATH)), { recursive: true });
+  await writeFile4(join13(cwd, LOCK_PATH), pretty(sorted));
 }
 function ownership(lock) {
   const owners = /* @__PURE__ */ new Map();
@@ -839,7 +1614,7 @@ function ownership(lock) {
 async function readJsonFile(cwd, path) {
   const full = resolveInside(cwd, path);
   if (!await exists(full)) return void 0;
-  const text = await readFile5(full, "utf8");
+  const text = await readFile9(full, "utf8");
   if (!text.trim()) return {};
   try {
     return JSON.parse(text);
@@ -877,7 +1652,7 @@ async function planInstall(cwd, capability, adapters, lock, { force = false } = 
     for (const output2 of outputs) {
       if (output2.type === "file") {
         const full = resolveInside(cwd, output2.path), content = toBuffer(output2.content), hash = sha256(content);
-        const current = await exists(full) ? await readFile5(full) : null, owner = owners.get(output2.path);
+        const current = await exists(full) ? await readFile9(full) : null, owner = owners.get(output2.path);
         const op = !current ? "create" : sha256(current) === hash ? "unchanged" : "update";
         if (current && owner !== capability.ref && op !== "unchanged") conflicts.push({ target: adapter2.id, path: output2.path, reason: owner ? `owned by ${owner}` : "exists and is not managed by Maverick" });
         changes.push({ target: adapter2.id, type: "file", op, path: output2.path, content, sha256: hash });
@@ -904,7 +1679,7 @@ async function planRemove(cwd, ref, lock, { force = false } = {}) {
     for (const file of recorded.files || []) {
       const full = resolveInside(cwd, file.path);
       if (!await exists(full)) continue;
-      if (sha256(await readFile5(full)) !== file.sha256) conflicts.push({ target, path: file.path, reason: "edited since install" });
+      if (sha256(await readFile9(full)) !== file.sha256) conflicts.push({ target, path: file.path, reason: "edited since install" });
       changes.push({ target, type: "file", op: "delete", path: file.path });
     }
     for (const key of recorded.keys || []) {
@@ -918,7 +1693,7 @@ async function planRemove(cwd, ref, lock, { force = false } = {}) {
 }
 async function removeEmptyParents(cwd, path) {
   for (let dir = dirname2(path); relative3(cwd, dir) && !relative3(cwd, dir).startsWith(".."); dir = dirname2(dir)) {
-    if ((await readdir4(dir).catch(() => ["x"])).length) return;
+    if ((await readdir6(dir).catch(() => ["x"])).length) return;
     await rmdir(dir).catch(() => {
     });
   }
@@ -927,7 +1702,7 @@ async function applyChanges(cwd, changes) {
   const staged = /* @__PURE__ */ new Map(), originals = /* @__PURE__ */ new Map();
   const load = async (path) => {
     if (!staged.has(path)) {
-      const full = resolveInside(cwd, path), current = await exists(full) ? await readFile5(full) : null;
+      const full = resolveInside(cwd, path), current = await exists(full) ? await readFile9(full) : null;
       originals.set(path, current);
       staged.set(path, current);
     }
@@ -954,8 +1729,8 @@ async function applyChanges(cwd, changes) {
         await rm(full, { force: true });
         await removeEmptyParents(cwd, full);
       } else {
-        await mkdir(dirname2(full), { recursive: true });
-        await writeFile(full, content);
+        await mkdir4(dirname2(full), { recursive: true });
+        await writeFile4(full, content);
       }
     }
   } catch (error) {
@@ -963,7 +1738,7 @@ async function applyChanges(cwd, changes) {
       const full = resolveInside(cwd, path), original = originals.get(path);
       if (original === null) await rm(full, { force: true }).catch(() => {
       });
-      else await writeFile(full, original).catch(() => {
+      else await writeFile4(full, original).catch(() => {
       });
     }
     throw new Error(`could not apply changes (all files restored): ${error.message}`);
@@ -980,14 +1755,14 @@ function lockEntry(plan, { allowExec = false } = {}) {
   return { kind: capability.kind, version: capability.version, source: capability.source, integrity: capability.integrity, ...allowExec && { allowExec: true }, installedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), targets };
 }
 async function checkDrift(cwd, lock) {
-  const report = [];
+  const report2 = [];
   for (const [ref, entry] of Object.entries(lock.capabilities)) {
     const issues2 = [];
     for (const [target, recorded] of Object.entries(entry.targets || {})) {
       for (const file of recorded.files || []) {
         const full = resolveInside(cwd, file.path);
         if (!await exists(full)) issues2.push({ target, path: file.path, status: "missing" });
-        else if (sha256(await readFile5(full)) !== file.sha256) issues2.push({ target, path: file.path, status: "modified" });
+        else if (sha256(await readFile9(full)) !== file.sha256) issues2.push({ target, path: file.path, status: "modified" });
       }
       for (const key of recorded.keys || []) {
         let current;
@@ -1000,9 +1775,9 @@ async function checkDrift(cwd, lock) {
         else if (hashValue(current) !== key.sha256) issues2.push({ target, path: `${key.path} \u2192 ${key.pointer.join(".")}`, status: "modified" });
       }
     }
-    report.push({ ref, version: entry.version, source: entry.source, targets: Object.keys(entry.targets || {}), issues: issues2 });
+    report2.push({ ref, version: entry.version, source: entry.source, targets: Object.keys(entry.targets || {}), issues: issues2 });
   }
-  return report;
+  return report2;
 }
 
 // src/commands/capabilities.js
@@ -1020,7 +1795,7 @@ function renderPlans(title, plans) {
   return lines.join("\n");
 }
 var pending = (plans) => plans.flatMap((plan) => plan.changes).filter((change) => change.op !== "unchanged");
-async function confirm(title, plans, options) {
+async function confirm2(title, plans, options) {
   const summary = plans.map((plan) => ({ ref: plan.capability?.ref || plan.ref, changes: plan.changes.map(({ target, op, type, path, pointer }) => ({ target, op, type, path, ...pointer && { pointer } })), skipped: plan.skipped, conflicts: plan.conflicts }));
   if (!options.json) output(renderPlans(title, plans));
   const conflicts = plans.flatMap((plan) => plan.conflicts);
@@ -1044,7 +1819,7 @@ ${count} change(s) planned. Dry run: nothing was written.`);
   }
   if (!options.yes) {
     if (!process.stdin.isTTY || !process.stdout.isTTY || options.json) throw new Error(`${count} change(s) planned; rerun with --yes to apply or --dry-run to preview`);
-    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    const prompt = createInterface2({ input: process.stdin, output: process.stdout });
     const answer = await prompt.question(`
 Apply ${count} change(s)? [y/N] `);
     prompt.close();
@@ -1073,7 +1848,7 @@ async function add(cwd, references, options = {}) {
     if (!plan.changes.length) throw new Error(`${capability.ref} is not supported by ${adapters.map((adapter2) => adapter2.id).join(", ")}: ${plan.skipped.map((skip) => skip.reason).join("; ")}`);
     plans.push(plan);
   }
-  if (!await confirm("ADD", plans, options)) return;
+  if (!await confirm2("ADD", plans, options)) return;
   await applyChanges(cwd, plans.flatMap((plan) => plan.changes));
   for (const plan of plans) lock.capabilities[plan.capability.ref] = lockEntry(plan, { allowExec: Boolean(options.allowExec) });
   await writeLock(cwd, lock);
@@ -1088,7 +1863,7 @@ async function remove(cwd, references, options = {}) {
     if (refs.length > 1) throw new Error(`"${reference}" is ambiguous; use one of: ${refs.join(", ")}`);
     plans.push(await planRemove(cwd, refs[0] || reference, lock, { force: options.force }));
   }
-  const applied = await confirm("REMOVE", plans, options);
+  const applied = await confirm2("REMOVE", plans, options);
   if (!applied && pending(plans).length) return;
   await applyChanges(cwd, plans.flatMap((plan) => plan.changes));
   for (const plan of plans) delete lock.capabilities[plan.ref];
@@ -1139,20 +1914,20 @@ Install with: maverick add <capability> --to <${ADAPTERS.map((adapter2) => adapt
 }
 async function installed(cwd, options = {}) {
   const [config, lock] = await Promise.all([loadConfig(cwd), readLock(cwd)]);
-  const catalog = await loadCatalog(cwd, config), report = await checkDrift(cwd, lock);
-  for (const item of report) {
+  const catalog = await loadCatalog(cwd, config), report2 = await checkDrift(cwd, lock);
+  for (const item of report2) {
     const current = catalog.capabilities.find((capability) => capability.ref === item.ref);
     item.status = item.issues.length ? "drifted" : "ok";
     item.update = !current ? "source missing" : current.integrity !== lock.capabilities[item.ref].integrity ? `${current.version} available` : null;
   }
-  if (options.json) return output(JSON.stringify(report, null, 2));
-  if (!report.length) return output("No capabilities installed. Run maverick catalog to browse them.");
+  if (options.json) return output(JSON.stringify(report2, null, 2));
+  if (!report2.length) return output("No capabilities installed. Run maverick catalog to browse them.");
   const lines = [`${brand()} / INSTALLED`, ""];
-  for (const item of report) {
+  for (const item of report2) {
     lines.push(`${item.status === "ok" ? "OK   " : "DRIFT"} ${item.ref} ${item.version} \u2192 ${item.targets.join(", ")}${item.update ? `  (${item.update})` : ""}`);
     for (const issue of item.issues) lines.push(`      ${issue.status} ${issue.path}`);
   }
-  if (report.some((item) => item.issues.length)) lines.push("", "Restore managed files with: maverick sync");
+  if (report2.some((item) => item.issues.length)) lines.push("", "Restore managed files with: maverick sync");
   output(lines.join("\n"));
 }
 async function sync(cwd, options = {}) {
@@ -1173,7 +1948,7 @@ async function sync(cwd, options = {}) {
   }
   if (!options.json) notes.forEach((note) => output(`NOTE ${note}`));
   if (!plans.length) return output(options.json ? JSON.stringify({ applied: false, notes }) : "Nothing to sync.");
-  if (!await confirm("SYNC", plans, options)) return;
+  if (!await confirm2("SYNC", plans, options)) return;
   await applyChanges(cwd, plans.flatMap((plan) => plan.changes));
   if (!options.json) output("\n\u2713 managed files match the lockfile");
 }
@@ -1186,34 +1961,8 @@ var capabilityCommands = [
 ];
 
 // src/commands/delivery.js
-import { copyFile, mkdir as mkdir2, readFile as readFile7, writeFile as writeFile2 } from "fs/promises";
-import { dirname as dirname3, join as join9 } from "path";
-
-// src/core/tasks.js
-import { readFile as readFile6 } from "fs/promises";
-import { join as join8 } from "path";
-function taskPath(cwd, config, slug) {
-  requireSlug(slug);
-  return join8(cwd, config.taskRoot, slug);
-}
-async function taskPreset(dir, config) {
-  const meta = join8(dir, "TASK.json");
-  if (await exists(meta)) return (await readJson(meta)).preset || config.workflow.defaultPreset;
-  const file = join8(dir, "TASK.md");
-  if (await exists(file)) {
-    const match = (await readFile6(file, "utf8")).match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-    const preset = match?.[1].match(/^preset:\s*([^\s#]+)\s*$/m)?.[1];
-    if (preset) return preset;
-  }
-  return config.workflow.defaultPreset || "standard";
-}
-async function getTask(cwd, slug) {
-  const config = await loadConfig(cwd), dir = taskPath(cwd, config, slug);
-  if (!await exists(dir)) throw new Error(`task not found: ${rel(cwd, dir)}; run maverick task ${slug} first`);
-  return { config, dir, preset: requirePreset(await taskPreset(dir, config)) };
-}
-
-// src/commands/delivery.js
+import { copyFile, mkdir as mkdir5, readFile as readFile10, writeFile as writeFile5 } from "fs/promises";
+import { dirname as dirname3, join as join14 } from "path";
 var ADAPTERS2 = {
   codex: ["adapters/codex/AGENTS.md.example", "AGENTS.md"],
   "claude-code": ["adapters/claude-code/CLAUDE.md.example", "CLAUDE.md"],
@@ -1223,10 +1972,10 @@ var ADAPTERS2 = {
 async function learn(cwd, slug, options = {}) {
   await getTask(cwd, slug);
   if (!options.rule || options.rule === true) throw new Error('provide a rule with --rule "..."');
-  const dir = join9(cwd, ".maverick"), path = join9(dir, "LEARNINGS.md");
-  await mkdir2(dir, { recursive: true });
-  const existing = await exists(path) ? await readFile7(path, "utf8") : "# Maverick Learnings\n\nProposed reusable rules. Promote only after team review.\n";
-  await writeFile2(path, `${existing}
+  const dir = join14(cwd, ".maverick"), path = join14(dir, "LEARNINGS.md");
+  await mkdir5(dir, { recursive: true });
+  const existing = await exists(path) ? await readFile10(path, "utf8") : "# Maverick Learnings\n\nProposed reusable rules. Promote only after team review.\n";
+  await writeFile5(path, `${existing}
 - [ ] ${options.rule}
   - Source task: \`${slug}\`
 `);
@@ -1235,11 +1984,11 @@ async function learn(cwd, slug, options = {}) {
 }
 async function handoff(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug), present = {};
-  for (const file of ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md", "CHECKPOINT.md"]) present[file] = await exists(join9(dir, file));
-  const task = await readFile7(join9(dir, "TASK.md"), "utf8");
+  for (const file of ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md", "CHECKPOINT.md"]) present[file] = await exists(join14(dir, file));
+  const task = await readFile10(join14(dir, "TASK.md"), "utf8");
   const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.";
-  const remaining = Object.entries(present).filter(([, value]) => !value).map(([file]) => file), path = join9(dir, "HANDOFF.md");
-  await writeFile2(path, `# Handoff \u2014 ${slug}
+  const remaining = Object.entries(present).filter(([, value]) => !value).map(([file]) => file), path = join14(dir, "HANDOFF.md");
+  await writeFile5(path, `# Handoff \u2014 ${slug}
 
 ## Goal
 ${goal}
@@ -1267,30 +2016,30 @@ async function adapter(cwd, action, name2, options = {}) {
   if (action === "list") return output(options.json ? JSON.stringify(Object.keys(ADAPTERS2)) : `${brand()} / ADAPTERS
 ${Object.keys(ADAPTERS2).join("\n")}`);
   if (action !== "install" || !ADAPTERS2[name2]) throw new Error(`use adapter list or adapter install <${Object.keys(ADAPTERS2).join("|")}>`);
-  const [source, target] = ADAPTERS2[name2], destination = join9(cwd, target);
+  const [source, target] = ADAPTERS2[name2], destination = join14(cwd, target);
   if (await exists(destination)) throw new Error(`adapter target already exists: ${rel(cwd, destination)}`);
-  await mkdir2(dirname3(destination), { recursive: true });
-  await copyFile(join9(packageRoot, source), destination);
+  await mkdir5(dirname3(destination), { recursive: true });
+  await copyFile(join14(packageRoot, source), destination);
   output(options.json ? JSON.stringify({ adapter: name2, path: rel(cwd, destination) }) : `${brand()} / ADAPTER
 \u2713 ${name2}: ${rel(cwd, destination)}`);
 }
 async function ci(cwd, provider, slug, options = {}) {
   if (provider !== "github") throw new Error("only the github CI generator is currently available");
   await getTask(cwd, slug);
-  const destination = join9(cwd, ".github", "workflows", `maverick-${slug}.yml`);
+  const destination = join14(cwd, ".github", "workflows", `maverick-${slug}.yml`);
   if (await exists(destination)) throw new Error(`CI workflow already exists: ${rel(cwd, destination)}`);
-  await mkdir2(dirname3(destination), { recursive: true });
-  await writeFile2(destination, replaceVars(await readFile7(join9(packageRoot, "templates", "github-actions-maverick.yml"), "utf8"), { TASK_SLUG: slug }));
+  await mkdir5(dirname3(destination), { recursive: true });
+  await writeFile5(destination, replaceVars(await readFile10(join14(packageRoot, "templates", "github-actions-maverick.yml"), "utf8"), { TASK_SLUG: slug }));
   output(options.json ? JSON.stringify({ provider, task: slug, path: rel(cwd, destination) }) : `${brand()} / CI
 \u2713 GitHub Actions workflow: ${rel(cwd, destination)}`);
 }
 async function draftPr(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const task = await readFile7(join9(dir, "TASK.md"), "utf8");
-  const evidence = await exists(join9(dir, "EVIDENCE.md")) ? await readFile7(join9(dir, "EVIDENCE.md"), "utf8") : "Verification evidence has not been captured.";
-  const findings = await exists(join9(dir, "REVIEW-FINDINGS.md")) ? "Diff review report is available in REVIEW-FINDINGS.md." : "Diff review has not been run.";
-  const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.", path = join9(dir, "PR-DRAFT.md");
-  await writeFile2(path, `# PR Draft \u2014 ${slug}
+  const task = await readFile10(join14(dir, "TASK.md"), "utf8");
+  const evidence = await exists(join14(dir, "EVIDENCE.md")) ? await readFile10(join14(dir, "EVIDENCE.md"), "utf8") : "Verification evidence has not been captured.";
+  const findings = await exists(join14(dir, "REVIEW-FINDINGS.md")) ? "Diff review report is available in REVIEW-FINDINGS.md." : "Diff review has not been run.";
+  const goal = task.match(/^## Goal\n([^\n]*)/m)?.[1].trim() || "See TASK.md.", path = join14(dir, "PR-DRAFT.md");
+  await writeFile5(path, `# PR Draft \u2014 ${slug}
 
 ## Summary
 ${goal}
@@ -1322,25 +2071,25 @@ var deliveryCommands = [
 ];
 
 // src/commands/flow.js
-import { readdir as readdir8 } from "fs/promises";
-import { join as join14 } from "path";
+import { readdir as readdir9 } from "fs/promises";
+import { join as join18 } from "path";
 
 // src/flows/engine.js
-import { mkdir as mkdir4, readFile as readFile10, writeFile as writeFile4 } from "fs/promises";
-import { join as join12 } from "path";
+import { mkdir as mkdir7, readFile as readFile13, writeFile as writeFile7 } from "fs/promises";
+import { join as join17 } from "path";
 
 // src/core/project-tools.js
-import { mkdir as mkdir3, readdir as readdir5, readFile as readFile8, writeFile as writeFile3 } from "fs/promises";
-import { join as join10, relative as relative4 } from "path";
-import { spawn } from "child_process";
+import { mkdir as mkdir6, readdir as readdir7, readFile as readFile11, writeFile as writeFile6 } from "fs/promises";
+import { join as join15, relative as relative4 } from "path";
+import { spawn as spawn2 } from "child_process";
 var INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", ".cursorrules", ".cursor/rules", ".windsurfrules", "CONVENTIONS.md", "CONTRIBUTING.md"];
 async function inspectProject(cwd) {
   const stack = await detectStack(cwd);
-  const entries = await readdir5(cwd, { withFileTypes: true });
+  const entries = await readdir7(cwd, { withFileTypes: true });
   const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name2) => !IGNORED_DIRS.has(name2)).sort();
   const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
   const manifests = [...new Set(stack.ecosystems.flatMap((item) => item.manifests))];
-  const instructions = (await Promise.all(INSTRUCTION_FILES.map(async (name2) => await exists(join10(cwd, name2)) ? name2 : null))).filter(Boolean);
+  const instructions = (await Promise.all(INSTRUCTION_FILES.map(async (name2) => await exists(join15(cwd, name2)) ? name2 : null))).filter(Boolean);
   const scripts = stack.ecosystems.find((item) => item.id === "node")?.scripts || {};
   return {
     name: stack.name || cwd.split(/[\\/]/).filter(Boolean).pop(),
@@ -1409,7 +2158,7 @@ async function executeCommand(cwd, command, subdir = "") {
   }
   const label = subdir ? `${command} (in ${subdir}/)` : command;
   return new Promise((resolve3) => {
-    const child = spawn(bin, args, { cwd: subdir ? join10(cwd, subdir) : cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn2(bin, args, { cwd: subdir ? join15(cwd, subdir) : cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     let output2 = "";
     child.stdout.on("data", (chunk) => {
       output2 += chunk;
@@ -1426,7 +2175,7 @@ async function gitDiff(cwd, against = "HEAD") {
   return result.ok ? result.output : "";
 }
 async function writeEvidence(dir, task, results) {
-  await mkdir3(dir, { recursive: true });
+  await mkdir6(dir, { recursive: true });
   const body = `# Verification Evidence \u2014 ${task}
 
 Generated: ${(/* @__PURE__ */ new Date()).toISOString()}
@@ -1438,8 +2187,8 @@ Exit code: ${result.code ?? "not started"}
 ${result.output || "(no output)"}
 \`\`\``).join("\n\n")}
 `;
-  const path = join10(dir, "EVIDENCE.md");
-  await writeFile3(path, body);
+  const path = join15(dir, "EVIDENCE.md");
+  await writeFile6(path, body);
   return path;
 }
 async function findReferences(cwd, target, maxResults = 40) {
@@ -1447,13 +2196,13 @@ async function findReferences(cwd, target, maxResults = 40) {
   const results = [];
   async function visit(directory) {
     if (results.length >= maxResults) return;
-    for (const entry of await readdir5(directory, { withFileTypes: true })) {
+    for (const entry of await readdir7(directory, { withFileTypes: true })) {
       if (results.length >= maxResults || IGNORED_DIRS.has(entry.name)) continue;
-      const path = join10(directory, entry.name);
+      const path = join15(directory, entry.name);
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile()) {
         try {
-          const text = await readFile8(path, "utf8");
+          const text = await readFile11(path, "utf8");
           if (text.includes(needle)) results.push(relative4(cwd, path));
         } catch {
         }
@@ -1465,32 +2214,32 @@ async function findReferences(cwd, target, maxResults = 40) {
 }
 
 // src/flows/model.js
-import { readdir as readdir6, readFile as readFile9 } from "fs/promises";
-import { basename as basename2, join as join11 } from "path";
+import { readdir as readdir8, readFile as readFile12 } from "fs/promises";
+import { basename as basename2, join as join16 } from "path";
 import { parse as parseYaml2 } from "yaml";
-import { z as z3 } from "zod";
+import { z as z5 } from "zod";
 var MAVERICK_GATES = ["validate", "verify", "guard", "security", "deps", "policy", "review", "readiness"];
 var TERMINAL = ["stalled", "exhausted"];
-var id = z3.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/, "use a lowercase kebab-case id");
-var base = { id, description: z3.string().optional(), severity: z3.enum(["block", "warn"]).default("block") };
-var gate = z3.discriminatedUnion("type", [
-  z3.object({ ...base, type: z3.literal("check"), kinds: z3.array(z3.enum(CHECK_KINDS)).optional() }),
-  z3.object({ ...base, type: z3.literal("maverick"), run: z3.enum(MAVERICK_GATES) }),
-  z3.object({ ...base, type: z3.literal("command"), run: z3.string().min(1), cwd: z3.string().optional() }),
-  z3.object({ ...base, type: z3.literal("artifact"), file: z3.string().min(1), sections: z3.array(z3.string()).default([]), pattern: z3.string().optional(), noPlaceholders: z3.boolean().default(false) }),
+var id = z5.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/, "use a lowercase kebab-case id");
+var base = { id, description: z5.string().optional(), severity: z5.enum(["block", "warn"]).default("block") };
+var gate = z5.discriminatedUnion("type", [
+  z5.object({ ...base, type: z5.literal("check"), kinds: z5.array(z5.enum(CHECK_KINDS)).optional() }),
+  z5.object({ ...base, type: z5.literal("maverick"), run: z5.enum(MAVERICK_GATES) }),
+  z5.object({ ...base, type: z5.literal("command"), run: z5.string().min(1), cwd: z5.string().optional() }),
+  z5.object({ ...base, type: z5.literal("artifact"), file: z5.string().min(1), sections: z5.array(z5.string()).default([]), pattern: z5.string().optional(), noPlaceholders: z5.boolean().default(false) }),
   // An approval is recorded with `maverick flow approve`, or found in a task file (e.g. a checked box in REVIEW.md).
-  z3.object({ ...base, type: z3.literal("approval"), prompt: z3.string().min(1), file: z3.string().optional(), pattern: z3.string().optional() })
+  z5.object({ ...base, type: z5.literal("approval"), prompt: z5.string().min(1), file: z5.string().optional(), pattern: z5.string().optional() })
 ]);
-var flowSchema = z3.object({
-  apiVersion: z3.literal("maverick.flow/v1"),
+var flowSchema = z5.object({
+  apiVersion: z5.literal("maverick.flow/v1"),
   name: id,
-  description: z3.string().min(10),
-  contract: z3.object({
-    goal: z3.string().min(1),
-    iterationCap: z3.number().int().min(1).max(20).default(3),
-    noProgressWindow: z3.number().int().min(2).max(10).default(2)
+  description: z5.string().min(10),
+  contract: z5.object({
+    goal: z5.string().min(1),
+    iterationCap: z5.number().int().min(1).max(20).default(3),
+    noProgressWindow: z5.number().int().min(2).max(10).default(2)
   }),
-  gates: z3.array(gate).min(1)
+  gates: z5.array(gate).min(1)
 }).superRefine((flow, ctx) => {
   const seen = /* @__PURE__ */ new Set();
   flow.gates.forEach((item, index) => {
@@ -1502,7 +2251,7 @@ function formatIssues3(error) {
   return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
 }
 async function loadFlowFile(path, source) {
-  const text = await readFile9(path, "utf8");
+  const text = await readFile12(path, "utf8");
   let data;
   try {
     data = parseYaml2(text);
@@ -1516,13 +2265,13 @@ async function loadFlowFile(path, source) {
 }
 async function loadFlows(cwd) {
   const flows = /* @__PURE__ */ new Map(), errors = [];
-  for (const [source, dir] of [["project", join11(cwd, ".maverick", "flows")], ["built-in", join11(packageRoot, "flows")]]) {
-    for (const file of (await readdir6(dir).catch(() => [])).filter((name2) => /\.ya?ml$/.test(name2)).sort()) {
+  for (const [source, dir] of [["project", join16(cwd, ".maverick", "flows")], ["built-in", join16(packageRoot, "flows")]]) {
+    for (const file of (await readdir8(dir).catch(() => [])).filter((name2) => /\.ya?ml$/.test(name2)).sort()) {
       try {
-        const flow = await loadFlowFile(join11(dir, file), source);
+        const flow = await loadFlowFile(join16(dir, file), source);
         if (!flows.has(flow.name)) flows.set(flow.name, flow);
       } catch (error) {
-        errors.push({ source, file, message: error.message.replace(`${join11(dir, file)}: `, "") });
+        errors.push({ source, file, message: error.message.replace(`${join16(dir, file)}: `, "") });
       }
     }
   }
@@ -1555,14 +2304,14 @@ function parseJson2(text) {
   }
 }
 var MAVERICK_RESULTS = {
-  validate: (json) => ({ pass: json.valid, issues: json.results.filter((item) => item.status === "FAIL").map((item) => `${item.file}: ${item.message}`) }),
-  verify: (json) => ({ pass: json.ok, issues: json.results.filter((item) => !item.ok).map((item) => `failed: ${item.command}`) }),
-  guard: (json) => ({ pass: json.ok, issues: json.findings }),
-  security: (json) => ({ pass: !json.findings.length, issues: json.findings }),
-  deps: (json) => ({ pass: true, issues: [], summary: `${json.manifests.length} manifest(s), ${json.lockfiles.length} lockfile(s) changed` }),
-  policy: (json) => ({ pass: json.ok, issues: json.findings }),
-  review: (json) => ({ pass: !json.findings.length, issues: json.findings }),
-  readiness: (json) => ({ pass: json.ready, issues: json.missing.map((item) => `missing: ${item}`) })
+  validate: (json2) => ({ pass: json2.valid, issues: json2.results.filter((item) => item.status === "FAIL").map((item) => `${item.file}: ${item.message}`) }),
+  verify: (json2) => ({ pass: json2.ok, issues: json2.results.filter((item) => !item.ok).map((item) => `failed: ${item.command}`) }),
+  guard: (json2) => ({ pass: json2.ok, issues: json2.findings }),
+  security: (json2) => ({ pass: !json2.findings.length, issues: json2.findings }),
+  deps: (json2) => ({ pass: true, issues: [], summary: `${json2.manifests.length} manifest(s), ${json2.lockfiles.length} lockfile(s) changed` }),
+  policy: (json2) => ({ pass: json2.ok, issues: json2.findings }),
+  review: (json2) => ({ pass: !json2.findings.length, issues: json2.findings }),
+  readiness: (json2) => ({ pass: json2.ready, issues: json2.missing.map((item) => `missing: ${item}`) })
 };
 async function runChecks(context, gate2) {
   const [config, map] = await Promise.all([loadConfig(context.cwd), inspectProject(context.cwd)]);
@@ -1577,9 +2326,9 @@ async function runChecks(context, gate2) {
 async function runArtifact(context, gate2) {
   const file = interpolate(gate2.file, { task: context.task });
   if (file.split(/[\\/]/).includes("..")) return { pass: false, issues: [`artifact path must stay inside the task: ${file}`] };
-  const path = join12(context.taskDir, file);
+  const path = join17(context.taskDir, file);
   if (!await exists(path)) return { pass: false, issues: [`missing ${file}`] };
-  const text = await readFile10(path, "utf8"), issues2 = [];
+  const text = await readFile13(path, "utf8"), issues2 = [];
   for (const section of gate2.sections) if (!sectionPresent(text, section)) issues2.push(`${file}: missing section "${section}"`);
   if (gate2.pattern && !new RegExp(gate2.pattern, "m").test(text)) issues2.push(`${file}: ${gate2.description || `expected /${gate2.pattern}/`}`);
   if (gate2.noPlaceholders && !hasMeaningfulContent(text)) issues2.push(`${file}: placeholders remain`);
@@ -1602,8 +2351,8 @@ async function evaluateGate(context, gate2, state) {
     else if (gate2.type === "artifact") result = await runArtifact(context, gate2);
     else if (gate2.type === "command") {
       const command = interpolate(gate2.run, { task: context.task });
-      const run = await executeCommand(context.cwd, command, gate2.cwd || "");
-      result = { pass: run.ok, issues: run.ok ? [] : [`${command} exited ${run.code ?? "before starting"}`], summary: run.output.trim().split("\n").slice(-3).join(" | ").slice(0, 300) };
+      const run2 = await executeCommand(context.cwd, command, gate2.cwd || "");
+      result = { pass: run2.ok, issues: run2.ok ? [] : [`${command} exited ${run2.code ?? "before starting"}`], summary: run2.output.trim().split("\n").slice(-3).join(" | ").slice(0, 300) };
     } else {
       const args = [gate2.run, context.task, "--json", ...gate2.run === "review" ? ["--diff"] : []];
       let captured;
@@ -1611,8 +2360,8 @@ async function evaluateGate(context, gate2, state) {
         captured = (await captureOutput(() => context.invoke(args))).output;
       } catch (error) {
         captured = error.output;
-        const json = parseJson2(captured);
-        if (!json) return { ...base2, status: "fail", issues: [error.message] };
+        const json2 = parseJson2(captured);
+        if (!json2) return { ...base2, status: "fail", issues: [error.message] };
       }
       result = MAVERICK_RESULTS[gate2.run](parseJson2(captured));
     }
@@ -1625,25 +2374,25 @@ var issueKey = (results) => results.filter((result) => result.severity === "bloc
 function decideOutcome(results, history, contract) {
   const blocking = results.filter((result) => result.severity === "block");
   const failed = blocking.filter((result) => result.status === "fail"), pending2 = blocking.filter((result) => result.status === "pending");
-  if (!failed.length) return { outcome: pending2.length ? "awaiting-approval" : "done", iteration: history.filter((run) => run.outcome === "revise").length };
-  const failedRuns = history.filter((run) => ["revise", "stalled", "exhausted"].includes(run.outcome));
+  if (!failed.length) return { outcome: pending2.length ? "awaiting-approval" : "done", iteration: history.filter((run2) => run2.outcome === "revise").length };
+  const failedRuns = history.filter((run2) => ["revise", "stalled", "exhausted"].includes(run2.outcome));
   const iteration = failedRuns.length + 1, key = issueKey(results);
   const recent = failedRuns.slice(-(contract.noProgressWindow - 1));
-  if (recent.length === contract.noProgressWindow - 1 && recent.every((run) => run.issueKey === key)) return { outcome: "stalled", iteration, issueKey: key };
+  if (recent.length === contract.noProgressWindow - 1 && recent.every((run2) => run2.issueKey === key)) return { outcome: "stalled", iteration, issueKey: key };
   if (iteration >= contract.iterationCap) return { outcome: "exhausted", iteration, issueKey: key };
   return { outcome: "revise", iteration, issueKey: key };
 }
 function statePath(taskDir, flow) {
-  return join12(taskDir, "flows", `${flow}.json`);
+  return join17(taskDir, "flows", `${flow}.json`);
 }
 async function readState(taskDir, flow) {
   const path = statePath(taskDir, flow);
   if (!await exists(path)) return { flow, runs: [], approvals: {} };
-  return JSON.parse(await readFile10(path, "utf8"));
+  return JSON.parse(await readFile13(path, "utf8"));
 }
 async function writeState(taskDir, state) {
-  await mkdir4(join12(taskDir, "flows"), { recursive: true });
-  await writeFile4(statePath(taskDir, state.flow), pretty(state));
+  await mkdir7(join17(taskDir, "flows"), { recursive: true });
+  await writeFile7(statePath(taskDir, state.flow), pretty(state));
 }
 var NEXT_STEP = {
   done: "All blocking gates pass. Hand the change to a human for the merge decision.",
@@ -1652,19 +2401,19 @@ var NEXT_STEP = {
   stalled: "The same blocking issues repeated with no progress. Stop and ask a human; rerun only with --reset after they decide.",
   exhausted: "The iteration cap was reached. Stop and ask a human; rerun only with --reset after they decide."
 };
-function renderReport(flow, task, run, contract) {
+function renderReport(flow, task, run2, contract) {
   const icon = { pass: "\u2713", fail: "\u2717", pending: "\u2026" };
-  const gates = run.results.map((result) => `- ${icon[result.status]} **${result.id}** (${result.type}${result.severity === "warn" ? ", warn" : ""}) \u2014 ${result.status}${result.summary ? `: ${result.summary}` : ""}${result.issues.length ? `
+  const gates = run2.results.map((result) => `- ${icon[result.status]} **${result.id}** (${result.type}${result.severity === "warn" ? ", warn" : ""}) \u2014 ${result.status}${result.summary ? `: ${result.summary}` : ""}${result.issues.length ? `
 ${result.issues.map((issue) => `  - ${issue}`).join("\n")}` : ""}`).join("\n");
   return `# Flow ${flow.name} \u2014 ${task}
 
 Goal: ${interpolate(contract.goal, { task })}
 
-Outcome: **${run.outcome.toUpperCase()}** (failed iteration ${run.iteration}/${contract.iterationCap}, no-progress window ${contract.noProgressWindow})
-Run: ${run.at}
+Outcome: **${run2.outcome.toUpperCase()}** (failed iteration ${run2.iteration}/${contract.iterationCap}, no-progress window ${contract.noProgressWindow})
+Run: ${run2.at}
 
 ## Next step
-${NEXT_STEP[run.outcome]}
+${NEXT_STEP[run2.outcome]}
 
 ## Gates
 ${gates}
@@ -1686,166 +2435,35 @@ async function runFlow(context, flow, { reset = false } = {}) {
   const results = [];
   for (const gate2 of flow.gates) results.push(await evaluateGate({ ...context, flow: flow.name }, gate2, state));
   const decision = decideOutcome(results, state.runs, flow.contract);
-  const run = { at: (/* @__PURE__ */ new Date()).toISOString(), ...decision, results };
-  state = { ...state, flow: flow.name, integrity: flow.integrity, runs: [...state.runs, run], status: run.outcome };
+  const run2 = { at: (/* @__PURE__ */ new Date()).toISOString(), ...decision, results };
+  state = { ...state, flow: flow.name, integrity: flow.integrity, runs: [...state.runs, run2], status: run2.outcome };
   await writeState(context.taskDir, state);
-  const reportPath = join12(context.taskDir, `FLOW-${flow.name.toUpperCase()}.md`);
-  await writeFile4(reportPath, renderReport(flow, context.task, run, flow.contract));
-  return { run, state, notes, reportPath, next: NEXT_STEP[run.outcome] };
-}
-
-// src/subtasks/graph.js
-import { mkdir as mkdir5, readdir as readdir7, readFile as readFile11, writeFile as writeFile5 } from "fs/promises";
-import { join as join13 } from "path";
-import { z as z4 } from "zod";
-var STATUSES = ["pending", "in-progress", "blocked", "done"];
-var COMPLEXITY = ["low", "medium", "high"];
-var MANIFEST = "_tasks.md";
-var nodeId = z4.string().regex(/^\d{2,3}$/, "use a two or three digit id such as 01");
-var manifestSchema = z4.object({
-  schema: z4.literal("maverick.subtasks/v1"),
-  nodes: z4.array(z4.object({ id: nodeId, file: z4.string().regex(/^task_\d{2,3}\.md$/) })),
-  edges: z4.array(z4.object({ from: nodeId, to: nodeId })).default([])
-});
-var itemSchema = z4.object({
-  title: z4.string().min(1),
-  status: z4.enum(STATUSES),
-  type: z4.string().regex(/^[a-z0-9-]+$/).optional(),
-  complexity: z4.enum(COMPLEXITY).optional()
-});
-var dirFor = (taskDir) => join13(taskDir, "subtasks");
-function issues(error) {
-  return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
-}
-function findCycle(ids, edges) {
-  const next = new Map(ids.map((id2) => [id2, []]));
-  for (const edge of edges) next.get(edge.from)?.push(edge.to);
-  const state = /* @__PURE__ */ new Map(), stack = [];
-  const visit = (id2) => {
-    state.set(id2, "visiting");
-    stack.push(id2);
-    for (const to of next.get(id2) || []) {
-      if (state.get(to) === "visiting") return [...stack.slice(stack.indexOf(to)), to];
-      if (!state.has(to)) {
-        const cycle = visit(to);
-        if (cycle) return cycle;
-      }
-    }
-    state.set(id2, "done");
-    stack.pop();
-    return null;
-  };
-  for (const id2 of ids) if (!state.has(id2)) {
-    const cycle = visit(id2);
-    if (cycle) return cycle;
-  }
-  return null;
-}
-function topologicalOrder(ids, edges) {
-  const incoming = new Map(ids.map((id2) => [id2, 0]));
-  for (const edge of edges) incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
-  const ready = ids.filter((id2) => !incoming.get(id2)).sort(), order = [];
-  while (ready.length) {
-    const id2 = ready.shift();
-    order.push(id2);
-    for (const edge of edges.filter((item) => item.from === id2)) {
-      incoming.set(edge.to, incoming.get(edge.to) - 1);
-      if (!incoming.get(edge.to)) {
-        ready.push(edge.to);
-        ready.sort();
-      }
-    }
-  }
-  return order;
-}
-async function loadGraph(taskDir) {
-  const dir = dirFor(taskDir), manifestPath = join13(dir, MANIFEST);
-  if (!await exists(manifestPath)) return { exists: false, nodes: [], edges: [], items: [], problems: [] };
-  const problems = [];
-  const parsed = manifestSchema.safeParse(parseFrontmatter(await readFile11(manifestPath, "utf8")).data);
-  if (!parsed.success) return { exists: true, nodes: [], edges: [], items: [], problems: [`${MANIFEST}: ${issues(parsed.error)}`] };
-  const { nodes, edges } = parsed.data, ids = nodes.map((node) => node.id);
-  for (const id2 of ids.filter((value, index) => ids.indexOf(value) !== index)) problems.push(`duplicate node ${id2}`);
-  for (const edge of edges) {
-    if (!ids.includes(edge.from) || !ids.includes(edge.to)) problems.push(`edge ${edge.from} \u2192 ${edge.to} references an unknown node`);
-    if (edge.from === edge.to) problems.push(`node ${edge.from} depends on itself`);
-  }
-  const cycle = findCycle(ids, edges.filter((edge) => ids.includes(edge.from) && ids.includes(edge.to)));
-  if (cycle) problems.push(`dependency cycle: ${cycle.join(" \u2192 ")}`);
-  const items = [];
-  for (const node of nodes) {
-    const path = join13(dir, node.file);
-    if (!await exists(path)) {
-      problems.push(`${node.file} is listed in ${MANIFEST} but missing`);
-      continue;
-    }
-    const { data, body } = parseFrontmatter(await readFile11(path, "utf8"));
-    const item = itemSchema.safeParse(data);
-    if (!item.success) {
-      problems.push(`${node.file}: ${issues(item.error)}`);
-      continue;
-    }
-    items.push({ id: node.id, file: node.file, ...item.data, body, dependsOn: edges.filter((edge) => edge.to === node.id).map((edge) => edge.from) });
-  }
-  const listed = new Set(nodes.map((node) => node.file));
-  for (const file of (await readdir7(dir)).filter((name2) => /^task_\d{2,3}\.md$/.test(name2) && !listed.has(name2))) problems.push(`${file} is not listed in ${MANIFEST}`);
-  const order = cycle ? ids : topologicalOrder(ids, edges);
-  items.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-  const done = new Set(items.filter((item) => item.status === "done").map((item) => item.id));
-  for (const item of items) item.ready = item.status === "pending" && item.dependsOn.every((id2) => done.has(id2));
-  return { exists: true, nodes, edges, items, problems };
-}
-async function writeManifest(taskDir, slug, nodes, edges, items) {
-  const table = items.map((item) => `| ${item.id} | ${item.title.replaceAll("|", "\\|")} | ${item.status} | ${item.dependsOn.join(", ") || "\u2014"} |`).join("\n");
-  await writeFile5(join13(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: "maverick.subtasks/v1", nodes, edges }, `# Subtasks \u2014 ${slug}
-
-The frontmatter is the source of truth for dependencies. Manage it with \`maverick subtask\`.
-
-| ID | Title | Status | Depends on |
-|---|---|---|---|
-${table}
-`));
-}
-async function addSubtask(taskDir, slug, { title, after = [], type, complexity }) {
-  const graph = await loadGraph(taskDir);
-  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
-  const ids = graph.nodes.map((node) => node.id);
-  const unknown = after.filter((id3) => !ids.includes(id3));
-  if (unknown.length) throw new Error(`unknown dependency ${unknown.join(", ")}; existing subtasks: ${ids.join(", ") || "none"}`);
-  if (complexity && !COMPLEXITY.includes(complexity)) throw new Error(`complexity must be one of ${COMPLEXITY.join(", ")}`);
-  const id2 = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, "0"), file = `task_${id2}.md`;
-  const nodes = [...graph.nodes, { id: id2, file }], edges = [...graph.edges, ...after.map((from) => ({ from, to: id2 }))];
-  await mkdir5(dirFor(taskDir), { recursive: true });
-  await writeFile5(join13(dirFor(taskDir), file), renderFrontmatter({ title, status: "pending", type, complexity }, `# ${title}
-
-## Goal
-FILL ME
-
-## Acceptance Criteria
-- FILL ME
-
-## Notes
-`));
-  await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id: id2, title, status: "pending", dependsOn: after }]);
-  return { id: id2, file };
-}
-async function setStatus(taskDir, slug, id2, status2) {
-  if (!STATUSES.includes(status2)) throw new Error(`status must be one of ${STATUSES.join(", ")}`);
-  const graph = await loadGraph(taskDir);
-  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join("; ")}`);
-  const item = graph.items.find((entry) => entry.id === id2);
-  if (!item) throw new Error(`subtask not found: ${id2}; existing: ${graph.items.map((entry) => entry.id).join(", ") || "none"}`);
-  const blockedBy = item.dependsOn.filter((dep) => graph.items.find((entry) => entry.id === dep)?.status !== "done");
-  if (["in-progress", "done"].includes(status2) && blockedBy.length) throw new Error(`subtask ${id2} depends on unfinished ${blockedBy.join(", ")}`);
-  const path = join13(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile11(path, "utf8"));
-  await writeFile5(path, renderFrontmatter({ ...data, status: status2 }, body));
-  item.status = status2;
-  await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
-  return item;
+  const reportPath = join17(context.taskDir, `FLOW-${flow.name.toUpperCase()}.md`);
+  await writeFile7(reportPath, renderReport(flow, context.task, run2, flow.contract));
+  return { run: run2, state, notes, reportPath, next: NEXT_STEP[run2.outcome] };
 }
 
 // src/commands/flow.js
 var ICON = { pass: "PASS", fail: "FAIL", pending: "WAIT" };
+function report(cwd, flow, slug, { run: run2, notes, reportPath, next }, options) {
+  if (options.json) return;
+  output(`${brand()} / FLOW ${flow.name.toUpperCase()}
+Goal: ${interpolate(flow.contract.goal, { task: slug })}
+`);
+  notes.forEach((note) => output(`NOTE ${note}`));
+  for (const result of run2.results) {
+    output(`${ICON[result.status]} ${result.id}${result.severity === "warn" ? " (warn)" : ""}${result.summary ? ` \u2014 ${result.summary}` : ""}`);
+    result.issues.forEach((issue) => output(`     ${issue}`));
+  }
+  output(`
+Outcome: ${run2.outcome.toUpperCase()} (failed iteration ${run2.iteration}/${flow.contract.iterationCap})
+${next}
+Report: ${rel(cwd, reportPath)}`);
+}
+async function afterFlowHook(cwd, config, flow, slug, { run: run2 }) {
+  const hooks = await runHooks(cwd, config, "after-flow-run", { task: slug, flow: flow.name, outcome: run2.outcome, iteration: run2.iteration });
+  hooks.warnings.forEach((warning) => output(`WARN ${warning}`));
+}
 async function flowCommand(cwd, [action, ...args], options = {}) {
   if (!action || action === "list") {
     const { flows, errors } = await loadFlows(cwd);
@@ -1884,30 +2502,39 @@ Gates:
 ${flow.gates.map((gate2) => `  ${gate2.id.padEnd(14)}${gate2.type}${gate2.run ? `:${gate2.run}` : ""}${gate2.severity === "warn" ? " (warn)" : ""}${gate2.description ? ` \u2014 ${gate2.description}` : ""}`).join("\n")}`);
   }
   if (action === "run") {
-    const [name2, slug] = args, flow = await findFlow(cwd, name2), { dir } = await getTask(cwd, slug);
-    const invoke = async (argv) => (await import("./cli-F3CWBSQ2.js")).main(argv, cwd);
-    const { run, notes, reportPath, next } = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
-    if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: run.outcome, iteration: run.iteration, iterationCap: flow.contract.iterationCap, next, notes, report: rel(cwd, reportPath), gates: run.results }, null, 2));
-    else {
-      output(`${brand()} / FLOW ${flow.name.toUpperCase()}
-Goal: ${interpolate(flow.contract.goal, { task: slug })}
-`);
-      notes.forEach((note) => output(`NOTE ${note}`));
-      for (const result of run.results) {
-        output(`${ICON[result.status]} ${result.id}${result.severity === "warn" ? " (warn)" : ""}${result.summary ? ` \u2014 ${result.summary}` : ""}`);
-        result.issues.forEach((issue) => output(`     ${issue}`));
+    const [name2, slug] = args, flow = await findFlow(cwd, name2), { dir } = await getTask(cwd, slug), config = await loadConfig(cwd);
+    const invoke = async (argv) => (await import("./cli-UWF7MYWH.js")).main(argv, cwd);
+    const agentRuns = [];
+    let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
+    report(cwd, flow, slug, result, options);
+    await afterFlowHook(cwd, config, flow, slug, result);
+    while (options.agent && result.run.outcome === "revise") {
+      const issues2 = result.run.results.filter((item) => item.severity === "block" && item.status === "fail").flatMap((item) => item.issues.map((issue) => `${item.id}: ${issue}`));
+      if (!options.json) output(`
+${brand()} / AGENT FIX (iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
+      const { run: agent } = await startAgentRun(cwd, { slug, dir, config, issues: issues2, instruction: `Fix the blocking issues so the "${flow.name}" flow passes. Goal: ${interpolate(flow.contract.goal, { task: slug })}`, options, onEvent: printer(options) });
+      agentRuns.push({ ok: agent.ok, status: agent.result?.status || null, summary: agent.result?.summary || null, transcript: rel(cwd, agent.transcript) });
+      if (!agent.ok) throw new Error(`agent fix run failed: ${agent.problems.join("; ")}`);
+      if (agent.result && agent.result.status !== "done") {
+        if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, agentRuns, questions: agent.result.questions }, null, 2));
+        else {
+          output(`
+The agent stopped: ${agent.result.status}. ${agent.result.summary}`);
+          agent.result.questions.forEach((question) => output(`? ${question}`));
+        }
+        throw new Error(`agent needs a human: ${agent.result.status}`);
       }
-      output(`
-Outcome: ${run.outcome.toUpperCase()} (failed iteration ${run.iteration}/${flow.contract.iterationCap})
-${next}
-Report: ${rel(cwd, reportPath)}`);
+      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow);
+      report(cwd, flow, slug, result, options);
+      await afterFlowHook(cwd, config, flow, slug, result);
     }
-    if (run.outcome !== "done") throw new Error(`flow ${flow.name} outcome: ${run.outcome}`);
+    if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, iteration: result.run.iteration, iterationCap: flow.contract.iterationCap, next: result.next, notes: result.notes, report: rel(cwd, result.reportPath), gates: result.run.results, agentRuns }, null, 2));
+    if (result.run.outcome !== "done") throw new Error(`flow ${flow.name} outcome: ${result.run.outcome}`);
     return;
   }
   if (action === "status") {
     const [slug] = args, { dir } = await getTask(cwd, slug);
-    const files = (await readdir8(join14(dir, "flows")).catch(() => [])).filter((file) => file.endsWith(".json"));
+    const files = (await readdir9(join18(dir, "flows")).catch(() => [])).filter((file) => file.endsWith(".json"));
     const states = await Promise.all(files.map((file) => readState(dir, file.replace(/\.json$/, ""))));
     const summary = states.map((state) => ({ flow: state.flow, status: state.status || "not run", runs: state.runs.length, lastRun: state.runs.at(-1)?.at, approvals: state.approvals }));
     if (options.json) return output(JSON.stringify(summary, null, 2));
@@ -1938,7 +2565,7 @@ async function subtaskCommand(cwd, [action, slug, ...args], options = {}) {
     const created = await addSubtask(dir, slug, { title, after, type: typeof options.type === "string" ? options.type : void 0, complexity: typeof options.complexity === "string" ? options.complexity : void 0 });
     return output(options.json ? JSON.stringify(created) : `${brand()} / SUBTASK
 \u2713 ${created.id}: ${title}${after.length ? ` (after ${after.join(", ")})` : ""}
-File: ${rel(cwd, join14(dir, "subtasks", created.file))}`);
+File: ${rel(cwd, join18(dir, "subtasks", created.file))}`);
   }
   if (action === "set") {
     const [id2, status2] = args;
@@ -1982,40 +2609,40 @@ var flowCommands = [
 ];
 
 // src/commands/gates.js
-import { mkdir as mkdir7, readFile as readFile13, writeFile as writeFile7 } from "fs/promises";
-import { join as join16 } from "path";
+import { mkdir as mkdir9, readFile as readFile15, writeFile as writeFile9 } from "fs/promises";
+import { join as join20 } from "path";
 
 // src/commands/task.js
-import { mkdir as mkdir6, readFile as readFile12, writeFile as writeFile6 } from "fs/promises";
-import { join as join15 } from "path";
+import { mkdir as mkdir8, readFile as readFile14, writeFile as writeFile8 } from "fs/promises";
+import { join as join19 } from "path";
 async function createTask(cwd, slug, options = {}) {
   const config = await loadConfig(cwd), preset = requirePreset(options.preset || config.workflow.defaultPreset || "standard"), dir = taskPath(cwd, config, slug);
   if (await exists(dir)) throw new Error(`task already exists: ${rel(cwd, dir)}; choose another slug or remove it deliberately`);
-  await mkdir6(dir, { recursive: true });
+  await mkdir8(dir, { recursive: true });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), artifacts = [...preset.artifacts];
   if ((options.riskDoc || config.workflow.riskDocumentation) && preset.strict) artifacts.push({ id: "RISK", file: "RISK.md", template: "risk.md", sections: ["Risk Assessment", "Mitigations", "Rollback", "Approval"] });
-  for (const item of artifacts) await writeFile6(join15(dir, item.file), replaceVars(await readFile12(join15(packageRoot, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
-  await writeFile6(join15(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
+  for (const item of artifacts) await writeFile8(join19(dir, item.file), replaceVars(await readFile14(join19(packageRoot, "templates", item.template), "utf8"), { TASK_SLUG: slug, DATE: today }));
+  await writeFile8(join19(dir, "TASK.json"), pretty({ preset: preset.id, createdAt: today }));
   output(`${brand()}
 \u2713 task created: ${rel(cwd, dir)}
 Preset: ${preset.name}
 Stages: ${preset.stages.map((s) => s.toUpperCase()).join(" \u2192 ")}`);
 }
 async function showArtifact(cwd, slug, filename, label) {
-  const { dir } = await getTask(cwd, slug), path = join15(dir, filename);
+  const { dir } = await getTask(cwd, slug), path = join19(dir, filename);
   output(`${label}: ${rel(cwd, path)}${await exists(path) ? "" : " (not included by this preset)"}`);
 }
 async function taskPacket(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  const mapPath = join15(cwd, ".maverick", "context", "PROJECT_MAP.md"), contents = [];
-  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists(join15(dir, file))) contents.push(`## ${file}
+  const mapPath = join19(cwd, ".maverick", "context", "PROJECT_MAP.md"), contents = [];
+  for (const file of ["SPEC.md", "TASK.md", "CONTEXT.md", "PLAN.md"]) if (await exists(join19(dir, file))) contents.push(`## ${file}
 
-${await readFile12(join15(dir, file), "utf8")}`);
+${await readFile14(join19(dir, file), "utf8")}`);
   if (await exists(mapPath)) contents.unshift(`## PROJECT_MAP.md
 
-${await readFile12(mapPath, "utf8")}`);
-  const path = join15(dir, "TASK-PACKET.md");
-  await writeFile6(path, `# Maverick Task Packet
+${await readFile14(mapPath, "utf8")}`);
+  const path = join19(dir, "TASK-PACKET.md");
+  await writeFile8(path, `# Maverick Task Packet
 
 Preset: ${preset.name}
 Agent: ${options.agent || "generic"}
@@ -2038,14 +2665,14 @@ async function validate(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
   let errors = 0, warnings = 0;
   const results = [];
-  for (const item of validatorArtifacts(preset, await exists(join15(dir, "RISK.md")))) {
-    const path = join15(dir, item.file);
+  for (const item of validatorArtifacts(preset, await exists(join19(dir, "RISK.md")))) {
+    const path = join19(dir, item.file);
     if (!await exists(path)) {
       results.push({ file: item.file, status: "FAIL", message: "missing" });
       errors++;
       continue;
     }
-    const text = await readFile12(path, "utf8");
+    const text = await readFile14(path, "utf8");
     for (const section of item.sections) if (!sectionPresent(text, section)) {
       results.push({ file: item.file, status: "FAIL", message: `missing section "${section}"` });
       errors++;
@@ -2127,9 +2754,9 @@ async function reviewDiff(cwd, slug, options = {}) {
   if (!diff) findings.push("No git diff found against the selected base.");
   if (files.some((file) => /(^|\/)(\.env|secrets?|credentials?)/i.test(file))) findings.push("Security: sensitive-looking path changed; confirm secrets and PII were not included.");
   if (files.some((file) => LOCKFILE.test(file))) findings.push("Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities.");
-  if (preset.strict && !await exists(join16(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
-  const path = join16(dir, "REVIEW-FINDINGS.md");
-  await writeFile7(path, `# Diff Review Findings \u2014 ${slug}
+  if (preset.strict && !await exists(join20(dir, "EVIDENCE.md"))) findings.push("Strict Review: test evidence is missing; run maverick verify first.");
+  const path = join20(dir, "REVIEW-FINDINGS.md");
+  await writeFile9(path, `# Diff Review Findings \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
 Changed files:
@@ -2146,8 +2773,8 @@ Report: ${rel(cwd, path)}`);
 async function checkpoint(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const [status2, diff] = await Promise.all([executeCommand(cwd, "git status --short"), gitDiff(cwd, options.against || "HEAD")]);
-  const path = join16(dir, "CHECKPOINT.md");
-  await writeFile7(path, `# Checkpoint \u2014 ${slug}
+  const path = join20(dir, "CHECKPOINT.md");
+  await writeFile9(path, `# Checkpoint \u2014 ${slug}
 
 Created: ${(/* @__PURE__ */ new Date()).toISOString()}
 Base: ${options.against || "HEAD"}
@@ -2176,14 +2803,14 @@ ${references.map((file) => `- ${file}`).join("\n") || "- none found"}`);
 }
 async function guardScope(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
-  const task = await readFile13(join16(dir, "TASK.md"), "utf8");
+  const task = await readFile15(join20(dir, "TASK.md"), "utf8");
   const changed = changedFilesFromDiff(await gitDiff(cwd, options.against || "HEAD"));
   const expected = (task.match(/^## Expected Changed Files\n([\s\S]*?)(?=^## |$)/m)?.[1].match(/`([^`]+)`/g) || []).map((value) => value.slice(1, -1)).filter((value) => !/FILL ME/i.test(value));
   const outsideScope = expected.length ? changed.filter((file) => !expected.includes(file)) : [];
   const maxFiles = config.maxChangedFilesGuideline || 8;
   const findings = [changed.length > maxFiles ? `Change budget exceeded: ${changed.length}/${maxFiles} files.` : null, ...outsideScope.map((file) => `Not listed in Expected Changed Files: ${file}`)].filter(Boolean);
-  const report = join16(dir, "SCOPE-GUARD.md");
-  await writeFile7(report, `# Scope Guard \u2014 ${slug}
+  const report2 = join20(dir, "SCOPE-GUARD.md");
+  await writeFile9(report2, `# Scope Guard \u2014 ${slug}
 
 Changed files: ${changed.length}
 Expected files: ${expected.length || "not specified"}
@@ -2191,7 +2818,7 @@ Expected files: ${expected.length || "not specified"}
 ## Findings
 ${findings.map((finding) => `- \u26A0 ${finding}`).join("\n") || "- Within configured scope guard."}
 `);
-  const payload = { ok: findings.length === 0, changed, expected, findings, path: rel(cwd, report) };
+  const payload = { ok: findings.length === 0, changed, expected, findings, path: rel(cwd, report2) };
   output(options.json ? JSON.stringify(payload, null, 2) : `${brand()} / GUARD
 ${payload.ok ? "PASS" : "WARN"} ${findings.length} finding(s)
 Report: ${payload.path}`);
@@ -2202,11 +2829,11 @@ async function readiness(cwd, slug, options = {}) {
   const required = ["EVIDENCE.md", "REVIEW-FINDINGS.md", "SECURITY-REPORT.md", "DEPENDENCY-REVIEW.md", "SCOPE-GUARD.md"];
   if (preset.strict) required.push("CHECKPOINT.md");
   const available = [], missing = [];
-  for (const file of required) (await exists(join16(dir, file)) ? available : missing).push(file);
-  const review = await exists(join16(dir, "REVIEW.md")) ? await readFile13(join16(dir, "REVIEW.md"), "utf8") : "";
+  for (const file of required) (await exists(join20(dir, file)) ? available : missing).push(file);
+  const review = await exists(join20(dir, "REVIEW.md")) ? await readFile15(join20(dir, "REVIEW.md"), "utf8") : "";
   if (!/- \[[xX]\] (?:approve|approve with follow-up|request changes)/.test(review)) missing.push("Human decision in REVIEW.md");
-  const ready = missing.length === 0, path = join16(dir, "MERGE-READINESS.md");
-  await writeFile7(path, `# Merge Readiness \u2014 ${slug}
+  const ready = missing.length === 0, path = join20(dir, "MERGE-READINESS.md");
+  await writeFile9(path, `# Merge Readiness \u2014 ${slug}
 
 Preset: ${preset.name}
 Status: ${ready ? "READY FOR HUMAN MERGE DECISION" : "NOT READY"}
@@ -2227,11 +2854,11 @@ Report: ${payload.path}`);
   if (!ready) throw new Error("merge readiness gates are incomplete");
 }
 async function policy(cwd, action, slug, options = {}) {
-  const dir = join16(cwd, ".maverick"), path = join16(dir, "policy.json");
+  const dir = join20(cwd, ".maverick"), path = join20(dir, "policy.json");
   if (action === "init") {
     if (await exists(path)) throw new Error(`policy already exists: ${rel(cwd, path)}`);
-    await mkdir7(dir, { recursive: true });
-    await writeFile7(path, await readFile13(join16(packageRoot, "templates", "policy.json"), "utf8"));
+    await mkdir9(dir, { recursive: true });
+    await writeFile9(path, await readFile15(join20(packageRoot, "templates", "policy.json"), "utf8"));
     return output(`${brand()} / POLICY
 \u2713 policy created: ${rel(cwd, path)}`);
   }
@@ -2246,8 +2873,8 @@ ${pretty(rules)}`);
   const findings = [];
   if (changed.length > (rules.maxChangedFiles || Infinity)) findings.push(`Changed ${changed.length} files; policy maximum is ${rules.maxChangedFiles}.`);
   if (sensitive.length && preset.id !== rules.requiredPresetForSensitivePaths) findings.push(`Sensitive paths require preset ${rules.requiredPresetForSensitivePaths}: ${sensitive.join(", ")}.`);
-  const report = join16(taskDir, "POLICY-CHECK.md");
-  await writeFile7(report, `# Policy Check \u2014 ${slug}
+  const report2 = join20(taskDir, "POLICY-CHECK.md");
+  await writeFile9(report2, `# Policy Check \u2014 ${slug}
 
 Policy: ${rel(cwd, path)}
 
@@ -2257,7 +2884,7 @@ ${sensitive.map((file) => `- \`${file}\``).join("\n") || "- none"}
 ## Findings
 ${findings.map((finding) => `- \u26A0 ${finding}`).join("\n") || "- Policy satisfied."}
 `);
-  const payload = { ok: findings.length === 0, changed, sensitive, findings, path: rel(cwd, report) };
+  const payload = { ok: findings.length === 0, changed, sensitive, findings, path: rel(cwd, report2) };
   output(options.json ? JSON.stringify(payload, null, 2) : `${brand()} / POLICY CHECK
 ${payload.ok ? "PASS" : "WARN"} ${findings.length} finding(s)
 Report: ${payload.path}`);
@@ -2271,8 +2898,8 @@ async function securityScan(cwd, slug, options = {}) {
     { name: "Likely cloud/API secret assignment", pattern: /(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"][^'"\s]{12,}/i },
     { name: "Potentially unsafe dynamic execution", pattern: /(?:eval\(|child_process\.exec\(|shell:\s*true)/ }
   ];
-  const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name), path = join16(dir, "SECURITY-REPORT.md");
-  await writeFile7(path, `# Security Scan \u2014 ${slug}
+  const findings = rules.filter((rule) => rule.pattern.test(diff)).map((rule) => rule.name), path = join20(dir, "SECURITY-REPORT.md");
+  await writeFile9(path, `# Security Scan \u2014 ${slug}
 
 Base: ${options.against || "HEAD"}
 
@@ -2294,8 +2921,8 @@ async function dependencyReview(cwd, slug, options = {}) {
   const { dir } = await getTask(cwd, slug);
   const changed = changedFilesFromDiff(await gitDiff(cwd, options.against || "HEAD"));
   const lockfiles = changed.filter((file) => LOCKFILE.test(file)), manifests = changed.filter((file) => MANIFEST2.test(file));
-  const path = join16(dir, "DEPENDENCY-REVIEW.md");
-  await writeFile7(path, `# Dependency Review \u2014 ${slug}
+  const path = join20(dir, "DEPENDENCY-REVIEW.md");
+  await writeFile9(path, `# Dependency Review \u2014 ${slug}
 
 ## Changed manifests
 ${manifests.map((file) => `- \`${file}\``).join("\n") || "- none"}
@@ -2325,34 +2952,34 @@ var gateCommands = [
 ];
 
 // src/commands/project.js
-import { mkdir as mkdir8, readdir as readdir9, writeFile as writeFile8 } from "fs/promises";
-import { join as join17 } from "path";
+import { mkdir as mkdir10, readdir as readdir10, writeFile as writeFile10 } from "fs/promises";
+import { join as join21 } from "path";
 import { execFileSync } from "child_process";
-import { createInterface as createInterface2 } from "readline/promises";
+import { createInterface as createInterface3 } from "readline/promises";
 async function chooseDefaultPreset() {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return "standard";
   output("Choose your default workflow\n1. Standard \u2014 Default engineering workflow.\n2. Lightweight \u2014 Small, low-risk changes.\n3. Spec Driven \u2014 Specification-first for complex work.\n4. Strict Review \u2014 Extra verification for high-risk changes.");
-  const prompt = createInterface2({ input: process.stdin, output: process.stdout });
+  const prompt = createInterface3({ input: process.stdin, output: process.stdout });
   const answer = await prompt.question("Choice [1]: ");
   prompt.close();
   return { 1: "standard", 2: "lightweight", 3: "spec-driven", 4: "strict-review" }[answer.trim() || "1"] || "standard";
 }
 async function initProject(cwd) {
-  const dir = join17(cwd, ".maverick"), path = join17(dir, "config.json");
+  const dir = join21(cwd, ".maverick"), path = join21(dir, "config.json");
   if (await exists(path)) throw new Error(`configuration already exists: ${rel(cwd, path)}`);
   const preset = await chooseDefaultPreset(), map = await inspectProject(cwd);
-  await mkdir8(dir, { recursive: true });
+  await mkdir10(dir, { recursive: true });
   const name2 = cwd.split(/[\\/]/).filter(Boolean).pop() || "my-project";
-  await writeFile8(path, pretty({ ...defaultConfig, workflow: { ...defaultConfig.workflow, defaultPreset: preset }, project: { name: name2, language: map.languages[0] || "", framework: map.frameworks[0] || "" } }));
+  await writeFile10(path, pretty({ ...defaultConfig, workflow: { ...defaultConfig.workflow, defaultPreset: preset }, project: { name: name2, language: map.languages[0] || "", framework: map.frameworks[0] || "" } }));
   output(`${brand()}
 \u2713 project initialized: ${rel(cwd, path)}
 Default preset: ${getPreset(preset).name}${map.languages.length ? `
 Detected stack: ${map.language}` : ""}`);
 }
 async function mapProject(cwd, options = {}) {
-  const map = await inspectProject(cwd), dir = join17(cwd, ".maverick", "context"), path = join17(dir, "PROJECT_MAP.md");
-  await mkdir8(dir, { recursive: true });
-  await writeFile8(path, renderProjectMap(map));
+  const map = await inspectProject(cwd), dir = join21(cwd, ".maverick", "context"), path = join21(dir, "PROJECT_MAP.md");
+  await mkdir10(dir, { recursive: true });
+  await writeFile10(path, renderProjectMap(map));
   if (options.json) return output(JSON.stringify({ ...map, path: rel(cwd, path) }, null, 2));
   output(`${brand()} / MAP
 \u2713 project map: ${rel(cwd, path)}
@@ -2373,7 +3000,7 @@ async function showStack(cwd, options = {}) {
 }
 async function configCommand(cwd, action = "show", options = {}) {
   if (action === "path") {
-    const project = join17(cwd, ".maverick", "config.json");
+    const project = join21(cwd, ".maverick", "config.json");
     return output(options.json ? JSON.stringify({ project: rel(cwd, project), global: globalConfigPath() }) : `project: ${rel(cwd, project)}
 global:  ${globalConfigPath()}`);
   }
@@ -2388,12 +3015,12 @@ Layers: ${sources.map((source) => source.path ? `${source.scope} (${source.path}
 ${pretty(config)}`);
 }
 async function status(cwd, options = {}) {
-  const config = await loadConfig(cwd), base2 = join17(cwd, config.taskRoot);
+  const config = await loadConfig(cwd), base2 = join21(cwd, config.taskRoot);
   if (!await exists(base2)) return output(options.json ? "[]" : "No tasks yet. Run maverick task add-your-feature.");
   const tasks = [];
-  for (const entry of (await readdir9(base2, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const dir = join17(base2, entry.name), preset = await taskPreset(dir, config);
-    const evidence = await exists(join17(dir, "EVIDENCE.md")), findings = await exists(join17(dir, "REVIEW-FINDINGS.md"));
+  for (const entry of (await readdir10(base2, { withFileTypes: true })).filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const dir = join21(base2, entry.name), preset = await taskPreset(dir, config);
+    const evidence = await exists(join21(dir, "EVIDENCE.md")), findings = await exists(join21(dir, "REVIEW-FINDINGS.md"));
     tasks.push({ task: entry.name, preset, evidence, findings, next: evidence ? findings ? "complete human review" : "run review --diff" : "run verify" });
   }
   output(options.json ? JSON.stringify(tasks, null, 2) : tasks.map((task) => `${task.task}	${task.preset}	${task.next}`).join("\n"));
@@ -2418,13 +3045,13 @@ async function doctor(cwd, options = {}) {
   const checks = [
     ["Node >= 20", Number(process.versions.node.split(".")[0]) >= 20],
     ["Git available", gitAvailable()],
-    ["Git repository", await exists(join17(cwd, ".git"))],
+    ["Git repository", await exists(join21(cwd, ".git"))],
     ["Configuration valid", !configError, configError],
     ["Stack detected", map.languages.length > 0, map.languages.length ? map.language : "no known manifests at the root or first-level folders"],
     ["Repository instructions", map.instructions.length > 0],
     ["Verification commands", commands2.length > 0]
   ];
-  if (await exists(join17(cwd, LOCK_PATH))) {
+  if (await exists(join21(cwd, LOCK_PATH))) {
     const drifted = (await checkDrift(cwd, await readLock(cwd))).filter((item) => item.issues.length);
     checks.push(["Capabilities match lockfile", !drifted.length, drifted.length ? `${drifted.map((item) => item.ref).join(", ")} changed; run maverick installed` : void 0]);
   }
@@ -2437,7 +3064,7 @@ async function doctor(cwd, options = {}) {
   }).filter(Boolean))];
   for (const bin of binaries) {
     const where = commands2.find((item) => item.command.startsWith(bin))?.cwd;
-    checks.push([`Toolchain: ${bin}`, commandAvailable(bin, where ? join17(cwd, where) : cwd), "not found on PATH"]);
+    checks.push([`Toolchain: ${bin}`, commandAvailable(bin, where ? join21(cwd, where) : cwd), "not found on PATH"]);
   }
   const fixes = checks.filter(([, ok]) => !ok).map(([name2, , detail]) => `Add or configure: ${name2}${detail ? ` (${detail})` : ""}`);
   if (options.json) return output(JSON.stringify({ checks: checks.map(([name2, ok, detail]) => ({ name: name2, ok, ...detail && { detail } })), fixes }, null, 2));
@@ -2448,7 +3075,7 @@ ${fixes.map((fix) => `- ${fix}`).join("\n") || "- No fixes needed."}`);
 No telemetry is collected by Maverick.`);
 }
 async function dashboard(cwd, options = {}) {
-  const { startDashboard } = await import("./server-QOOESNCP.js");
+  const { startDashboard } = await import("./server-6JVLTT62.js");
   const port = Number(options.port || 4173), host = options.host || "127.0.0.1";
   const server = await startDashboard({ cwd, host, port, watch: !options.noWatch });
   const address = `http://${host}:${port}`;
@@ -2495,9 +3122,9 @@ var projectCommands = [
 ];
 
 // src/commands/index.js
-var ORDER = ["dashboard", "init", "task", "subtask", "flow", "map", "stack", "packet", "checkpoint", "impact", "guard", "learn", "handoff", "readiness", "policy", "adapter", "ci", "catalog", "add", "remove", "installed", "sync", "verify", "security", "deps", "pr", "presets", "suggest", "validate", "context", "plan", "review", "config", "doctor", "status", "info", "help"];
+var ORDER = ["dashboard", "init", "task", "subtask", "flow", "agent", "map", "stack", "packet", "checkpoint", "impact", "guard", "learn", "handoff", "readiness", "policy", "adapter", "ci", "catalog", "add", "remove", "installed", "sync", "verify", "security", "deps", "pr", "presets", "suggest", "validate", "context", "plan", "review", "config", "doctor", "status", "info", "help"];
 var helpCommand = { id: "help", description: "Show usage and the command list.", aliases: ["--help", "-h"], usage: "help", run: () => help() };
-var commands = [...projectCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, helpCommand].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
+var commands = [...projectCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...agentCommands, helpCommand].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 var byName = new Map(commands.flatMap((command) => [command.id, ...command.aliases].map((name2) => [name2, command])));
 function findCommand(name2) {
   return byName.get(name2);
@@ -2528,8 +3155,8 @@ export {
   detectStack,
   defaultConfig,
   loadConfig,
-  inspectProject,
   loadGraph,
+  inspectProject,
   recommendPreset,
   commandRegistry,
   findCommand

@@ -235,6 +235,50 @@ maverick subtask next my-task --json
 maverick subtask set my-task 01 done
 ```
 
+## Run agents headlessly, within limits
+
+Maverick can drive the AI coding CLIs you already use—Claude Code, Codex, Cursor CLI, Gemini CLI, or any other CLI declared in configuration—without a terminal UI. It builds the prompt from the task artifacts, streams normalised events, keeps a transcript, and lets a flow hand failing gates to the agent until the contract says stop:
+
+```bash
+maverick agent list                                   # installed, trusted, supported permissions
+maverick agent trust claude-code --max-permission edit --yes
+maverick agent run my-task --subtask next             # implement the next ready subtask
+maverick agent run my-task --provider codex --permission read-only --prompt "Review the diff"
+maverick flow run fix-checks my-task --agent          # agent fixes blocking issues until done, stalled, or exhausted
+maverick agent runs my-task
+```
+
+Safety model:
+
+- **Trust is a reviewed decision.** Only providers listed in `runtime.trusted` in `.maverick/config.json` run; `agent trust` writes that file so the change goes through code review.
+- **Configuration is the ceiling.** Portable permissions (`read-only`, `edit`, `full`) map to each tool's own flags; `--permission` can lower the level but never exceed `runtime.maxPermission` (default `edit`). Levels a tool cannot express are refused with the reason, never approximated silently.
+- **No shell, no side effects.** Agents are started with argv and the prompt on stdin, told not to commit, push, open pull requests, or touch credentials, and must end with a `maverick-result` block (`done`, `blocked`, or `needs-input`). A flow stops as soon as the agent asks for a human.
+- **Bounded runs.** Timeouts (`--timeout` minutes or `runtime.timeoutMinutes`) and Ctrl-C kill the agent; flow contracts cap iterations and detect stalls.
+- **Auditable.** Every run writes a JSONL transcript to `runs/` inside the task, git-ignored by default because tool output may contain secrets.
+
+Route work by subtask type or complexity, add other CLIs, and guard runs with hooks:
+
+```json
+{
+  "runtime": {
+    "trusted": ["claude-code", "codex", "aider"],
+    "maxPermission": "edit",
+    "default": { "provider": "claude-code", "model": "sonnet" },
+    "routes": [
+      { "match": { "type": "frontend" }, "provider": "codex" },
+      { "match": { "complexity": "high" }, "provider": "claude-code", "model": "opus" }
+    ],
+    "custom": [{ "id": "aider", "command": "aider --yes --model {model} --message {prompt}", "permissions": ["edit"] }]
+  },
+  "hooks": [
+    { "event": "before-agent-run", "run": "scripts/agent-guard.sh" },
+    { "event": "after-flow-run", "run": "scripts/notify.sh" }
+  ]
+}
+```
+
+Hooks receive the event as JSON on stdin. Exit `0` allows (a `before-agent-run` hook may print `{"appendPrompt": "..."}`), exit `2` denies with stderr as the reason; a failing `before-agent-run` hook fails closed, while `after-*` hooks only warn.
+
 ## Install capabilities into any AI tool
 
 Write a skill, agent, command, or MCP server once and install it into every AI coding tool the repository uses. Maverick ships a built-in catalog (reviewer, builder, test-engineer, security-reviewer, debugger and architect agents; the `maverick-workflow` skill; `preflight`, `review-diff` and `ship-check` commands) and also reads your own capabilities from `.maverick/capabilities/` and any `capabilities.catalogs` paths in configuration.
