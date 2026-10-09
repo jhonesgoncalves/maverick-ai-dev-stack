@@ -1,0 +1,25 @@
+apiVersion: maverick.flow/v1
+name: spec
+description: Spec-driven gate between the PRD and the technical spec; SPEC.md is complete, traced to every acceptance criterion and approved by a human before any design starts.
+contract:
+  goal: SPEC.md for {{task}} specifies every acceptance criterion as scenarios and contracts, and a human has approved it.
+  iterationCap: 3
+  noProgressWindow: 2
+gates:
+  - id: spec-artifact
+    type: artifact
+    file: SPEC.md
+    sections: [Summary, Behavior, Contracts, States and Data, Invariants, Errors, Traceability, Open Questions]
+    noPlaceholders: true
+    description: SPEC.md has every required section and no placeholders.
+  - id: spec-validation
+    type: maverick
+    run: validate
+    stage: spec
+    description: PRD.md and SPEC.md pass validation; scenarios have WHEN and THEN and every AC-NN is defined in the PRD.
+  - id: spec-approval
+    type: approval
+    prompt: A human reviews the behavior, contracts and compatibility impact in SPEC.md and approves it.
+    file: SPEC.md
+    pattern: "- \\[[xX]\\] (?:Spec approved|Spec aprovada|Especificação aprovada|Especificación aprobada)"
+    description: A human approved SPEC.md (checked box in SPEC.md or maverick flow approve).

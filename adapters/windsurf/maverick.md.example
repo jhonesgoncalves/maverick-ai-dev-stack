@@ -1,0 +1,11 @@
+---
+trigger: model_decision
+description: Maverick context-to-PR workflow for tasks under .maverick/tasks
+---
+When working on a Maverick task, read `.maverick/tasks/<task>/PRD.md` (what) and `TECHSPEC.md` (how) first, then the current `subtasks/task_NN.md`. Start new work with `maverick new "<idea>"`.
+
+- Treat PRD.md and TECHSPEC.md as the scope contract; respect Do Not Touch and the PRD Non-Goals.
+- Build one subtask at a time (`maverick subtask next <slug>`) and prefer minimal diffs that preserve existing contracts.
+- Do not add dependencies or alter public contracts without explicit permission.
+- Run the TECHSPEC.md Commands and the subtask's Verification; never remove or loosen tests to get green.
+- Report the actual commands and results, and stop for material ambiguity.

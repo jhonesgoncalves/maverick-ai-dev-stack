@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { clearTimeout, setTimeout } from 'node:timers';
 
 /**
- * Runs a binary without a shell, streaming stdout line by line. Resolves with the exit
+ * Runs a binary without a shell, streaming stdout line by line (blank lines included, so
+ * plain-text output keeps its Markdown paragraphs). Resolves with the exit
  * status; never rejects for a non-zero exit. The timeout and abort signal kill the
  * whole child so an agent can never outlive the command that started it.
  */
@@ -23,7 +24,7 @@ export function runProcess({ bin, args = [], cwd, input, env, timeoutMs = 0, sig
     child.stdout.on('data', chunk => {
       buffer += chunk;
       let index;
-      while ((index = buffer.indexOf('\n')) >= 0) { const line = buffer.slice(0, index).replace(/\r$/, ''); buffer = buffer.slice(index + 1); if (line) onLine(line); }
+      while ((index = buffer.indexOf('\n')) >= 0) { const line = buffer.slice(0, index).replace(/\r$/, ''); buffer = buffer.slice(index + 1); onLine(line); }
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-16000); onStderr(chunk); });

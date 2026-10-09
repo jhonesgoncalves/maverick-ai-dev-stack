@@ -1,8 +1,8 @@
-- [ ] TASK.md complete
-- [ ] CONTEXT.md complete
-- [ ] PLAN.md reflects final approach
+- [ ] PRD.md acceptance criteria all covered
+- [ ] TECHSPEC.md reflects final approach
+- [ ] All subtasks in `subtasks/_tasks.md` done
 - [ ] Verification passed
 - [ ] REVIEW.md decision recorded
-- [ ] PR.md explains change and risk
+- [ ] `maverick readiness` passed and `maverick pr` explains change and risk
 - [ ] Follow-ups separated from current scope
 - [ ] Reusable learning promoted to repo instructions only if stable

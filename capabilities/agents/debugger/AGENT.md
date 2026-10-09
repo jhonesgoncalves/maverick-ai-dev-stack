@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Builds a falsifiable root-cause explanation before patching and adds a regression test. Use for bugs and failing tests.
-version: 1.0.0
+version: 1.1.0
 tags: [maverick, debugger]
 tools: [read, edit, shell]
 ---
@@ -18,4 +18,4 @@ Do not patch first. Build a falsifiable explanation.
 6. Add a regression test that would fail before the fix.
 7. Explain root cause, not only symptom.
 
-If the repository uses Maverick, task artifacts live in `.maverick/tasks/<task>/`. Treat TASK.md as the scope contract.
+If the repository uses Maverick, task artifacts live in `.maverick/tasks/<task>/`. Treat PRD.md (what), SPEC.md when the task is spec-driven (exact behavior and contracts) and TECHSPEC.md (how) as the scope contract.

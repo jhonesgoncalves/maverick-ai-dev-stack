@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="t d">
+<title id="t">The flow contract</title>
+<desc id="d">An agent works inside a trusted provider and a permission ceiling. Typed gates (check, maverick, command, artifact, approval) evaluate the work. Every run ends in one outcome: done, awaiting-approval, stalled, exhausted, or revise, which hands only the failing gates back to the agent. Stalled and exhausted lock the flow until a human reruns it with --reset.</desc>
+<defs>
+<radialGradient id="glow" cx="80" cy="20" r="560" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF6B00" stop-opacity=".1"/><stop offset="1" stop-color="#FF6B00" stop-opacity="0"/></radialGradient>
+<marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#9B9B96"/></marker>
+<marker id="ao" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#F6AD55"/></marker>
+</defs>
+<g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+<rect width="1200" height="560" rx="24" fill="#070707"/><rect width="1200" height="560" rx="24" fill="url(#glow)"/>
+<rect x=".5" y=".5" width="1199" height="559" rx="24" fill="none" stroke="#292929"/>
+<text x="40" y="50" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#FFB15A" letter-spacing="2.4">MAVERICK <tspan fill="#FF6B00" font-weight="700">AI</tspan>  ·  FLOW CONTRACT</text>
+<text x="40" y="90" font-size="28" font-weight="700" fill="#F7F7F5">Agents that know when to stop</text>
+<text x="40" y="118" font-size="15" fill="#9B9B96">Typed gates decide when the work is done, not the agent. Every run ends in exactly one outcome.</text>
+
+<!-- agent -->
+<rect x="40" y="208" width="262" height="184" rx="14" fill="#0E0E0E" stroke="#292929"/>
+<text x="64" y="240" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#FF6B00" letter-spacing="2">AGENT</text>
+<text x="64" y="270" font-size="16.5" font-weight="600" fill="#F7F7F5">Claude Code, Codex,</text>
+<text x="64" y="292" font-size="16.5" font-weight="600" fill="#F7F7F5">Gemini, Kiro, Copilot…</text>
+<text x="64" y="322" font-size="13.5" fill="#9B9B96">trusted in config, under a</text>
+<text x="64" y="342" font-size="13.5" fill="#9B9B96">permission ceiling, with a</text>
+<text x="64" y="362" font-size="13.5" fill="#9B9B96">timeout and a transcript</text>
+<path d="M302 300H352" stroke="#9B9B96" stroke-width="1.6" marker-end="url(#ar)"/>
+
+<!-- gates -->
+<rect x="360" y="178" width="300" height="244" rx="14" fill="#0E0E0E" stroke="#292929"/>
+<text x="384" y="210" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#FF6B00" letter-spacing="2">TYPED GATES</text>
+<g font-size="13.5">
+<rect x="384" y="226" width="86" height="26" rx="7" fill="#151515" stroke="#292929"/><text x="427" y="244" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#FFB15A">check</text><text x="484" y="244" fill="#CFCFCA">lint · types · test · build</text>
+<rect x="384" y="262" width="86" height="26" rx="7" fill="#151515" stroke="#292929"/><text x="427" y="280" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#FFB15A">maverick</text><text x="484" y="280" fill="#CFCFCA">verify · guard · security</text>
+<rect x="384" y="298" width="86" height="26" rx="7" fill="#151515" stroke="#292929"/><text x="427" y="316" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#FFB15A">command</text><text x="484" y="316" fill="#CFCFCA">your own scripts</text>
+<rect x="384" y="334" width="86" height="26" rx="7" fill="#151515" stroke="#292929"/><text x="427" y="352" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#FFB15A">artifact</text><text x="484" y="352" fill="#CFCFCA">files · sections · patterns</text>
+<rect x="384" y="370" width="86" height="26" rx="7" fill="#21130A" stroke="#C84E00"/><text x="427" y="388" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#FF8A1A">approval</text><text x="484" y="388" fill="#CFCFCA">a human decision</text>
+</g>
+
+<!-- fan to outcomes -->
+<g fill="none" stroke="#9B9B96" stroke-width="1.4" opacity=".75">
+<path d="M660 300C688 300 680 175 712 175" marker-end="url(#ar)"/>
+<path d="M660 300C688 300 680 239 712 239" marker-end="url(#ar)"/>
+<path d="M660 300C688 300 680 303 712 303" marker-end="url(#ar)"/>
+<path d="M660 300C688 300 680 367 712 367" marker-end="url(#ar)"/>
+<path d="M660 300C688 300 680 431 712 431" marker-end="url(#ar)"/>
+</g>
+
+<!-- outcomes -->
+<g font-size="14">
+<rect x="720" y="148" width="440" height="54" rx="12" fill="#0B1A11" stroke="#1F5C37"/>
+<circle cx="744" cy="175" r="5" fill="#38C172"/><text x="760" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" fill="#38C172">done</text><text x="936" y="180" fill="#CFCFCA">exits 0 · a human merges</text>
+<rect x="720" y="212" width="440" height="54" rx="12" fill="#21130A" stroke="#C84E00"/>
+<circle cx="744" cy="239" r="5" fill="#FF6B00"/><text x="760" y="244" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" fill="#FF8A1A">awaiting-approval</text><text x="936" y="244" fill="#CFCFCA">only a human can decide</text>
+<rect x="720" y="276" width="440" height="54" rx="12" fill="#1C0D0D" stroke="#6E2A28"/>
+<circle cx="744" cy="303" r="5" fill="#EF5350"/><text x="760" y="308" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" fill="#EF5350">stalled</text><text x="936" y="308" fill="#CFCFCA">no progress · stop, ask a human</text>
+<rect x="720" y="340" width="440" height="54" rx="12" fill="#1C0D0D" stroke="#6E2A28"/>
+<circle cx="744" cy="367" r="5" fill="#EF5350"/><text x="760" y="372" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" fill="#EF5350">exhausted</text><text x="936" y="372" fill="#CFCFCA">iteration cap · stop, ask a human</text>
+<rect x="720" y="404" width="440" height="54" rx="12" fill="#1E170B" stroke="#7A5524"/>
+<circle cx="744" cy="431" r="5" fill="#F6AD55"/><text x="760" y="436" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" fill="#F6AD55">revise</text><text x="936" y="436" fill="#CFCFCA">fix what failed · run again</text>
+</g>
+
+<!-- revise loop back to the agent -->
+<path d="M780 458C780 482 764 492 740 492H210C184 492 171 478 171 452V400" fill="none" stroke="#F6AD55" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#ao)"/>
+<text x="456" y="484" text-anchor="middle" font-size="13.5" fill="#F6AD55">↺  the agent gets only the failing gates, then the flow runs again</text>
+
+<text x="40" y="534" font-size="13" fill="#6B6B66">stalled and exhausted lock the flow until a human reruns it with <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#9B9B96">--reset</tspan>  ·  every run is written to <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#9B9B96">FLOW-&lt;NAME&gt;.md</tspan></text>
+</g>
+</svg>

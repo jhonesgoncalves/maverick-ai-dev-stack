@@ -1,10 +1,10 @@
 # Dependency Review — add-cursor-pagination-orders-endpoint
 
 ## Changed manifests
-- `package.json`
+- none
 
 ## Changed lockfiles
-- `package-lock.json`
+- none
 
 ## Human checks
 - [ ] New packages are necessary and maintained.

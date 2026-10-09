@@ -41,7 +41,8 @@ async function project({ runtime = {}, hooks, files = {}, action } = {}) {
   for (const [path, content] of Object.entries(files)) { await mkdir(join(cwd, path, '..'), { recursive: true }); await writeFile(join(cwd, path), content); }
   await mkdir(join(cwd, '.maverick'), { recursive: true });
   await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({ runtime: { trusted: ['claude-code'], default: { provider: 'claude-code' }, bins: { 'claude-code': bin }, ...runtime }, ...(hooks && { hooks }) }));
-  await main(['task', 'demo'], cwd);
+  await main(['new', 'Demo idea', '--slug', 'demo', '--no-launch'], cwd);
+  await writeFile(join(cwd, '.maverick/tasks/demo/PRD.md'), '# PRD — Demo\n\n## Overview\nDemo task.\n');
   return cwd;
 }
 const calls = async cwd => (await readFile(join(cwd, '.fake-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
@@ -63,7 +64,11 @@ test('policy: trust, permission ceiling, routing and unsupported levels', () => 
 });
 
 test('providers build argv without a shell and map permission levels', () => {
-  assert.deepEqual(byId['claude-code'].invocation({ prompt: 'P', model: 'opus', permission: 'edit' }), { args: ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'opus', '--permission-mode', 'acceptEdits'], input: 'P' });
+  const claudeEdit = byId['claude-code'].invocation({ prompt: 'P', model: 'opus', permission: 'edit', commands: [{ command: 'npm run test' }] });
+  assert.deepEqual(claudeEdit.args.slice(0, 9), ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'opus', '--permission-mode', 'acceptEdits', '--allowedTools']);
+  assert.deepEqual(claudeEdit.args.slice(9, 11), ['Bash(npm run test)', 'Bash(npm run test *)'], 'edit pre-approves the verification commands, with arguments');
+  assert.ok(claudeEdit.args.includes('Bash(git diff *)') && !claudeEdit.args.some(arg => arg === 'Bash' || arg === 'Bash(*)'), 'and read-only git, never the whole shell');
+  assert.equal(claudeEdit.input, 'P');
   assert.deepEqual(byId.codex.invocation({ prompt: 'P', permission: 'read-only' }).args, ['exec', '--json', '--sandbox', 'read-only', '-']);
   assert.ok(byId.gemini.invocation({ prompt: 'P', permission: 'full' }).args.includes('yolo'));
   const [custom] = providersFor({ runtime: { custom: [{ id: 'aider', command: 'aider --yes --model {model} --message {prompt}' }] } }).filter(provider => provider.custom);
@@ -94,8 +99,9 @@ test('agent run streams events, writes a git-ignored transcript, and keeps the p
   assert.match(output, /→ Edit src\/a\.js/);
   assert.match(output, /Status: done/);
   const [call] = await calls(cwd);
-  assert.deepEqual(call.argv, ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits']);
-  assert.match(call.prompt, /running non-interactively under Maverick[\s\S]*## TASK\.md[\s\S]*## Instruction\n\nAdd the thing/);
+  assert.deepEqual(call.argv.slice(0, 10), ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--effort', 'xhigh', '--permission-mode', 'acceptEdits'], 'the build step uses its recommended model and reasoning');
+  assert.match(call.prompt, /## Verification commands\n\nIn this run you can run these commands, with extra arguments/);
+  assert.match(call.prompt, /running non-interactively under Maverick[\s\S]*## PRD\.md[\s\S]*## Instruction\n\nAdd the thing/);
   const runs = join(cwd, '.maverick/tasks/demo/runs');
   assert.equal(await readFile(join(runs, '.gitignore'), 'utf8').then(text => text.includes('*')), true);
   const transcript = (await readdir(runs)).find(file => file.endsWith('.jsonl'));
@@ -182,4 +188,82 @@ test('agent trust is a reviewed config change', async () => {
   assert.deepEqual(config.runtime.trusted, []);
   assert.equal(config.runtime.default, undefined);
   await assert.rejects(main(['agent', 'trust', 'vim', '--yes'], cwd), /unknown provider vim/);
+});
+
+test('Antigravity, Copilot, Kiro and OpenCode map permissions and parse their own streams', () => {
+  const parse = (id, lines) => { const state = {}; return [...lines.flatMap(line => byId[id].parse(JSON.stringify(line), state)), ...(byId[id].finish?.(state) || [])]; };
+  assert.deepEqual(byId.antigravity.invocation({ prompt: 'P', permission: 'read-only' }).args, ['--output-format', 'stream-json', '--mode', 'plan', '-p', 'P']);
+  assert.ok(byId.antigravity.invocation({ prompt: 'P', permission: 'full' }).args.includes('--dangerously-skip-permissions'));
+  assert.deepEqual(byId.copilot.invocation({ prompt: 'P', permission: 'edit', commands: [{ command: 'npm test' }] }).args.slice(0, 10), ['--output-format', 'json', '--allow-tool', 'read', '--allow-tool', 'write', '--allow-tool', 'shell(npm test)', '--allow-tool', 'shell(npm test:*)']);
+  assert.ok(byId.gemini.invocation({ prompt: 'P', permission: 'edit', commands: [{ command: 'npm test' }] }).args.includes('run_shell_command(npm test)'));
+  assert.deepEqual(byId.kiro.invocation({ prompt: 'P', permission: 'read-only' }), { args: ['chat', '--no-interactive', '--output-format', 'stream-json', '--trust-tools=read,grep,glob'], input: 'P' });
+  assert.match(byId.opencode.permissions.edit, /use full/);
+
+  // Captured from agy 1.2.12: a failed turn still exits 0, so the result status decides.
+  const agy = parse('antigravity', [{ event: 'init', conversation_id: 'c1', init: {} }, { event: 'step_update', step_update: { step_index: 1, state: 'RUNNING', text_delta: 'He' } }, { event: 'step_update', step_update: { step_index: 1, state: 'DONE', text_delta: 'llo' } }, { event: 'result', result: { status: 'SUCCESS', response: 'Hello' } }]);
+  assert.deepEqual(agy, [{ type: 'session', id: 'c1' }, { type: 'text', text: 'Hello' }, { type: 'result', ok: true, text: 'Hello', error: undefined }]);
+  assert.equal(parse('antigravity', [{ event: 'result', result: { status: 'ERROR', response: '', error: 'RESOURCE_EXHAUSTED (code 429)' } }])[0].error, 'RESOURCE_EXHAUSTED (code 429)');
+
+  assert.deepEqual(parse('copilot', [{ type: 'tool.execution_start', data: { toolName: 'shell', arguments: { command: 'npm test' } } }, { type: 'assistant.message', data: { content: 'done' } }, { type: 'result', sessionId: 's1', exitCode: 0 }]),
+    [{ type: 'tool', name: 'shell', detail: 'npm test' }, { type: 'text', text: 'done' }, { type: 'session', id: 's1' }, { type: 'result', ok: true, text: 'done', error: undefined }]);
+
+  // Captured from kiro-cli 2.24.1: metadata repeats the session id; errors arrive as runError.
+  const kiroLines = [{ type: 'runStarted', data: {} }, { type: 'metadata', data: { sessionId: 'k1' } }, { type: 'metadata', data: { sessionId: 'k1' } }, { type: 'sessionUpdate', data: { update: { sessionUpdate: 'tool_call', kind: 'read', title: 'Reading a.txt' } } }, { type: 'sessionUpdate', data: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } } } }, { type: 'sessionUpdate', data: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'lo' } } } }, { type: 'runFinished', data: { finalTextTruncated: true } }];
+  assert.deepEqual(parse('kiro', kiroLines), [{ type: 'session', id: 'k1' }, { type: 'tool', name: 'read', detail: 'Reading a.txt' }, { type: 'text', text: 'hello' }, { type: 'result', ok: true, text: 'hello' }]);
+  assert.equal(parse('kiro', [{ type: 'runError', data: { message: 'The monthly usage limit has been reached' } }])[0].ok, false);
+
+  assert.deepEqual(parse('opencode', [{ type: 'tool_use', sessionID: 'o1', part: { tool: 'bash', state: { input: { command: 'ls' } } } }, { type: 'text', sessionID: 'o1', part: { text: 'ok' } }, { type: 'step_finish', sessionID: 'o1', part: { cost: 0.01 } }]),
+    [{ type: 'session', id: 'o1' }, { type: 'tool', name: 'bash', detail: 'ls' }, { type: 'text', text: 'ok' }, { type: 'result', ok: true, text: 'ok', cost: 0.01, error: undefined }]);
+});
+
+test('each workflow step resolves its own agent, model and reasoning, and flags still win', () => {
+  const providers = BUILTIN_PROVIDERS, runtime = { trusted: ['claude-code', 'codex', 'gemini'], default: { provider: 'claude-code' } };
+  const plan = (options, extra = {}) => { const p = resolveRun({ runtime: { ...runtime, ...extra } }, options, providers); return [p.provider.id, p.model, p.effort]; };
+  assert.deepEqual(plan({ stage: 'prd' }), ['claude-code', 'opus', 'xhigh'], 'planning uses the strongest model with high reasoning');
+  assert.deepEqual(plan({ stage: 'build' }), ['claude-code', 'sonnet', 'xhigh']);
+  assert.deepEqual(plan({ stage: 'fix' }), ['claude-code', 'sonnet', 'high']);
+  const stages = { stages: { build: { provider: 'codex' }, fix: { model: 'haiku' }, tasks: { provider: 'gemini', effort: 'high' } } };
+  assert.deepEqual(plan({ stage: 'build' }, stages), ['codex', 'gpt-6-sol', 'high'], 'a stage agent without a model gets its recommendation');
+  assert.deepEqual(plan({ stage: 'fix' }, stages), ['claude-code', 'haiku', undefined], 'a chosen model does not inherit another model\'s reasoning');
+  assert.deepEqual(plan({ stage: 'build', provider: 'claude-code', effort: 'max' }, stages), ['claude-code', 'sonnet', 'max'], 'flags win over the stage');
+  assert.deepEqual(plan({ stage: 'build', model: 'gpt-6-luna' }, stages), ['codex', 'gpt-6-luna', undefined]);
+  assert.throws(() => plan({ stage: 'build', provider: 'gemini', effort: 'high' }), /Gemini CLI has no reasoning setting/);
+  assert.throws(() => plan({ stage: 'build', provider: 'claude-code', effort: 'ultra' }), /accepts reasoning low, medium, high, xhigh, max/);
+  assert.deepEqual(plan({ stage: 'tasks' }, stages), ['gemini', 'pro', undefined], 'an effort the agent cannot take is dropped from config');
+  assert.deepEqual(byId.codex.invocation({ prompt: 'P', effort: 'xhigh', permission: 'edit' }).args, ['exec', '--json', '--sandbox', 'workspace-write', '-c', 'model_reasoning_effort="xhigh"', '-']);
+});
+
+test('agent stage writes runtime.stages, drops the old agent\'s model, and resets to the recommendation', async () => {
+  const cwd = await project({ runtime: { trusted: ['claude-code', 'codex'], default: { provider: 'claude-code' } } });
+  await quiet({ cwd, args: ['agent', 'stage', 'build', '--model', 'opus', '--effort', 'max'] });
+  await quiet({ cwd, args: ['agent', 'stage', 'build', '--provider', 'codex'] });
+  let config = JSON.parse(await readFile(join(cwd, '.maverick/config.json'), 'utf8'));
+  assert.deepEqual(config.runtime.stages.build, { provider: 'codex' });
+  const { output } = await quiet({ cwd, args: ['agent', 'stage', '--json'] });
+  assert.deepEqual(JSON.parse(output).stages.find(item => item.id === 'build'), { id: 'build', name: 'Build', description: 'Implements a subtask or the whole task.', provider: 'codex', model: 'gpt-6-sol', effort: 'high', configured: true });
+  await assert.rejects(quiet({ cwd, args: ['agent', 'stage', 'build', '--effort', 'minimal', '--provider', 'claude-code'] }), /accepts reasoning/);
+  await quiet({ cwd, args: ['agent', 'stage', 'build', '--reset'] });
+  config = JSON.parse(await readFile(join(cwd, '.maverick/config.json'), 'utf8'));
+  assert.equal(config.runtime.stages, undefined);
+  await assert.rejects(quiet({ cwd, args: ['agent', 'stage', 'deploy', '--model', 'x'] }), /stage must be one of/);
+});
+
+test('the prompt tells each run which shell it has: verification commands, everything, or nothing', async () => {
+  const { buildPrompt } = await import('../src/runtime/prompt.js');
+  const { shellFor } = await import('../src/runtime/providers.js');
+  const dir = await mkdtemp(join(tmpdir(), 'maverick-prompt-')), commands = [{ command: 'npm run test' }, { command: 'go test ./...', cwd: 'api' }];
+  assert.deepEqual(['claude-code', 'codex', 'kiro', 'antigravity', 'gemini'].map(id => shellFor(byId[id], 'edit')), ['verification', 'all', 'none', 'none', 'verification']);
+  assert.equal(shellFor(byId.kiro, 'full'), 'all');
+  assert.match(await buildPrompt({ taskDir: dir, task: 't', commands, shell: 'verification' }), /Any other shell command is denied[\s\S]*- `npm run test`\n- `go test \.\/\.\.\.` \(in `api\/`\)/);
+  assert.match(await buildPrompt({ taskDir: dir, task: 't', commands, shell: 'none' }), /cannot execute shell commands, so do not try\. Maverick runs verification after you finish/);
+  assert.match(await buildPrompt({ taskDir: dir, task: 't', commands, shell: 'all' }), /Run the relevant ones before finishing/);
+});
+
+test('a subtask run is told to check its checklist items in the task file as they become true', async () => {
+  const { buildPrompt } = await import('../src/runtime/prompt.js');
+  const dir = await mkdtemp(join(tmpdir(), 'maverick-prompt-'));
+  const subtask = { id: '01', title: 'Codec', dependsOn: [], body: '## Acceptance Criteria\n- [ ] AC-01: works\n' };
+  const prompt = await buildPrompt({ taskDir: dir, task: 't', subtask, subtaskFile: '.maverick/tasks/t/subtasks/task_01.md' });
+  assert.match(prompt, /The checklist lives in `\.maverick\/tasks\/t\/subtasks\/task_01\.md`[\s\S]*change its `- \[ \]` to `- \[x\]`[\s\S]*never in a batch at the end/);
+  assert.doesNotMatch(await buildPrompt({ taskDir: dir, task: 't' }), /The checklist lives in/);
 });

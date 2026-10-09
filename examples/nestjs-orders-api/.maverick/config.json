@@ -27,5 +27,28 @@
       "kiro"
     ],
     "layout": "linked"
+  },
+  "runtime": {
+    "trusted": [
+      "antigravity",
+      "claude-code",
+      "codex",
+      "gemini"
+    ],
+    "default": {
+      "provider": "claude-code"
+    },
+    "stages": {
+      "tasks": {
+        "provider": "claude-code",
+        "model": "sonnet",
+        "effort": "low"
+      },
+      "build": {
+        "provider": "claude-code",
+        "model": "sonnet",
+        "effort": "low"
+      }
+    }
   }
 }

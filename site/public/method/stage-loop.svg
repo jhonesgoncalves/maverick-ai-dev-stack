@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 440" width="1440" height="440" role="img" aria-labelledby="t d">
+<title id="t">How every planning stage runs</title><desc id="d">PRD, SPEC, TECHSPEC and TASKS all follow the same five steps: research, ask, write, validate, approve. A failed validation loops back to write.</desc>
+<defs><radialGradient id="glow" cx="1300" cy="40" r="520" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF6B00" stop-opacity=".09"/><stop offset="1" stop-color="#FF6B00" stop-opacity="0"/></radialGradient><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#FFB15A"/></marker><marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#9B9B96"/></marker></defs>
+<rect width="1440" height="440" rx="24" fill="#070707"/><rect width="1440" height="440" rx="24" fill="url(#glow)"/>
+<rect x=".5" y=".5" width="1439" height="439" rx="24" fill="none" stroke="#292929"/>
+<text x="40" y="50" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FFB15A" letter-spacing="2.6">MAVERICK <tspan fill="#FF6B00" font-weight="700">AI</tspan>  ·  PLANNING LOOP</text>
+<text x="40" y="92" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="30" fill="#F7F7F5" font-weight="700">How every planning stage runs</text>
+<text x="40" y="120" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="15.5" fill="#9B9B96">PRD, SPEC, TECHSPEC and TASKS follow the same five steps. Nothing is a template: each skill reads the code first.</text>
+<rect x="40" y="150" width="252" height="196" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<circle cx="70" cy="182" r="14" fill="#151515" stroke="#FF6B00"/>
+<text x="70" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FF6B00" font-weight="700" text-anchor="middle">1</text>
+<text x="94" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">RESEARCH</text>
+<text x="60" y="226" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" fill="#F7F7F5" font-weight="700">Read before asking</text>
+<text x="60" y="252" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">the grounded files, their</text>
+<text x="60" y="271" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">tests and callers, and</text>
+<text x="60" y="290" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">the earlier artifacts</text>
+<line x1="60" y1="306" x2="272" y2="306" stroke="#292929"/>
+<text x="60" y="328" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>instructions &lt;task&gt; --json</text>
+<line x1="296" y1="248" x2="318" y2="248" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="322" y="150" width="252" height="196" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<circle cx="352" cy="182" r="14" fill="#151515" stroke="#FF6B00"/>
+<text x="352" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FF6B00" font-weight="700" text-anchor="middle">2</text>
+<text x="376" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">ASK</text>
+<text x="342" y="226" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" fill="#F7F7F5" font-weight="700">Ask what code can’t tell</text>
+<text x="342" y="252" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">one question at a time,</text>
+<text x="342" y="271" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">a recommendation and</text>
+<text x="342" y="290" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">A/B/C options</text>
+<line x1="342" y1="306" x2="554" y2="306" stroke="#292929"/>
+<text x="342" y="328" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FFB15A">answer selector</text>
+<line x1="578" y1="248" x2="600" y2="248" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="604" y="150" width="252" height="196" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<circle cx="634" cy="182" r="14" fill="#151515" stroke="#FF6B00"/>
+<text x="634" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FF6B00" font-weight="700" text-anchor="middle">3</text>
+<text x="658" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">WRITE</text>
+<text x="624" y="226" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" fill="#F7F7F5" font-weight="700">The artifact, in full</text>
+<text x="624" y="252" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">real file paths, AC-NN</text>
+<text x="624" y="271" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">criteria, WHEN/THEN</text>
+<text x="624" y="290" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">scenarios, no FILL ME</text>
+<line x1="624" y1="306" x2="836" y2="306" stroke="#292929"/>
+<text x="624" y="328" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FFB15A">PRD · SPEC · TECHSPEC · tasks</text>
+<line x1="860" y1="248" x2="882" y2="248" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="886" y="150" width="252" height="196" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<circle cx="916" cy="182" r="14" fill="#151515" stroke="#FF6B00"/>
+<text x="916" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FF6B00" font-weight="700" text-anchor="middle">4</text>
+<text x="940" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">VALIDATE</text>
+<text x="906" y="226" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" fill="#F7F7F5" font-weight="700">Prove it is complete</text>
+<text x="906" y="252" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">headings, ids, scenarios,</text>
+<text x="906" y="271" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">real paths and coverage</text>
+<text x="906" y="290" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">are checked by the CLI</text>
+<line x1="906" y1="306" x2="1118" y2="306" stroke="#292929"/>
+<text x="906" y="328" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>validate &lt;task&gt; --stage &lt;s&gt;</text>
+<line x1="1142" y1="248" x2="1164" y2="248" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="1168" y="150" width="252" height="196" rx="16" fill="#0E0E0E" stroke="#FF6B00"/>
+<circle cx="1198" cy="182" r="14" fill="#FF6B00" stroke="#FF6B00"/>
+<text x="1198" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#070707" font-weight="700" text-anchor="middle">5</text>
+<text x="1222" y="187" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">APPROVE</text>
+<text x="1188" y="226" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" fill="#F7F7F5" font-weight="700">You decide</text>
+<text x="1188" y="252" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">continue, adjust or stop;</text>
+<text x="1188" y="271" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">the next stage only starts</text>
+<text x="1188" y="290" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#9B9B96">when you say so</text>
+<line x1="1188" y1="306" x2="1400" y2="306" stroke="#292929"/>
+<text x="1188" y="328" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FFB15A">next stage</text>
+<path d="M1012 348 C 1012 394, 730 394, 730 352" fill="none" stroke="#9B9B96" stroke-width="1.5" stroke-dasharray="5 5" marker-end="url(#am)"/>
+<text x="871" y="404" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#9B9B96" text-anchor="middle">fails → fix the artifact and validate again</text>
+</svg>

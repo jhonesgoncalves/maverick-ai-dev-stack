@@ -25,6 +25,25 @@ const itemSchema = z.object({
 });
 
 const dirFor = taskDir => join(taskDir, 'subtasks');
+const CHECKBOX = /^\s*[-*] \[( |x|X)\] +(.+)$/;
+
+/**
+ * The work items of a task file: every `- [ ]` / `- [x]` line, with the section it is in.
+ * Acceptance Criteria, Steps and Verification are written as checklists, and the build
+ * checks each item as it goes, so a task can only be marked done when nothing is left open.
+ */
+export function checklist(body = '') {
+  const items = [];
+  let section = '';
+  for (const line of String(body).split('\n')) {
+    const heading = line.match(/^#{2,4}\s+(.+?)\s*$/);
+    if (heading) { section = heading[1]; continue; }
+    const box = line.match(CHECKBOX);
+    if (box) items.push({ section, text: box[2].trim(), done: box[1] !== ' ' });
+  }
+  const done = items.filter(item => item.done).length;
+  return { total: items.length, done, open: items.filter(item => !item.done) };
+}
 function issues(error) { return error.issues.map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; '); }
 
 /** Returns one cycle as a list of ids (first id repeated at the end), or null when the graph is acyclic. */
@@ -82,7 +101,7 @@ export async function loadGraph(taskDir) {
     const { data, body } = parseFrontmatter(await readFile(path, 'utf8'));
     const item = itemSchema.safeParse(data);
     if (!item.success) { problems.push(`${node.file}: ${issues(item.error)}`); continue; }
-    items.push({ id: node.id, file: node.file, ...item.data, body, dependsOn: edges.filter(edge => edge.to === node.id).map(edge => edge.from) });
+    items.push({ id: node.id, file: node.file, ...item.data, body, checklist: checklist(body), dependsOn: edges.filter(edge => edge.to === node.id).map(edge => edge.from) });
   }
   const listed = new Set(nodes.map(node => node.file));
   for (const file of (await readdir(dir)).filter(name => /^task_\d{2,3}\.md$/.test(name) && !listed.has(name))) problems.push(`${file} is not listed in ${MANIFEST}`);
@@ -94,12 +113,20 @@ export async function loadGraph(taskDir) {
 }
 
 async function writeManifest(taskDir, slug, nodes, edges, items) {
-  const table = items.map(item => `| ${item.id} | ${item.title.replaceAll('|', '\\|')} | ${item.status} | ${item.dependsOn.join(', ') || '—'} |`).join('\n');
-  await writeFile(join(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: 'maverick.subtasks/v1', nodes, edges }, `# Subtasks — ${slug}\n\nThe frontmatter is the source of truth for dependencies. Manage it with \`maverick subtask\`.\n\n| ID | Title | Status | Depends on |\n|---|---|---|---|\n${table}\n`));
+  // A checklist of the tasks, rewritten on every change: checked when the task is done.
+  const list = items.map(item => `- [${item.status === 'done' ? 'x' : ' '}] ${item.id} ${item.title} — ${item.status}${item.dependsOn.length ? ` · after ${item.dependsOn.join(', ')}` : ''}`).join('\n');
+  await writeFile(join(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: 'maverick.subtasks/v1', nodes, edges }, `# Subtasks — ${slug}\n\nThe frontmatter is the source of truth for dependencies and each task_NN.md for its status. Manage them with \`maverick subtask\`.\n\n${list}\n`));
+}
+
+/** Rewrites `_tasks.md` from the graph and the task files, for example after a format change. */
+export async function refreshManifest(taskDir, slug) {
+  const graph = await loadGraph(taskDir);
+  if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
+  await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
 }
 
 /** Adds a subtask, refusing edges that would create a cycle. */
-export async function addSubtask(taskDir, slug, { title, after = [], type, complexity }) {
+export async function addSubtask(taskDir, slug, { title, after = [], type, complexity, body }) {
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
   const ids = graph.nodes.map(node => node.id);
@@ -109,13 +136,16 @@ export async function addSubtask(taskDir, slug, { title, after = [], type, compl
   const id = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, '0'), file = `task_${id}.md`;
   const nodes = [...graph.nodes, { id, file }], edges = [...graph.edges, ...after.map(from => ({ from, to: id }))];
   await mkdir(dirFor(taskDir), { recursive: true });
-  await writeFile(join(dirFor(taskDir), file), renderFrontmatter({ title, status: 'pending', type, complexity }, `# ${title}\n\n## Goal\nFILL ME\n\n## Acceptance Criteria\n- FILL ME\n\n## Notes\n`));
+  await writeFile(join(dirFor(taskDir), file), renderFrontmatter({ title, status: 'pending', type, complexity }, body?.trim() ? `${body.trim()}\n` : `# ${title}\n\n## Goal\nFILL ME\n\n## Acceptance Criteria\n- [ ] AC-01: FILL ME\n\n## Files\n- \`FILL ME\`\n\n## Steps\n- [ ] FILL ME\n\n## Verification\n\`\`\`bash\nFILL ME\n\`\`\`\n- [ ] UT-01: FILL ME\n`));
   await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id, title, status: 'pending', dependsOn: after }]);
   return { id, file };
 }
 
-/** Updates one subtask's status. Starting or finishing work requires its dependencies to be done. */
-export async function setStatus(taskDir, slug, id, status) {
+/**
+ * Updates one subtask's status. Starting or finishing work requires its dependencies to be done,
+ * and finishing requires every checklist item of the task to be checked (unless `force`).
+ */
+export async function setStatus(taskDir, slug, id, status, { force = false } = {}) {
   if (!STATUSES.includes(status)) throw new Error(`status must be one of ${STATUSES.join(', ')}`);
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
@@ -123,6 +153,10 @@ export async function setStatus(taskDir, slug, id, status) {
   if (!item) throw new Error(`subtask not found: ${id}; existing: ${graph.items.map(entry => entry.id).join(', ') || 'none'}`);
   const blockedBy = item.dependsOn.filter(dep => graph.items.find(entry => entry.id === dep)?.status !== 'done');
   if (['in-progress', 'done'].includes(status) && blockedBy.length) throw new Error(`subtask ${id} depends on unfinished ${blockedBy.join(', ')}`);
+  if (status === 'done' && !force && item.checklist.open.length) {
+    const open = item.checklist.open.map(entry => `\n  - [ ] ${entry.section ? `${entry.section}: ` : ''}${entry.text}`).join('');
+    throw new Error(`subtask ${id} has ${item.checklist.open.length} of ${item.checklist.total} item(s) unchecked in ${item.file}; check each one as it is done (- [x]), or pass --force:${open}`);
+  }
   const path = join(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile(path, 'utf8'));
   await writeFile(path, renderFrontmatter({ ...data, status }, body));
   item.status = status;

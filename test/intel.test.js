@@ -52,7 +52,10 @@ test('metrics: Tarjan cycles, instability, hubs and health', () => {
   const graph = withMetrics(nodes, [{ from: 'a', to: 'b' }, { from: 'b', to: 'a' }, { from: 'c', to: 'a' }, { from: 'x', to: 'a', dynamic: true }]);
   assert.deepEqual(graph.cycles, [['a', 'b']]);
   assert.deepEqual(nodes.find(node => node.id === 'a'), { id: 'a', test: false, fanOut: 1, fanIn: 2, instability: 0.33 }, 'lazy edges do not count toward coupling');
-  assert.equal(graph.health.score, Math.round(100 * (1 - 0.7 * 0.5)));
+  assert.equal(graph.health.score, 0, '2 of 4 files in a cycle × weight 3 deducts 150 points');
+  assert.deepEqual(graph.health.deductions.map(({ rule, count, points }) => ({ rule, count, points })), [{ rule: 'Import cycle', count: 2, points: 150 }]);
+  const big = withMetrics(Array.from({ length: 400 }, (_, index) => ({ id: `f${index}` })), [{ from: 'f0', to: 'f1' }, { from: 'f1', to: 'f0' }]);
+  assert.equal(big.health.score, 98, 'the same cycle in a larger codebase costs its share, never less than one point');
   const lazyOnly = withMetrics([{ id: 'p' }, { id: 'q' }], [{ from: 'p', to: 'q' }, { from: 'q', to: 'p', dynamic: true }]);
   assert.deepEqual(lazyOnly.cycles, [], 'a cycle closed only by a lazy import is not a cycle');
 });
@@ -89,7 +92,7 @@ test('graph and hotspots commands report on a real Git history', async () => {
 
 test('MCP: handshake, tool listing, read-only calls and protocol errors', async () => {
   const cwd = await project({ 'package.json': JSON.stringify({ name: 'mcp-fixture', scripts: { test: 'node --version' } }), 'core.js': '', 'use.js': "import './core.js';" });
-  await captureOutput(() => main(['task', 'demo'], cwd));
+  await captureOutput(() => main(['new', 'Demo idea', '--slug', 'demo', '--no-launch'], cwd));
   await captureOutput(() => main(['subtask', 'add', 'demo', 'First step'], cwd));
   const call = (id, method, params) => handleMessage(cwd, { jsonrpc: '2.0', id, method, params });
   const init = await call(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {} });
@@ -102,7 +105,7 @@ test('MCP: handshake, tool listing, read-only calls and protocol errors', async 
   assert.equal(overview.structuredContent.name, 'mcp-fixture');
   assert.equal(overview.structuredContent.verification[0].command, 'npm run test');
   assert.deepEqual((await call(5, 'tools/call', { name: 'next_subtasks', arguments: { task: 'demo' } })).result.structuredContent.ready.map(item => item.title), ['First step']);
-  assert.match((await call(6, 'tools/call', { name: 'get_task', arguments: { task: 'demo' } })).result.structuredContent.artifacts['TASK.md'], /demo/);
+  assert.match((await call(6, 'tools/call', { name: 'get_task', arguments: { task: 'demo' } })).result.structuredContent.idea, /Demo/);
   assert.deepEqual((await call(7, 'tools/call', { name: 'impact', arguments: { path: 'core.js' } })).result.structuredContent.direct, ['use.js']);
   assert.equal((await call(8, 'tools/call', { name: 'get_task', arguments: { task: 'missing-task' } })).result.isError, true, 'tool failures are readable results');
   assert.equal((await call(9, 'tools/call', { name: 'impact', arguments: { path: '../etc/passwd' } })).error.code, -32602);

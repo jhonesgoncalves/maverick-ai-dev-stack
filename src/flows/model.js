@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { PLANNING_STAGES } from '../core/presets.js';
 import { CHECK_KINDS } from '../core/stack.js';
 import { packageRoot } from '../core/util.js';
 import { sha256 } from '../capabilities/model.js';
@@ -19,7 +20,8 @@ const base = { id, description: z.string().optional(), severity: z.enum(['block'
 // Gates are typed objects, never free text, so every criterion is checkable.
 const gate = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('check'), kinds: z.array(z.enum(CHECK_KINDS)).optional() }),
-  z.object({ ...base, type: z.literal('maverick'), run: z.enum(MAVERICK_GATES) }),
+  // `stage` limits `validate` to the planning stages up to it, e.g. a spec gate before the technical spec exists.
+  z.object({ ...base, type: z.literal('maverick'), run: z.enum(MAVERICK_GATES), stage: z.enum(PLANNING_STAGES).optional() }),
   z.object({ ...base, type: z.literal('command'), run: z.string().min(1), cwd: z.string().optional() }),
   z.object({ ...base, type: z.literal('artifact'), file: z.string().min(1), sections: z.array(z.string()).default([]), pattern: z.string().optional(), noPlaceholders: z.boolean().default(false) }),
   // An approval is recorded with `maverick flow approve`, or found in a task file (e.g. a checked box in REVIEW.md).

@@ -1,11 +1,11 @@
 # AGENTS.md — Maverick adapter
 
-Use `.maverick/tasks/<active>/TASK.md` as the task contract and `CONTEXT.md` as scoped repository context.
+Use `.maverick/tasks/<active>/PRD.md` (what) and `TECHSPEC.md` (how) as the task contract, and `subtasks/task_NN.md` as the current unit of work.
 
 ## Required behavior
 1. Inspect before editing.
-2. Keep changes inside In Scope.
-3. Respect Do Not Change.
-4. Run Verification commands.
+2. Keep changes inside TECHSPEC.md File References and Impact, and the subtask's Files.
+3. Respect Do Not Touch and the PRD Non-Goals.
+4. Run the TECHSPEC.md Commands and the subtask's Verification.
 5. Never remove/loosen tests merely to get green.
 6. Report actual commands/results and unknowns.

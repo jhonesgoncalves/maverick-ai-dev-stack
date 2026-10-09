@@ -1,6 +1,10 @@
 # Introducing Maverick Lens
 
-Maverick Lens is a local dashboard for inspecting the engineering context around an AI-assisted change.
+::: info Historical announcement
+This post describes Lens as it first shipped. Lens has grown since — an Inbox, task pages with gates and approvals, headless agents, Devtools, Capabilities and Settings. Read the current [Lens documentation](../lens/).
+:::
+
+Maverick Lens is a local developer view for inspecting the engineering context around an AI-assisted change.
 
 ## Why Lens
 
@@ -24,7 +28,7 @@ The Overview calls out simple observable gaps, such as missing verification evid
 ## Start it locally
 
 ```bash
-npx maverick-ai-dev-stack dashboard --open
+npx maverick-ai-dev-stack lens --open
 ```
 
 `maverick dash` and `maverick lens` are aliases. The server defaults to `http://127.0.0.1:4173` and accepts loopback hosts only. Add `--no-watch` to stop filesystem watching, `--port <port>` to choose a local port, or `--json` for machine-readable startup information.
@@ -35,4 +39,4 @@ Lens reads the same local configuration and artifacts used by the CLI. It stores
 
 ## Read more
 
-See the [Maverick Lens guide](/guide/dashboard) for navigation, search examples, cache behavior, limitations, and the full command reference.
+See the [Maverick Lens documentation](../lens/) for navigation, search examples, cache behavior, limitations, and the full command reference.

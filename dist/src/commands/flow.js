@@ -1,13 +1,13 @@
-import { readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readState, runFlow, writeState } from '../flows/engine.js';
+import { autoApproves, readState, recordApproval, runFlow } from '../flows/engine.js';
 import { findFlow, interpolate, loadFlows } from '../flows/model.js';
 import { addSubtask, loadGraph, setStatus, STATUSES } from '../subtasks/graph.js';
 import { loadConfig } from '../core/config.js';
 import { getTask } from '../core/tasks.js';
 import { runHooks } from '../runtime/hooks.js';
 import { printer, startAgentRun } from './agent.js';
-import { brand, output, rel } from '../core/util.js';
+import { brand, exists, output, pretty, rel } from '../core/util.js';
 
 const ICON = { pass: 'PASS', fail: 'FAIL', pending: 'WAIT' };
 
@@ -25,6 +25,31 @@ function report(cwd, flow, slug, { run, notes, reportPath, next }, options) {
 async function afterFlowHook(cwd, config, flow, slug, { run }) {
   const hooks = await runHooks(cwd, config, 'after-flow-run', { task: slug, flow: flow.name, outcome: run.outcome, iteration: run.iteration });
   hooks.warnings.forEach(warning => output(`WARN ${warning}`));
+}
+
+/**
+ * Lists or changes `flows.autoApprove` in the project configuration. Like trust, it is a
+ * committed decision: a flow that approves itself skips the human review it was built around.
+ */
+async function autoApprove(cwd, [name, state], options) {
+  if (name) await findFlow(cwd, name);
+  if (name && !['on', 'off'].includes(state)) throw new Error(`use flow auto-approve ${name} on|off`);
+  const path = join(cwd, '.maverick', 'config.json');
+  if (name) {
+    const current = await exists(path) ? JSON.parse(await readFile(path, 'utf8')) : { version: 1 };
+    const names = new Set(current.flows?.autoApprove || []);
+    if (state === 'on') names.add(name); else names.delete(name);
+    const flows = { ...current.flows, autoApprove: [...names].sort() };
+    if (!flows.autoApprove.length) delete flows.autoApprove;
+    const next = { ...current, flows };
+    if (!Object.keys(flows).length) delete next.flows;
+    await mkdir(join(cwd, '.maverick'), { recursive: true });
+    await writeFile(path, pretty(next));
+  }
+  const config = await loadConfig(cwd), { flows } = await loadFlows(cwd), enabled = flows.map(flow => flow.name).filter(flow => autoApproves(config, flow));
+  if (options.json) return output(JSON.stringify({ autoApprove: enabled }));
+  if (name) return output(`${brand()} / FLOW AUTO-APPROVE\n✓ ${name}: auto-approval ${state}; written to ${rel(cwd, path)}\n${state === 'on' ? 'Pending approvals are approved once every blocking check passes. Commit this file so the team reviews the decision.' : 'A human records every approval again.'}`);
+  return output(`${brand()} / FLOW AUTO-APPROVE\n${enabled.length ? enabled.map(flow => `${flow.padEnd(14)}on`).join('\n') : 'No flow approves itself: a human records every approval.'}\n\nChange with: maverick flow auto-approve <flow> on|off, or once with: maverick flow run <flow> <task> --auto-approve`);
 }
 
 async function flowCommand(cwd, [action, ...args], options = {}) {
@@ -49,7 +74,8 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
     const [name, slug] = args, flow = await findFlow(cwd, name), { dir } = await getTask(cwd, slug), config = await loadConfig(cwd);
     const invoke = async argv => (await import('../cli.js')).main(argv, cwd);
     const agentRuns = [];
-    let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset) });
+    const autoApprove = Boolean(options.autoApprove);
+    let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset), autoApprove });
     report(cwd, flow, slug, result, options);
     await afterFlowHook(cwd, config, flow, slug, result);
     // With --agent, "revise" hands the blocking issues to the agent and re-runs the gates.
@@ -65,7 +91,7 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
         else { output(`\nThe agent stopped: ${agent.result.status}. ${agent.result.summary}`); agent.result.questions.forEach(question => output(`? ${question}`)); }
         throw new Error(`agent needs a human: ${agent.result.status}`);
       }
-      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow);
+      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { autoApprove });
       report(cwd, flow, slug, result, options);
       await afterFlowHook(cwd, config, flow, slug, result);
     }
@@ -84,16 +110,17 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
   }
   if (action === 'approve') {
     const [name, slug, gateId] = args, flow = await findFlow(cwd, name), { dir } = await getTask(cwd, slug);
-    const gate = flow.gates.find(item => item.id === gateId);
-    if (!gate || gate.type !== 'approval') throw new Error(`${flow.name} has no approval gate "${gateId || ''}"; approval gates: ${flow.gates.filter(item => item.type === 'approval').map(item => item.id).join(', ') || 'none'}`);
     if (options.reject && (!options.reason || options.reason === true)) throw new Error('explain the rejection with --reason "..."');
-    const state = await readState(dir, flow.name);
-    const approval = { decision: options.reject ? 'reject' : 'approve', by: typeof options.by === 'string' ? options.by : process.env.USER || 'human', at: new Date().toISOString(), ...(typeof options.reason === 'string' && { reason: options.reason }) };
-    await writeState(dir, { ...state, flow: flow.name, approvals: { ...state.approvals, [gate.id]: approval } });
-    return output(options.json ? JSON.stringify(approval) : `${brand()} / FLOW APPROVAL\n✓ ${gate.id}: ${approval.decision} by ${approval.by}\nRun maverick flow run ${flow.name} ${slug} to re-evaluate.`);
+    const { approval, run, next } = await recordApproval({ cwd, task: slug, taskDir: dir }, flow, gateId, { decision: options.reject ? 'reject' : 'approve', by: typeof options.by === 'string' ? options.by : process.env.USER || 'human', ...(typeof options.reason === 'string' && { reason: options.reason }) });
+    if (options.json) return output(JSON.stringify({ ...approval, outcome: run?.outcome || null }));
+    return output(`${brand()} / FLOW APPROVAL\n✓ ${gateId}: ${approval.decision} by ${approval.by}\n${run ? `Outcome: ${run.outcome.toUpperCase()}\n${next}` : `Run maverick flow run ${flow.name} ${slug} to re-evaluate.`}`);
   }
-  throw new Error('use flow list, flow show <flow>, flow validate, flow run <flow> <task>, flow status <task>, or flow approve <flow> <task> <gate>');
+  if (action === 'auto-approve') return autoApprove(cwd, args, options);
+  throw new Error('use flow list, flow show <flow>, flow validate, flow run <flow> <task> [--auto-approve], flow status <task>, flow approve <flow> <task> <gate>, or flow auto-approve [<flow> on|off]');
 }
+
+/** `  3/7` when the task file has checklist items. */
+const progress = item => (item.checklist?.total ? `  ${item.checklist.done}/${item.checklist.total}` : '');
 
 async function subtaskCommand(cwd, [action, slug, ...args], options = {}) {
   const actions = ['add', 'list', 'next', 'set', 'validate'];
@@ -108,7 +135,7 @@ async function subtaskCommand(cwd, [action, slug, ...args], options = {}) {
   }
   if (action === 'set') {
     const [id, status] = args;
-    const item = await setStatus(dir, slug, (id || '').padStart(2, '0'), status);
+    const item = await setStatus(dir, slug, (id || '').padStart(2, '0'), status, { force: Boolean(options.force) });
     return output(options.json ? JSON.stringify({ id: item.id, status: item.status }) : `✓ ${item.id} ${item.title}: ${item.status}`);
   }
   const graph = await loadGraph(dir);
@@ -125,16 +152,16 @@ async function subtaskCommand(cwd, [action, slug, ...args], options = {}) {
     if (options.json) return output(JSON.stringify({ inProgress: inProgress.map(({ body: _body, ...item }) => item), ready: ready.map(({ body: _body, ...item }) => item), allDone }, null, 2));
     if (!graph.items.length) return output(`No subtasks yet. Add one with: maverick subtask add ${slug} "<title>"`);
     if (allDone) return output('All subtasks are done.');
-    const lines = [...inProgress.map(item => `IN PROGRESS ${item.id} ${item.title}`), ...ready.map(item => `READY       ${item.id} ${item.title}${item.type ? ` [${item.type}]` : ''}`)];
+    const lines = [...inProgress.flatMap(item => [`IN PROGRESS ${item.id} ${item.title}${progress(item)}`, ...item.checklist.open.map(entry => `              - [ ] ${entry.section ? `${entry.section}: ` : ''}${entry.text}`)]), ...ready.map(item => `READY       ${item.id} ${item.title}${item.type ? ` [${item.type}]` : ''}`)];
     return output(lines.join('\n') || 'Nothing is ready: remaining subtasks are blocked or waiting on dependencies.');
   }
   const counts = Object.fromEntries(STATUSES.map(status => [status, graph.items.filter(item => item.status === status).length]));
   if (options.json) return output(JSON.stringify({ counts, items: graph.items.map(({ body: _body, ...item }) => item) }, null, 2));
   if (!graph.items.length) return output(`No subtasks yet. Add one with: maverick subtask add ${slug} "<title>"`);
-  output(`${brand()} / SUBTASKS ${slug}\n\n${graph.items.map(item => `${item.id}  ${item.status.padEnd(12)}${item.ready ? '▶ ' : '  '}${item.title}${item.dependsOn.length ? `  (after ${item.dependsOn.join(', ')})` : ''}${item.type ? ` [${item.type}]` : ''}`).join('\n')}\n\n${counts.done}/${graph.items.length} done · ▶ ready to start`);
+  output(`${brand()} / SUBTASKS ${slug}\n\n${graph.items.map(item => `${item.id}  ${item.status.padEnd(12)}${item.ready ? '▶ ' : '  '}${item.title}${progress(item)}${item.dependsOn.length ? `  (after ${item.dependsOn.join(', ')})` : ''}${item.type ? ` [${item.type}]` : ''}`).join('\n')}\n\n${counts.done}/${graph.items.length} done · ▶ ready to start`);
 }
 
 export const flowCommands = [
-  { id: 'flow', description: 'Run contract-driven flows with typed gates, iteration caps, and stall detection.', aliases: [], usage: 'flow list|show|validate|run <flow> <task>|status <task>|approve', run: ({ cwd, rest, options }) => flowCommand(cwd, rest, options) },
-  { id: 'subtask', description: 'Break a task into a dependency graph of subtasks.', aliases: [], usage: 'subtask add|list|next|set|validate <task>', run: ({ cwd, rest, options }) => subtaskCommand(cwd, rest, options) }
+  { id: 'flow', description: 'Run contract-driven flows with typed gates, iteration caps, and stall detection.', aliases: [], usage: 'flow list|show|validate|run <flow> <task> [--auto-approve]|status <task>|approve|auto-approve [<flow> on|off]', run: ({ cwd, rest, options }) => flowCommand(cwd, rest, options) },
+  { id: 'subtask', description: 'Break a task into a dependency graph of subtasks.', aliases: [], usage: 'subtask add|list|next|set|validate <task> [set: <id> <status> [--force]]', run: ({ cwd, rest, options }) => subtaskCommand(cwd, rest, options) }
 ];

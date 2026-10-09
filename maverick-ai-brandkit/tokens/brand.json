@@ -1,0 +1,38 @@
+{
+  "name": "Maverick AI",
+  "mode": "dark-first",
+  "colors": {
+    "brand": {
+      "orange": "#FF6B00",
+      "orangeBright": "#FF8A1A",
+      "orangeDeep": "#E85D00",
+      "black": "#050505"
+    },
+    "ui": {
+      "background": "#070707",
+      "surface1": "#0E0E0E",
+      "surface2": "#151515",
+      "surface3": "#1C1C1C",
+      "border": "#292929",
+      "text": "#F7F7F5",
+      "textMuted": "#9B9B96"
+    },
+    "semantic": {
+      "success": "#38C172",
+      "warning": "#F6AD55",
+      "danger": "#EF5350"
+    }
+  },
+  "typography": {
+    "ui": "Inter, Geist, ui-sans-serif, system-ui, sans-serif",
+    "code": "JetBrains Mono, Geist Mono, ui-monospace, SFMono-Regular, monospace"
+  },
+  "radii": {"sm": 8, "md": 12, "lg": 18},
+  "brandPrinciples": [
+    "dark-first",
+    "orange is an accent, not a wallpaper",
+    "developer-tool density with generous hierarchy",
+    "minimal glow, never excessive neon",
+    "clear data visualization and technical precision"
+  ]
+}

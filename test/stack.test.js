@@ -100,31 +100,30 @@ test('verify runs configured commands for non-Node projects and writes evidence'
   const cwd = await fixture({ 'go.mod': 'module example.com/x\n' });
   await mkdir(join(cwd, '.maverick'), { recursive: true });
   await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({ verification: { commands: [`"${process.execPath}" --version`] } }));
-  await main(['task', 'go-task'], cwd);
+  await main(['new', 'Demo idea', '--slug', 'go-task', '--no-launch'], cwd);
   await main(['verify', 'go-task'], cwd);
   assert.match(await readFile(join(cwd, '.maverick/tasks/go-task/EVIDENCE.md'), 'utf8'), /## PASS/);
 });
 
 test('verify fails loudly instead of writing empty evidence when nothing is detected', async () => {
   const cwd = await fixture({ 'README.md': '# nothing' });
-  await main(['task', 'empty'], cwd);
+  await main(['new', 'Demo idea', '--slug', 'empty', '--no-launch'], cwd);
   await assert.rejects(main(['verify', 'empty'], cwd), /no verification commands detected/);
 });
 
 test('configuration is layered and validated', async () => {
   const home = process.env.MAVERICK_HOME;
-  const cwd = await fixture({ '.maverick/config.json': JSON.stringify({ workflow: { requirePlan: false } }) });
-  await writeFile(join(home, 'config.json'), JSON.stringify({ adapter: 'codex', workflow: { defaultPreset: 'lightweight' } }));
+  const cwd = await fixture({ '.maverick/config.json': JSON.stringify({ workflow: { default: 'strict' } }) });
+  await writeFile(join(home, 'config.json'), JSON.stringify({ adapter: 'codex', taskRoot: 'work/tasks' }));
   try {
     const { config, sources } = await resolveConfig(cwd);
     assert.equal(config.adapter, 'codex');
-    assert.equal(config.workflow.defaultPreset, 'lightweight');
-    assert.equal(config.workflow.requirePlan, false);
-    assert.equal(config.workflow.requireReview, true);
+    assert.equal(config.workflow.default, 'strict', 'the project layer wins');
+    assert.equal(config.taskRoot, 'work/tasks', 'the global layer fills what the project does not set');
     assert.deepEqual(sources.map(source => source.scope), ['defaults', 'global', 'project']);
   } finally { await writeFile(join(home, 'config.json'), '{}'); }
-  const bad = await fixture({ '.maverick/config.json': JSON.stringify({ taskRoot: '../outside', workflow: { defaultPreset: 'yolo' } }) });
-  await assert.rejects(loadConfig(bad), error => /taskRoot: must be a project-relative path/.test(error.message) && /workflow\.defaultPreset/.test(error.message));
+  const bad = await fixture({ '.maverick/config.json': JSON.stringify({ taskRoot: '../outside', workflow: { default: 'yolo' } }) });
+  await assert.rejects(loadConfig(bad), error => /taskRoot: must be a project-relative path/.test(error.message) && /workflow\.default/.test(error.message));
   await assert.rejects(main(['config', 'validate'], bad), /invalid configuration/);
   assert.deepEqual(mergeConfig({ a: { b: 1, c: [1] } }, { a: { c: [2] } }), { a: { b: 1, c: [2] } });
 });
@@ -132,7 +131,7 @@ test('configuration is layered and validated', async () => {
 test('commands are registered once and drive help, routing and the Lens registry', () => {
   const names = commands.flatMap(command => [command.id, ...command.aliases]);
   assert.equal(new Set(names).size, names.length, 'command names and aliases must be unique');
-  assert.equal(findCommand('lens').id, 'dashboard');
+  assert.equal(findCommand('dashboard').id, 'lens');
   assert.equal(findCommand('-v').id, 'info');
   assert.deepEqual(commandRegistry.map(item => item.id), commands.map(command => command.id));
   assert.ok(commandRegistry.some(item => item.id === 'stack'));

@@ -4,8 +4,10 @@ import { createInterface } from 'node:readline/promises';
 import { loadConfig } from '../core/config.js';
 import { getTask } from '../core/tasks.js';
 import { brand, commandAvailable, exists, output, pretty, rel } from '../core/util.js';
-import { resolveRun, PERMISSIONS } from '../runtime/policy.js';
-import { providersFor, resolveBin } from '../runtime/providers.js';
+import { resolveRun, stageDefaults, PERMISSIONS } from '../runtime/policy.js';
+import { AGENT_STAGES, EFFORTS, STAGE_IDS, stageOf } from '../runtime/stages.js';
+import { providersFor, resolveBin, shellFor } from '../runtime/providers.js';
+import { detectStack, selectVerificationCommands } from '../core/stack.js';
 import { buildPrompt } from '../runtime/prompt.js';
 import { runAgent } from '../runtime/session.js';
 import { loadGraph, setStatus } from '../subtasks/graph.js';
@@ -23,7 +25,7 @@ export function printer(options) {
   };
 }
 
-async function selectSubtask(taskDir, reference) {
+export async function selectSubtask(taskDir, reference) {
   if (!reference) return undefined;
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
@@ -34,17 +36,22 @@ async function selectSubtask(taskDir, reference) {
 }
 
 /** Shared by `agent run` and `flow run --agent`. */
-export async function startAgentRun(cwd, { slug, dir, config, subtask, instruction, issues, options, onEvent }) {
-  const plan = resolveRun(config, { provider: str(options.provider) || str(options.agent), model: str(options.model), permission: str(options.permission), subtask }, providersFor(config));
-  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, instruction, issues });
+export async function startAgentRun(cwd, { slug, dir, config, subtask, instruction, issues, options, onEvent, signal }) {
+  const plan = resolveRun(config, { provider: str(options.provider) || str(options.agent), model: str(options.model), effort: str(options.effort), permission: str(options.permission), subtask, stage: stageOf({ issues }) }, providersFor(config));
+  // The project's checks: listed in the prompt, and the only shell an `edit` run gets where the tool can scope it.
+  const commands = selectVerificationCommands(await detectStack(cwd), config);
+  const subtaskFile = subtask ? rel(cwd, join(dir, 'subtasks', subtask.file)) : undefined;
+  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, subtaskFile, instruction, issues, commands, shell: shellFor(plan.provider, plan.permission) });
   const timeoutMs = Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 60000);
-  if (options.dryRun) return { dryRun: true, plan, prompt, invocation: plan.provider.invocation({ prompt: '<prompt>', model: plan.model, permission: plan.permission }) };
+  if (options.dryRun) return { dryRun: true, plan, prompt, invocation: plan.provider.invocation({ prompt: '<prompt>', model: plan.model, effort: plan.effort, permission: plan.permission, commands }) };
   const controller = new globalThis.AbortController(), abort = () => controller.abort();
   process.once('SIGINT', abort);
+  // Lens stops a run through its own signal; the terminal still stops it with Ctrl+C.
+  if (signal) { if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true }); }
   try {
-    const run = await runAgent({ cwd, config, taskDir: dir, task: slug, provider: plan.provider, model: plan.model, permission: plan.permission, prompt, timeoutMs, signal: controller.signal, onEvent });
+    const run = await runAgent({ cwd, config, taskDir: dir, task: slug, provider: plan.provider, model: plan.model, effort: plan.effort, permission: plan.permission, commands, prompt, timeoutMs, signal: controller.signal, onEvent });
     return { plan, run };
-  } finally { process.removeListener('SIGINT', abort); }
+  } finally { process.removeListener('SIGINT', abort); signal?.removeEventListener('abort', abort); }
 }
 
 async function run(cwd, slug, options) {
@@ -55,11 +62,11 @@ async function run(cwd, slug, options) {
   if (outcome.dryRun) {
     const { plan, prompt, invocation } = outcome;
     const argv = [resolveBin(plan.provider, config, cwd), ...invocation.args];
-    if (options.json) return output(JSON.stringify({ provider: plan.provider.id, model: plan.model || null, permission: plan.permission, route: plan.route, argv, stdin: invocation.input !== undefined, prompt }, null, 2));
-    return output(`${brand()} / AGENT (dry run)\nProvider: ${plan.provider.name} (${plan.route})\nModel: ${plan.model || 'provider default'}\nPermission: ${plan.permission}\nCommand: ${argv.join(' ')}${invocation.input !== undefined ? ' < prompt' : ''}\n\n----- prompt -----\n${prompt}`);
+    if (options.json) return output(JSON.stringify({ provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, stage: plan.stage, permission: plan.permission, route: plan.route, argv, stdin: invocation.input !== undefined, prompt }, null, 2));
+    return output(`${brand()} / AGENT (dry run)\nProvider: ${plan.provider.name} (${plan.route})\nModel: ${plan.model || 'provider default'}\nReasoning: ${plan.effort || 'provider default'}\nStage: ${plan.stage}\nPermission: ${plan.permission}\nCommand: ${argv.join(' ')}${invocation.input !== undefined ? ' < prompt' : ''}\n\n----- prompt -----\n${prompt}`);
   }
   const { plan, run: result } = outcome;
-  const payload = { provider: plan.provider.id, model: plan.model || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
+  const payload = { provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
   if (options.json) output(JSON.stringify(payload, null, 2));
   else {
     output(`\n${brand()} / AGENT ${result.ok ? 'FINISHED' : 'FAILED'} in ${Math.round(result.durationMs / 1000)}s${payload.cost != null ? ` · $${Number(payload.cost).toFixed(4)}` : ''}`);
@@ -104,6 +111,41 @@ async function trust(cwd, id, options, add = true) {
   output(options.json ? JSON.stringify({ trusted: runtime.trusted, maxPermission: ceiling, default: runtime.default || null }) : `${brand()} / AGENT\n✓ ${add ? 'trusted' : 'untrusted'} ${id}; runtime written to ${rel(cwd, path)}\nMax permission: ${ceiling}. Commit this file so the team reviews the decision.`);
 }
 
+/** Sets or clears a workflow step's default agent, model and reasoning in `runtime.stages`. */
+async function stage(cwd, id, options) {
+  const config = await loadConfig(cwd), providers = providersFor(config);
+  if (!id) {
+    const defaults = stageDefaults(config, providers, STAGE_IDS);
+    if (options.json) return output(JSON.stringify({ stages: AGENT_STAGES.map(item => ({ ...item, ...defaults[item.id] })) }, null, 2));
+    return output(`${brand()} / AGENT STAGES\n\n${AGENT_STAGES.map(item => { const value = defaults[item.id]; return `${item.id.padEnd(10)}${String(value.provider || 'not set').padEnd(13)}${String(value.model || 'provider default').padEnd(22)}${(value.effort || '—').padEnd(8)}${value.configured ? 'configured' : 'recommended'}`; }).join('\n')}\n\nChange one with: maverick agent stage <stage> --provider <id> --model <model> --effort <level>`);
+  }
+  if (!STAGE_IDS.includes(id)) throw new Error(`stage must be one of ${STAGE_IDS.join(', ')}`);
+  const provider = str(options.provider) || str(options.agent), model = str(options.model), effort = str(options.effort);
+  const definition = provider && providers.find(item => item.id === provider);
+  if (provider && !definition) throw new Error(`unknown provider ${provider}; available: ${providers.map(item => item.id).join(', ')}`);
+  if (effort && !EFFORTS.includes(effort)) throw new Error(`--effort must be one of ${EFFORTS.join(', ')}`);
+  const target = definition || providers.find(item => item.id === (config.runtime?.stages?.[id]?.provider || config.runtime?.default?.provider));
+  if (effort && target && !target.efforts?.includes(effort)) throw new Error(`${target.name} ${target.efforts?.length ? `accepts reasoning ${target.efforts.join(', ')}` : 'has no reasoning setting'}`);
+  const path = join(cwd, '.maverick', 'config.json');
+  const current = await exists(path) ? JSON.parse(await readFile(path, 'utf8')) : { version: 1 };
+  const runtime = { ...current.runtime }, stages = { ...runtime.stages };
+  if (options.reset) delete stages[id];
+  else {
+    const entry = { ...stages[id], ...(provider && { provider }), ...(model && { model }), ...(effort && { effort }) };
+    // A new agent drops the old agent's model and reasoning unless new ones are given.
+    if (provider && stages[id]?.provider !== provider) { if (!model) delete entry.model; if (!effort) delete entry.effort; }
+    if (options.model === '') delete entry.model;
+    if (options.effort === '') delete entry.effort;
+    if (!Object.keys(entry).length) throw new Error('pass --provider, --model or --effort, or --reset');
+    stages[id] = entry;
+  }
+  if (Object.keys(stages).length) runtime.stages = stages; else delete runtime.stages;
+  await mkdir(join(cwd, '.maverick'), { recursive: true });
+  await writeFile(path, pretty({ ...current, runtime }));
+  const value = stageDefaults(await loadConfig(cwd), providers, [id])[id];
+  output(options.json ? JSON.stringify({ stage: id, ...value }) : `${brand()} / AGENT\n✓ ${id}: ${value.provider || 'no agent'} · ${value.model || 'provider default'} · ${value.effort || 'default reasoning'}${options.reset ? ' (back to the recommendation)' : ''}\nWritten to ${rel(cwd, path)}.`);
+}
+
 async function list(cwd, options) {
   const config = await loadConfig(cwd), trusted = config.runtime?.trusted || [];
   const rows = providersFor(config).map(provider => ({ id: provider.id, name: provider.name, bin: resolveBin(provider, config, cwd), installed: commandAvailable(resolveBin(provider, config, cwd), cwd), trusted: trusted.includes(provider.id), permissions: PERMISSIONS.filter(level => provider.permissions[level] === true), custom: Boolean(provider.custom) }));
@@ -130,9 +172,10 @@ async function agentCommand(cwd, [action, target], options = {}) {
   if (action === 'trust') return trust(cwd, target, options, true);
   if (action === 'untrust') return trust(cwd, target, options, false);
   if (action === 'runs') return runs(cwd, target, options);
-  throw new Error('use agent list, agent trust <provider>, agent untrust <provider>, agent run <task>, or agent runs <task>');
+  if (action === 'stage' || action === 'stages') return stage(cwd, target, options);
+  throw new Error('use agent list, agent trust <provider>, agent untrust <provider>, agent stage [<stage>], agent run <task>, or agent runs <task>');
 }
 
 export const agentCommands = [
-  { id: 'agent', description: 'Run trusted AI coding agents headlessly with scoped permissions.', aliases: [], usage: 'agent list|trust|untrust|run <task>|runs <task>', run: ({ cwd, rest, options }) => agentCommand(cwd, rest, options) }
+  { id: 'agent', description: 'Run trusted AI coding agents headlessly with scoped permissions.', aliases: [], usage: 'agent list|trust|untrust|stage [<stage>]|run <task>|runs <task>', run: ({ cwd, rest, options }) => agentCommand(cwd, rest, options) }
 ];

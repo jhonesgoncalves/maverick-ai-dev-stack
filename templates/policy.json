@@ -8,6 +8,6 @@
     "migrations/",
     "infra/"
   ],
-  "requiredPresetForSensitivePaths": "strict-review",
+  "requiredWorkflowForSensitivePaths": "strict",
   "notes": "Adjust these paths to match your repository. Policy checks are advisory until your CI enforces them."
 }

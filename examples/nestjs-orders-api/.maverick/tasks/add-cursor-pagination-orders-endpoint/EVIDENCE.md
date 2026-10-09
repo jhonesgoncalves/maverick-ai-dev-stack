@@ -1,6 +1,6 @@
 # Verification Evidence — add-cursor-pagination-orders-endpoint
 
-Generated: 2026-09-27T21:39:01.923Z
+Generated: 2026-09-27T23:44:58.323Z
 
 ## PASS — npm run lint
 Exit code: 0
@@ -13,6 +13,7 @@ npm warn Unknown user config "always-auth". This will stop working in the next m
 
 
 ```
+
 
 ## PASS — npm run typecheck
 Exit code: 0
@@ -35,18 +36,13 @@ npm warn Unknown user config "always-auth". This will stop working in the next m
 > nestjs-orders-api@0.1.0 test
 > jest
 
+PASS src/orders/order-cursor.spec.ts
 PASS src/orders/orders.service.spec.ts
-  OrdersService
-    ✓ computes order totals with cent precision (7 ms)
-    ✓ creates a paid order and emits order.created (2 ms)
-    ✓ rejects orders for unknown customers (6 ms)
-    ✓ paginates and filters orders (2 ms)
-    ✓ refunds paid orders on cancel (1 ms)
 
-Test Suites: 1 passed, 1 total
-Tests:       5 passed, 5 total
+Test Suites: 2 passed, 2 total
+Tests:       21 passed, 21 total
 Snapshots:   0 total
-Time:        1.049 s
+Time:        1.284 s, estimated 2 s
 Ran all test suites.
 
 ```

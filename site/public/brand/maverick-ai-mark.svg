@@ -1,0 +1,27 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="orangeA" x1="86" y1="102" x2="318" y2="410" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF9A19"/>
+      <stop offset="0.42" stop-color="#FF6B00"/>
+      <stop offset="1" stop-color="#D94800"/>
+    </linearGradient>
+    <linearGradient id="orangeB" x1="426" y1="100" x2="237" y2="381" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB02E"/>
+      <stop offset="0.36" stop-color="#FF7A00"/>
+      <stop offset="1" stop-color="#E74D00"/>
+    </linearGradient>
+    <linearGradient id="darkFold" x1="130" y1="180" x2="343" y2="391" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2A1205"/>
+      <stop offset="1" stop-color="#090909"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <path d="M80 384V177C80 161 99 153 110 164L256 310L402 164C413 153 432 161 432 177V384L379 331V250L292 337C272 357 240 357 220 337L133 250V331L80 384Z" fill="#FF6B00" opacity="0.18" filter="url(#glow)"/>
+  <path d="M80 384V177C80 161 99 153 110 164L284 338C296 350 296 369 284 381C272 393 253 393 241 381L133 273V331L80 384Z" fill="url(#orangeA)"/>
+  <path d="M432 384V177C432 161 413 153 402 164L282 284L322 324L379 267V331L432 384Z" fill="url(#orangeB)"/>
+  <path d="M133 203L284 354C296 366 296 385 284 397C272 409 253 409 241 397L110 266L133 203Z" fill="url(#darkFold)" opacity="0.84"/>
+  <path d="M80 177C80 161 99 153 110 164L133 187V250L80 303V177Z" fill="#FF7A00"/>
+</svg>

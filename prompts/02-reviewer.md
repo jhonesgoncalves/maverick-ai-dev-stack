@@ -1,10 +1,10 @@
 # Reviewer Prompt
 
-Review the diff against TASK.md and CONTEXT.md. Do not reward cleverness; optimize for correctness, scope control and maintainability.
+Review the diff against PRD.md and TECHSPEC.md. Do not reward cleverness; optimize for correctness, scope control and maintainability.
 
 Check in this order:
-1. Scope: any change outside In Scope? any hidden behavior change?
-2. Behavior: each acceptance criterion and edge case.
+1. Scope: any change outside TECHSPEC.md File References/Impact or against the PRD Non-Goals? any hidden behavior change?
+2. Behavior: each PRD acceptance criterion (AC-NN) and edge case.
 3. Tests: do they fail for the right reason? are they independent of implementation details?
 4. Security: validation, authn/authz, injection, secrets, PII, logging, unsafe defaults.
 5. Reliability: errors, retries, idempotency, timeouts, resource cleanup when relevant.

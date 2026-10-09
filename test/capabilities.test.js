@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,8 +60,8 @@ test('adapters render each tool format from one portable definition', async () =
   const reviewer = findCapability(catalog, 'agent/reviewer');
   assert.match(byId['claude-code'].render(reviewer)[0].content, /tools: Read, Grep, Glob, Bash/);
   assert.match(byId.codex.render(reviewer)[0].content, /^name = "reviewer"\ndescription = [\s\S]*developer_instructions = '''/);
-  const skill = byId.codex.render(findCapability(catalog, 'skill/maverick-workflow'));
-  assert.ok(skill.some(output => output.path === '.agents/skills/maverick-workflow/references/feature.md'));
+  const skill = byId.codex.render(findCapability(catalog, 'skill/maverick-prd'));
+  assert.ok(skill.some(output => output.path === '.agents/skills/maverick-prd/references/question-protocol.md'));
   const { data } = parseFrontmatter(skill.find(output => output.path.endsWith('SKILL.md')).content);
   assert.deepEqual(Object.keys(data), ['name', 'description'], 'skill frontmatter is trimmed to the Agent Skills spec');
 });
@@ -80,10 +80,10 @@ test('add requires consent, installs, records the lockfile, and is idempotent', 
   await assert.rejects(main(['add', 'reviewer', '--to', 'claude-code'], cwd), /rerun with --yes/);
   await main(['add', 'reviewer', '--to', 'claude-code', '--dry-run'], cwd);
   assert.equal(existsSync(join(cwd, '.claude/agents/reviewer.md')), false);
-  await main(['add', 'reviewer', 'maverick-workflow', '--to', 'claude-code,copilot', '--yes'], cwd);
+  await main(['add', 'reviewer', 'maverick-build', '--to', 'claude-code,copilot', '--yes'], cwd);
   assert.match(await read(cwd, '.github/agents/reviewer.agent.md'), /^---\nname: reviewer/);
   const entry = (await lock(cwd)).capabilities['agent/reviewer'];
-  assert.deepEqual(Object.keys(entry.targets), ['claude-code', 'copilot']);
+  assert.deepEqual(Object.keys(entry.targets), ['claude-code', 'copilot', 'agents']);
   assert.equal(entry.targets['claude-code'].files[0].path, '.claude/agents/reviewer.md');
   await main(['add', 'reviewer', '--to', 'claude-code', '--yes'], cwd);
 });
@@ -137,16 +137,18 @@ test('drift is detected, sync restores it, and remove protects local edits', asy
   assert.deepEqual((await lock(cwd)).capabilities, {});
 });
 
-test('upgrades remove files the new version no longer ships, and sync never upgrades silently', async () => {
+test('sync upgrades changed capabilities and removes files the new version no longer ships; --no-update keeps them', async () => {
   const cwd = await project({ '.maverick/capabilities/helper/SKILL.md': '---\nname: helper\ndescription: A helper skill for upgrade tests.\n---\nUse it.\n', '.maverick/capabilities/helper/extra.md': 'v1 extra' });
   await main(['add', 'helper', '--to', 'claude-code', '--yes'], cwd);
   assert.equal(await read(cwd, '.claude/skills/helper/extra.md'), 'v1 extra');
   await writeFile(join(cwd, '.maverick/capabilities/helper/SKILL.md'), '---\nname: helper\ndescription: A helper skill for upgrade tests.\nversion: 1.1.0\n---\nUse it better.\n');
   await import('node:fs/promises').then(fs => fs.rm(join(cwd, '.maverick/capabilities/helper/extra.md')));
+  await main(['sync', '--no-update', '--yes'], cwd);
+  assert.equal(await read(cwd, '.claude/skills/helper/extra.md'), 'v1 extra', '--no-update keeps the locked version');
+  await assert.rejects(main(['sync'], cwd), /change\(s\) planned; rerun with --yes/, 'an update is shown and never applied without consent');
   await main(['sync', '--yes'], cwd);
-  assert.equal(await read(cwd, '.claude/skills/helper/extra.md'), 'v1 extra', 'sync keeps the locked version');
-  await main(['add', 'helper', '--to', 'claude-code', '--yes'], cwd);
   assert.equal(existsSync(join(cwd, '.claude/skills/helper/extra.md')), false);
+  assert.match(await read(cwd, '.claude/skills/helper/SKILL.md'), /Use it better/);
   assert.equal((await lock(cwd)).capabilities['skill/helper'].version, '1.1.0');
 });
 
@@ -194,4 +196,114 @@ test('TOML tables defined with dotted keys or inline tables are refused, not rew
     await assert.rejects(main(['add', 'mcp/files', '--to', 'codex', '--yes', '--allow-exec'], cwd), /dotted keys or an inline table/);
     assert.equal(await read(cwd, '.codex/config.toml'), content);
   }
+});
+
+const isLink = async (cwd, path) => (await lstat(join(cwd, path))).isSymbolicLink();
+
+test('the linked layout writes one copy to .agents/ and symlinks it into every tool', async () => {
+  const cwd = await project();
+  await main(['add', 'maverick-prd', 'reviewer', '--to', 'claude-code,codex,kiro,opencode', '--yes'], cwd);
+  const skill = '.agents/skills/maverick-prd/SKILL.md';
+  assert.equal(await isLink(cwd, skill), false, 'the shared copy is a real file');
+  for (const tool of ['.claude', '.kiro', '.opencode']) {
+    assert.equal(await readlink(join(cwd, `${tool}/skills`)), '../.agents/skills', 'the whole skills folder is the link');
+    assert.equal(await read(cwd, `${tool}/skills/maverick-prd/references/question-protocol.md`), await read(cwd, '.agents/skills/maverick-prd/references/question-protocol.md'));
+  }
+  assert.equal(existsSync(join(cwd, '.codex/skills')), false, 'Codex reads .agents/skills directly');
+  // Agents differ per tool (tool names, formats), so they are rendered, with the neutral copy in .agents/.
+  assert.match(await read(cwd, '.agents/agents/reviewer.md'), /tools:\n {2}- read\n {2}- shell/);
+  assert.equal(await isLink(cwd, '.claude/agents/reviewer.md'), false);
+  assert.match(await read(cwd, '.kiro/agents/reviewer.md'), /tools:\n {2}- read\n {2}- shell/);
+  assert.match(await read(cwd, '.opencode/agents/reviewer.md'), /mode: subagent/);
+  const entry = (await lock(cwd)).capabilities['skill/maverick-prd'];
+  assert.deepEqual(Object.keys(entry.targets).sort(), ['agents', 'claude-code', 'codex', 'kiro', 'opencode']);
+  assert.deepEqual(entry.targets.kiro.links, [{ path: '.kiro/skills', target: '../.agents/skills', dir: true, shared: true }]);
+
+  // A replaced link is drift; sync restores it; remove clears links and the shared copy.
+  await rm(join(cwd, '.kiro/skills'));
+  await symlink('../somewhere-else', join(cwd, '.kiro/skills'));
+  await main(['installed'], cwd);
+  await assert.rejects(main(['remove', 'maverick-prd', '--yes'], cwd), /replaced since install/);
+  await main(['sync', '--yes'], cwd);
+  assert.equal(await readlink(join(cwd, '.kiro/skills')), '../.agents/skills');
+  assert.equal(await read(cwd, skill), await read(cwd, '.claude/skills/maverick-prd/SKILL.md'), 'the shared copy is untouched');
+  await main(['remove', 'maverick-prd', 'reviewer', '--yes'], cwd);
+  for (const dir of ['.agents', '.claude', '.kiro', '.opencode']) assert.equal(existsSync(join(cwd, dir)), false, `${dir} is cleaned up`);
+});
+
+test('switching layouts converts links to copies and back, and unmanaged files still block', async () => {
+  const cwd = await project({ '.maverick/config.json': JSON.stringify({ version: 1, capabilities: { layout: 'copy' } }) });
+  await main(['add', 'maverick-build', '--to', 'claude-code', '--yes'], cwd);
+  assert.equal(await isLink(cwd, '.claude/skills/maverick-build/SKILL.md'), false);
+  assert.equal(existsSync(join(cwd, '.agents')), false);
+  await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({ version: 1, capabilities: { layout: 'linked' } }));
+  await main(['add', 'maverick-build', '--to', 'claude-code', '--yes'], cwd);
+  assert.equal(await isLink(cwd, '.claude/skills'), true, 'the copied folder became a link');
+  await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({ version: 1, capabilities: { layout: 'copy' } }));
+  await main(['sync', '--yes'], cwd);
+  assert.equal(await isLink(cwd, '.claude/skills'), false, 'sync applies the configured layout');
+  await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({ version: 1, capabilities: { layout: 'linked' } }));
+  await main(['sync', '--yes'], cwd);
+  assert.equal(await isLink(cwd, '.claude/skills'), true);
+  const { checkDrift, readLock } = await import('../src/capabilities/engine.js');
+  assert.deepEqual((await checkDrift(cwd, await readLock(cwd))).flatMap(item => item.issues), [], 'the lockfile follows the layout change');
+  await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({ version: 1, capabilities: { layout: 'copy' } }));
+  await main(['add', 'maverick-build', '--to', 'claude-code', '--yes'], cwd);
+  assert.equal(await isLink(cwd, '.claude/skills'), false);
+  assert.match(await read(cwd, '.claude/skills/maverick-build/SKILL.md'), /name: maverick-build/);
+  assert.match(await read(cwd, '.agents/skills/maverick-build/SKILL.md'), /name: maverick-build/, 'going back to copies never deletes through the link');
+
+  const other = await project({ '.kiro/skills/maverick-build/notes.md': 'hand-written' });
+  await assert.rejects(main(['add', 'maverick-build', '--to', 'kiro', '--yes'], other), /\.kiro\/skills\/maverick-build\/notes\.md \(is not part of the maverick-build skill/);
+  assert.equal(await read(other, '.kiro/skills/maverick-build/notes.md'), 'hand-written');
+});
+
+test('Kiro and OpenCode render their own formats', async () => {
+  const cwd = await project({ ...mcp('files', { command: 'npx', args: ['-y', 'files-mcp'], env: { ROOT: '.' } }) });
+  await main(['add', 'mcp/files', 'command/preflight', '--to', 'kiro,opencode', '--yes', '--allow-exec'], cwd);
+  assert.deepEqual((await readJson(cwd, '.kiro/settings/mcp.json')).mcpServers.files, { command: 'npx', args: ['-y', 'files-mcp'], env: { ROOT: '.' } });
+  assert.deepEqual((await readJson(cwd, 'opencode.json')).mcp.files, { type: 'local', command: ['npx', '-y', 'files-mcp'], environment: { ROOT: '.' } });
+  assert.match(await read(cwd, '.opencode/commands/preflight.md'), /\$ARGUMENTS/);
+  assert.equal(existsSync(join(cwd, '.kiro/commands')), false, 'Kiro has no project commands');
+});
+
+test('a skills folder with the project\'s own skills is adopted into .agents/skills before it becomes a link', async () => {
+  const cwd = await project({ '.claude/skills/my-own/SKILL.md': 'mine', '.claude/skills/.DS_Store': 'x', '.kiro/skills/my-own/SKILL.md': 'mine', '.cursor/skills/my-own/SKILL.md': 'different' });
+  await assert.rejects(main(['add', 'maverick-new', '--to', 'claude-code,kiro,cursor', '--yes'], cwd), /\.cursor\/skills\/my-own\/SKILL\.md \(a different \.agents\/skills\/my-own\/SKILL\.md exists/);
+  await rm(join(cwd, '.cursor'), { recursive: true });
+  await main(['add', 'maverick-new', '--to', 'claude-code,kiro', '--yes'], cwd);
+  assert.equal(await read(cwd, '.agents/skills/my-own/SKILL.md'), 'mine', 'the project skill moved to the shared folder');
+  assert.equal(await readlink(join(cwd, '.claude/skills')), '../.agents/skills');
+  assert.equal(await read(cwd, '.kiro/skills/my-own/SKILL.md'), 'mine');
+  assert.equal(existsSync(join(cwd, '.agents/skills/.DS_Store')), false);
+  const entry = (await lock(cwd)).capabilities['skill/maverick-new'];
+  assert.equal(entry.targets.agents.files.some(file => file.path.includes('my-own')), false, 'adopted files stay the project\'s');
+  await main(['add', 'maverick-build', '--to', 'claude-code,kiro', '--yes'], cwd);
+  await main(['remove', 'maverick-new', '--yes'], cwd);
+  assert.equal(await isLink(cwd, '.claude/skills'), true, 'the shared link stays while another skill uses it');
+  await main(['remove', 'maverick-build', '--yes'], cwd);
+  assert.equal(await read(cwd, '.claude/skills/my-own/SKILL.md'), 'mine', 'the project skill keeps the link alive');
+  assert.equal(await read(cwd, '.agents/skills/my-own/SKILL.md'), 'mine');
+});
+
+test('sync adds a flow skill new in this release wherever the flow is installed, and never to a hand-picked skill', async () => {
+  const cwd = await project();
+  await main(['add', 'skill/maverick-prd', '--to', 'claude-code', '--yes'], cwd);
+  await main(['sync', '--yes'], cwd);
+  assert.equal((await lock(cwd)).capabilities['skill/maverick-sync'], undefined, 'a single hand-picked skill stays alone');
+  await main(['add', 'skill/maverick-new', '--to', 'claude-code', '--yes'], cwd);
+  await main(['sync', '--yes'], cwd);
+  const entries = (await lock(cwd)).capabilities;
+  assert.deepEqual(Object.keys(entries['skill/maverick-sync'].targets).sort(), Object.keys(entries['skill/maverick-new'].targets).sort(), 'the same tools as the rest of the flow');
+  assert.match(await read(cwd, '.claude/skills/maverick-sync/SKILL.md'), /name: maverick-sync/);
+});
+
+test('Antigravity shares .agents/skills with Codex and declines what it only reads at user level', async () => {
+  const cwd = await project({ '.maverick/config.json': JSON.stringify({ version: 1, capabilities: { layout: 'copy' } }) });
+  await main(['add', 'maverick-build', '--to', 'codex,antigravity', '--yes'], cwd);
+  assert.match(await read(cwd, '.agents/skills/maverick-build/SKILL.md'), /^---\nname: maverick-build/);
+  const targets = (await lock(cwd)).capabilities['skill/maverick-build'].targets;
+  assert.deepEqual(targets.antigravity.files || [], [], 'the codex copy is not written twice');
+  await assert.rejects(main(['add', 'command/preflight', '--to', 'antigravity', '--yes'], cwd), /replacing workflows with skills/);
+  assert.deepEqual((await resolveTargets(await project({ '.agents/rules/team.md': '# rules' }))).map(adapter => adapter.id), ['codex', 'antigravity']);
 });

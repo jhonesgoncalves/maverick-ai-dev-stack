@@ -1,18 +1,24 @@
 import { createInterface } from 'node:readline/promises';
-import { ADAPTERS, resolveTargets } from '../capabilities/adapters.js';
+import { ADAPTERS, layoutFor, resolveTargets } from '../capabilities/adapters.js';
 import { findCapability, loadCatalog, searchCatalog } from '../capabilities/catalog.js';
 import { applyChanges, checkDrift, LOCK_PATH, lockEntry, planInstall, planRemove, readLock, writeLock } from '../capabilities/engine.js';
 import { loadConfig } from '../core/config.js';
+import { migrateTask } from '../core/migrate.js';
+import { getTask } from '../core/tasks.js';
+import { FLOW_SKILLS } from './new.js';
 import { brand, output } from '../core/util.js';
 
 const MARK = { create: '+', update: '~', delete: '-', unchanged: '=' };
-const describe = change => (change.type === 'json-key' ? `${change.path} → ${change.pointer.join('.')}` : change.path);
+const describe = change => (change.type === 'json-key' ? `${change.path} → ${change.pointer.join('.')}` : change.type === 'link' && change.link ? `${change.path} ⇢ ${change.link}` : change.path);
+
+// Plans in one batch can share changes (a skills folder link, a folder being emptied): list them once.
+const changeKey = change => `${change.op}\0${change.type}\0${describe(change)}`;
 
 function renderPlans(title, plans) {
-  const lines = [`${brand()} / ${title}`];
+  const lines = [`${brand()} / ${title}`], seen = new Set();
   for (const plan of plans) {
     lines.push('', plan.capability ? `${plan.capability.ref} ${plan.capability.version} (${plan.capability.source})` : plan.ref);
-    for (const change of plan.changes) lines.push(`  ${MARK[change.op]} ${change.target.padEnd(12)} ${describe(change)}`);
+    for (const change of plan.changes) { if (seen.has(changeKey(change))) continue; seen.add(changeKey(change)); lines.push(`  ${MARK[change.op]} ${change.target.padEnd(12)} ${describe(change)}`); }
     for (const skip of plan.skipped) lines.push(`  · ${skip.target.padEnd(12)} skipped: ${skip.reason}`);
     for (const conflict of plan.conflicts) lines.push(`  ! ${conflict.target.padEnd(12)} ${conflict.path}: ${conflict.reason}`);
     for (const forced of plan.forced) lines.push(`  ! ${forced.target.padEnd(12)} ${forced.path}: ${forced.reason} (overwriting: --force)`);
@@ -20,7 +26,7 @@ function renderPlans(title, plans) {
   return lines.join('\n');
 }
 
-const pending = plans => plans.flatMap(plan => plan.changes).filter(change => change.op !== 'unchanged');
+const pending = plans => [...new Map(plans.flatMap(plan => plan.changes).filter(change => change.op !== 'unchanged').map(change => [changeKey(change), change])).values()];
 
 /** Shows the plan and decides whether to apply it: nothing is written without consent. */
 async function confirm(title, plans, options) {
@@ -59,7 +65,7 @@ async function add(cwd, references, options = {}) {
   for (const reference of references) {
     const capability = findCapability(catalog, reference);
     requireExecTrust(capability, options);
-    const plan = await planInstall(cwd, capability, adapters, lock, { force: options.force });
+    const plan = await planInstall(cwd, capability, adapters, lock, { force: options.force, layout: layoutFor(config) });
     if (!plan.changes.length) throw new Error(`${capability.ref} is not supported by ${adapters.map(adapter => adapter.id).join(', ')}: ${plan.skipped.map(skip => skip.reason).join('; ')}`);
     plans.push(plan);
   }
@@ -73,11 +79,12 @@ async function add(cwd, references, options = {}) {
 async function remove(cwd, references, options = {}) {
   if (!references.length) throw new Error('name at least one installed capability, for example: maverick remove agent/reviewer');
   const lock = await readLock(cwd), plans = [];
-  for (const reference of references) {
+  const removing = references.map(reference => {
     const refs = Object.keys(lock.capabilities).filter(ref => ref === reference || ref.split('/')[1] === reference);
     if (refs.length > 1) throw new Error(`"${reference}" is ambiguous; use one of: ${refs.join(', ')}`);
-    plans.push(await planRemove(cwd, refs[0] || reference, lock, { force: options.force }));
-  }
+    return refs[0] || reference;
+  });
+  for (const ref of removing) plans.push(await planRemove(cwd, ref, lock, { force: options.force, removing }));
   const applied = await confirm('REMOVE', plans, options);
   if (!applied && pending(plans).length) return;
   await applyChanges(cwd, plans.flatMap(plan => plan.changes));
@@ -131,21 +138,60 @@ async function installed(cwd, options = {}) {
   output(lines.join('\n'));
 }
 
+/**
+ * Brings installed capabilities up to date: restores drifted files, installs the new catalog version
+ * of any capability that changed, and adds flow skills the project is missing (new in this release).
+ * Files you edited stay protected: they show up as conflicts unless you pass --force.
+ */
 async function sync(cwd, options = {}) {
   const [config, lock] = await Promise.all([loadConfig(cwd), readLock(cwd)]);
-  const catalog = await loadCatalog(cwd, config), plans = [], notes = [];
+  const catalog = await loadCatalog(cwd, config), plans = [], notes = [], updates = [];
+  const layout = layoutFor(config), update = !options.noUpdate;
   for (const [ref, entry] of Object.entries(lock.capabilities)) {
     const capability = catalog.capabilities.find(item => item.ref === ref);
     if (!capability) { notes.push(`${ref}: source not found in any catalog; left as is`); continue; }
-    if (capability.integrity !== entry.integrity) { notes.push(`${ref}: catalog changed (${entry.version} → ${capability.version}); run maverick add ${ref} to update`); continue; }
+    const changed = capability.integrity !== entry.integrity;
+    if (changed && !update) { notes.push(`${ref}: ${entry.version} → ${capability.version} available; run maverick sync to update`); continue; }
+    if (changed) updates.push(`${ref} ${entry.version} → ${capability.version}`);
     const adapters = ADAPTERS.filter(adapter => Object.keys(entry.targets).includes(adapter.id));
-    plans.push(await planInstall(cwd, capability, adapters, lock, { force: options.force }));
+    plans.push(await planInstall(cwd, capability, adapters, lock, { force: options.force, layout }));
   }
-  if (!options.json) notes.forEach(note => output(`NOTE ${note}`));
-  if (!plans.length) return output(options.json ? JSON.stringify({ applied: false, notes }) : 'Nothing to sync.');
+  // A release can add a flow skill. When the flow is installed as a set (maverick init installs every flow skill,
+  // starting with maverick-new), add the new one to the same tools; a hand-picked single skill stays alone.
+  const flowTargets = Object.keys(lock.capabilities['skill/maverick-new']?.targets || {});
+  if (update && flowTargets.length) {
+    for (const name of FLOW_SKILLS.filter(item => !lock.capabilities[`skill/${item}`])) {
+      const capability = catalog.capabilities.find(item => item.ref === `skill/${name}`);
+      if (!capability) continue;
+      updates.push(`skill/${name} ${capability.version} (new)`);
+      plans.push(await planInstall(cwd, capability, ADAPTERS.filter(adapter => flowTargets.includes(adapter.id)), lock, { force: options.force, layout }));
+    }
+  }
+  if (!options.json) { notes.forEach(note => output(`NOTE ${note}`)); updates.forEach(item => output(`UPDATE ${item}`)); }
+  if (!plans.length) return output(options.json ? JSON.stringify({ applied: false, notes, updates }) : 'Nothing to sync.');
   if (!await confirm('SYNC', plans, options)) return;
   await applyChanges(cwd, plans.flatMap(plan => plan.changes));
-  if (!options.json) output('\n✓ managed files match the lockfile');
+  // The layout may have changed (copies ⇄ links), so the lockfile records what is on disk now.
+  for (const plan of plans) {
+    const previous = lock.capabilities[plan.capability.ref];
+    lock.capabilities[plan.capability.ref] = { ...lockEntry(plan, { allowExec: Boolean(previous?.allowExec) }), ...(previous && { installedAt: previous.installedAt }) };
+  }
+  await writeLock(cwd, lock);
+  if (!options.json) output(`\n✓ ${updates.length ? `${updates.length} capability(ies) updated; ` : ''}managed files match the lockfile`);
+}
+
+/** `maverick sync <task>`: brings a task written by an older Maverick to the current format. */
+async function syncTask(cwd, slug, options = {}) {
+  const { dir } = await getTask(cwd, slug), result = await migrateTask(dir, slug, { dryRun: Boolean(options.dryRun) });
+  const [config, lock] = await Promise.all([loadConfig(cwd), readLock(cwd)]), catalog = await loadCatalog(cwd, config);
+  const stale = FLOW_SKILLS.filter(name => { const entry = lock.capabilities[`skill/${name}`], current = catalog.capabilities.find(item => item.ref === `skill/${name}`); return entry && current && entry.integrity !== current.integrity; });
+  if (options.json) return output(JSON.stringify({ task: slug, dryRun: Boolean(options.dryRun), changes: result.changes, staleSkills: stale }, null, 2));
+  const lines = [`${brand()} / SYNC ${slug}`, ''];
+  if (!result.subtasks) lines.push('No subtasks yet: nothing to migrate. The maverick-tasks skill writes them in the current format.');
+  else if (!result.changes.length) lines.push(`✓ ${result.subtasks} subtask(s) already in the current format`);
+  else lines.push(...result.changes.map(change => `${options.dryRun ? '~' : '✓'} ${change.file}: ${change.converted} item(s) → checklist${change.status === 'done' ? ' (checked: the task is done)' : ''}`), '', options.dryRun ? 'Dry run: nothing was written.' : 'Items of unfinished tasks start unchecked; check the ones the code already satisfies, or let the maverick-sync skill do it.');
+  if (stale.length) lines.push('', `NOTE ${stale.length} flow skill(s) are out of date (${stale.join(', ')}); update them with maverick sync`);
+  output(lines.join('\n'));
 }
 
 export const capabilityCommands = [
@@ -153,5 +199,5 @@ export const capabilityCommands = [
   { id: 'add', description: 'Install skills, agents, commands, or MCP servers into AI tools.', aliases: [], usage: 'add <capability...> [--to <tools>] [--dry-run]', run: ({ cwd, rest, options }) => add(cwd, rest, options) },
   { id: 'remove', description: 'Uninstall capabilities and their managed files.', aliases: [], usage: 'remove <capability...> [--dry-run]', run: ({ cwd, rest, options }) => remove(cwd, rest, options) },
   { id: 'installed', description: 'List installed capabilities, drift, and updates.', aliases: [], usage: 'installed [--json]', run: ({ cwd, options }) => installed(cwd, options) },
-  { id: 'sync', description: 'Restore managed files from the capabilities lockfile.', aliases: [], usage: 'sync [--dry-run]', run: ({ cwd, options }) => sync(cwd, options) }
+  { id: 'sync', description: 'Update installed skills and capabilities to the catalog, restore drifted files, or bring a task to the current format.', aliases: [], usage: 'sync [<task>] [--dry-run] [--yes] [--no-update] [--force]', run: ({ cwd, arg, options }) => (arg ? syncTask(cwd, arg, options) : sync(cwd, options)) }
 ];

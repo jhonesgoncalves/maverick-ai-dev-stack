@@ -18,6 +18,6 @@ edges:
 
 The frontmatter is the source of truth for dependencies and each task_NN.md for its status. Manage them with `maverick subtask`.
 
-- [ ] 01 Cursor assinado e DTO de consulta — pending
-- [ ] 02 Paginação por cursor no OrdersService — pending · after 01
+- [x] 01 Cursor assinado e DTO de consulta — done
+- [x] 02 Paginação por cursor no OrdersService — done · after 01
 - [ ] 03 Contrato HTTP e documentação da API — pending · after 02

@@ -1,7 +1,7 @@
-- [ ] Objective is observable
-- [ ] Acceptance criteria are testable
-- [ ] In/Out scope are explicit
-- [ ] Relevant paths identified
+- [ ] PRD Goals are observable
+- [ ] Acceptance criteria are testable (Given/when/then)
+- [ ] Non-Goals are explicit
+- [ ] TECHSPEC.md File References identified
 - [ ] Verification commands known
 - [ ] No secrets/customer data in context
 - [ ] Task is small enough to review

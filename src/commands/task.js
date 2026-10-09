@@ -1,84 +1,43 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { loadConfig } from '../core/config.js';
-import { getPreset, presets, requirePreset } from '../core/presets.js';
-import { recommendPreset } from '../core/preset-suggestion.js';
-import { getTask, taskPath } from '../core/tasks.js';
-import { brand, exists, hasMeaningfulContent, output, packageRoot, pretty, rel, replaceVars, sectionPresent } from '../core/util.js';
-
-export async function createTask(cwd, slug, options = {}) {
-  const config = await loadConfig(cwd), preset = requirePreset(options.preset || config.workflow.defaultPreset || 'standard'), dir = taskPath(cwd, config, slug);
-  if (await exists(dir)) throw new Error(`task already exists: ${rel(cwd, dir)}; choose another slug or remove it deliberately`);
-  await mkdir(dir, { recursive: true });
-  const today = new Date().toISOString().slice(0, 10), artifacts = [...preset.artifacts];
-  if ((options.riskDoc || config.workflow.riskDocumentation) && preset.strict) artifacts.push({ id: 'RISK', file: 'RISK.md', template: 'risk.md', sections: ['Risk Assessment', 'Mitigations', 'Rollback', 'Approval'] });
-  for (const item of artifacts) await writeFile(join(dir, item.file), replaceVars(await readFile(join(packageRoot, 'templates', item.template), 'utf8'), { TASK_SLUG: slug, DATE: today }));
-  await writeFile(join(dir, 'TASK.json'), pretty({ preset: preset.id, createdAt: today }));
-  output(`${brand()}\n✓ task created: ${rel(cwd, dir)}\nPreset: ${preset.name}\nStages: ${preset.stages.map(s => s.toUpperCase()).join(' → ')}`);
-}
-
-async function showArtifact(cwd, slug, filename, label) {
-  const { dir } = await getTask(cwd, slug), path = join(dir, filename);
-  output(`${label}: ${rel(cwd, path)}${await exists(path) ? '' : ' (not included by this preset)'}`);
-}
+import { taskStage } from '../core/pipeline.js';
+import { ARTIFACTS, planningStages } from '../core/presets.js';
+import { lintTask } from '../core/quality.js';
+import { getTask } from '../core/tasks.js';
+import { brand, exists, output, rel } from '../core/util.js';
+import { loadGraph } from '../subtasks/graph.js';
 
 async function taskPacket(cwd, slug, options = {}) {
-  const { dir, preset } = await getTask(cwd, slug);
+  const { dir, preset, meta } = await getTask(cwd, slug);
   const mapPath = join(cwd, '.maverick', 'context', 'PROJECT_MAP.md'), contents = [];
-  for (const file of ['SPEC.md', 'TASK.md', 'CONTEXT.md', 'PLAN.md']) if (await exists(join(dir, file))) contents.push(`## ${file}\n\n${await readFile(join(dir, file), 'utf8')}`);
-  if (await exists(mapPath)) contents.unshift(`## PROJECT_MAP.md\n\n${await readFile(mapPath, 'utf8')}`);
+  if (await exists(mapPath)) contents.push(`## PROJECT_MAP.md\n\n${await readFile(mapPath, 'utf8')}`);
+  for (const { file } of ARTIFACTS) if (await exists(join(dir, file))) contents.push(`## ${file}\n\n${await readFile(join(dir, file), 'utf8')}`);
+  const graph = await loadGraph(dir);
+  if (graph.items.length) contents.push(`## Tasks\n\n${graph.items.map(item => `- ${item.id} ${item.title} (${item.status}${item.dependsOn.length ? `, after ${item.dependsOn.join(', ')}` : ''})`).join('\n')}`);
   const path = join(dir, 'TASK-PACKET.md');
-  await writeFile(path, `# Maverick Task Packet\n\nPreset: ${preset.name}\nAgent: ${options.agent || 'generic'}\n\nFollow repository instructions, stay in scope, run relevant verification, and leave findings for human review.\n\n${contents.join('\n\n')}`);
-  output(options.json ? JSON.stringify({ preset: preset.id, agent: options.agent || 'generic', path: rel(cwd, path) }) : `${brand()} / PACKET\n✓ agent packet: ${rel(cwd, path)}\nAgent: ${options.agent || 'generic'}`);
-}
-
-function validatorArtifacts(preset, riskDoc) {
-  const items = preset.artifacts.map(item => ({
-    ...item,
-    sections: preset.strict && item.id === 'TASK' ? [...item.sections, 'Risk', 'Expected Changed Files', 'Actual Changed Files']
-      : preset.strict && item.id === 'PLAN' ? [...item.sections, 'Rollback']
-        : preset.strict && item.id === 'REVIEW' ? ['Scope', 'Behavior', 'Tests', 'Security', 'Reliability', 'Observability', 'Dependencies', 'Rollback', 'Maintainability', 'Final Decision']
-          : item.sections
-  }));
-  return riskDoc ? [...items, { id: 'RISK', file: 'RISK.md', sections: ['Risk Assessment', 'Mitigations', 'Rollback', 'Approval'] }] : items;
+  await writeFile(path, `# Maverick Task Packet\n\nIdea: ${meta.idea || slug}\nWorkflow: ${preset.name}\nAgent: ${options.agent || 'generic'}\n\nFollow repository instructions, stay within the PRD and technical spec, run relevant verification, and leave findings for human review.\n\n${contents.join('\n\n')}`);
+  output(options.json ? JSON.stringify({ workflow: preset.id, agent: options.agent || 'generic', path: rel(cwd, path) }) : `${brand()} / PACKET\n✓ agent packet: ${rel(cwd, path)}\nAgent: ${options.agent || 'generic'}`);
 }
 
 async function validate(cwd, slug, options = {}) {
   const { dir, preset } = await getTask(cwd, slug);
-  let errors = 0, warnings = 0; const results = [];
-  for (const item of validatorArtifacts(preset, await exists(join(dir, 'RISK.md')))) {
-    const path = join(dir, item.file);
-    if (!await exists(path)) { results.push({ file: item.file, status: 'FAIL', message: 'missing' }); errors++; continue; }
-    const text = await readFile(path, 'utf8');
-    for (const section of item.sections) if (!sectionPresent(text, section)) { results.push({ file: item.file, status: 'FAIL', message: `missing section "${section}"` }); errors++; }
-    if (!hasMeaningfulContent(text)) { results.push({ file: item.file, status: 'WARN', message: 'placeholders remain' }); warnings++; }
-  }
-  if (options.json) output(JSON.stringify({ preset: preset.id, stages: preset.stages, valid: !errors, errors, warnings, results }, null, 2));
+  const status = await taskStage(dir, preset, slug);
+  // Without --stage, check only the planning stages the task has reached: stages it has not
+  // started yet would fail as "not written yet" and bury the issues of the current one.
+  const current = planningStages(preset).includes(status.stage) ? status.stage : undefined;
+  const stage = typeof options.stage === 'string' ? options.stage : options.all ? undefined : current;
+  const results = await lintTask(cwd, dir, { strict: Boolean(options.strict), stage, preset });
+  const errors = results.filter(item => item.status === 'FAIL').length, warnings = results.length - errors;
+  if (options.json) output(JSON.stringify({ workflow: preset.id, stage: status.stage, checked: stage || 'all', valid: !errors, errors, warnings, results }, null, 2));
   else {
-    output(`${brand()} / VALIDATE\nPreset: ${preset.name}`); results.forEach(r => output(`${r.status} ${r.file}: ${r.message}`));
-    if (!errors) output(`PASS required artefacts and sections are present${warnings ? ` (${warnings} warning(s))` : ''}.`);
+    output(`${brand()} / VALIDATE${options.strict ? ' (strict)' : ''}\nWorkflow: ${preset.name} · checked: ${stage ? `up to ${stage.toUpperCase()}` : planningStages(preset).map(item => item.toUpperCase()).join(', ')}`);
+    results.forEach(r => output(`${r.status} ${r.file}: ${r.message}`));
+    if (!errors) output(`PASS${warnings ? ` (${warnings} warning(s))` : ''}. Next: ${status.next}`);
   }
   if (errors) throw new Error(`${errors} validation error(s)`);
 }
 
-function showPresets(id) {
-  if (id) { const p = requirePreset(id); return output(`${brand()} / PRESET\n\nPreset:\n${p.name}\n\nArtifacts:\n${p.artifacts.map(a => a.id).join('\n')}\n\nStages:\n${p.stages.map(s => s.toUpperCase()).join(' → ')}\n\nBest for:\n${p.bestFor}`); }
-  output(`${brand()} / PRESETS\n\n${Object.values(presets).map(p => `${p.id.toUpperCase()}\n${p.description}`).join('\n\n')}`);
-}
-
-function suggest(options = {}) {
-  const rec = recommendPreset(options);
-  output(options.json ? JSON.stringify(rec) : `Recommended preset: ${getPreset(rec.preset).name}\nReason: ${rec.reason}`);
-}
-
 export const taskCommands = [
-  { id: 'task', description: 'Create preset-driven task artifacts.', aliases: ['create'], usage: 'task <slug> --preset <preset>', run: ({ cwd, arg, options }) => createTask(cwd, arg, options) },
   { id: 'packet', description: 'Compile a focused agent packet.', aliases: ['run'], usage: 'packet <task> --agent <name>', run: ({ cwd, arg, options }) => taskPacket(cwd, arg, options) },
-  { id: 'presets', description: 'List or inspect workflow presets.', aliases: [], usage: 'presets [show <preset>]', run: ({ arg, third }) => showPresets(arg === 'show' ? third : undefined) },
-  { id: 'suggest', description: 'Recommend a preset from local rules.', aliases: [], usage: 'suggest [--risk high]', run: ({ options }) => suggest(options) },
-  { id: 'validate', description: 'Validate task artifacts and required sections.', aliases: [], usage: 'validate <task> [--json]', run: ({ cwd, arg, options }) => validate(cwd, arg, options) },
-  { id: 'context', description: 'Show a task context artifact.', aliases: [], usage: 'context <task>', run: ({ cwd, arg }) => showArtifact(cwd, arg, 'CONTEXT.md', 'Context') },
-  { id: 'plan', description: 'Show a task plan artifact.', aliases: [], usage: 'plan <task>', run: ({ cwd, arg }) => showArtifact(cwd, arg, 'PLAN.md', 'Plan') }
+  { id: 'validate', description: 'Validate the PRD, behavioral spec (spec-driven), technical spec and tasks up to the task\'s current stage (--all for every stage): headings, criteria ids, scenarios, real paths and coverage.', aliases: [], usage: 'validate <task> [--stage prd|spec|techspec|tasks|--all] [--strict] [--json]', run: ({ cwd, arg, options }) => validate(cwd, arg, options) }
 ];
-
-export { showArtifact };

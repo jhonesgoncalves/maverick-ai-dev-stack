@@ -21,13 +21,13 @@ async function transcriptFile(taskDir, providerId) {
  * session, text, tool, result, error. Hooks guard the run; the transcript is written as
  * the run happens. The agent never gets a shell from Maverick: argv only.
  */
-export async function runAgent({ cwd, config, taskDir, task, provider, model, permission, prompt, timeoutMs, signal, onEvent = () => {} }) {
+export async function runAgent({ cwd, config, taskDir, task, provider, model, effort, permission, commands = [], prompt, timeoutMs, signal, onEvent = () => {} }) {
   const bin = resolveBin(provider, config, cwd);
   if (!commandAvailable(bin, cwd)) throw new Error(`${provider.name} is not installed (${bin} not found on PATH)`);
-  const before = await runHooks(cwd, config, 'before-agent-run', { task, provider: provider.id, model, permission, prompt });
+  const before = await runHooks(cwd, config, 'before-agent-run', { task, provider: provider.id, model, effort, permission, prompt });
   if (!before.allowed) throw new Error(before.reason);
   const finalPrompt = [prompt, ...before.appendPrompt].join('\n\n');
-  const { args, input } = provider.invocation({ prompt: finalPrompt, model, permission });
+  const { args, input } = provider.invocation({ prompt: finalPrompt, model, effort, permission, commands });
   const transcript = await transcriptFile(taskDir, provider.id);
   const events = [], state = {};
   // Writes are chained so transcript lines keep event order even when events arrive in bursts.
@@ -38,7 +38,7 @@ export async function runAgent({ cwd, config, taskDir, task, provider, model, pe
     writing = writing.then(() => appendFile(transcript, line));
     return writing;
   };
-  await record({ type: 'start', provider: provider.id, model: model || null, permission, argv: [bin, ...args.map(arg => (arg === finalPrompt ? '<prompt>' : arg))] });
+  await record({ type: 'start', provider: provider.id, model: model || null, effort: effort || null, permission, argv: [bin, ...args.map(arg => (arg === finalPrompt ? '<prompt>' : arg))] });
   const pending = [];
   const processResult = await runProcess({
     bin, args, cwd, input, signal, timeoutMs,

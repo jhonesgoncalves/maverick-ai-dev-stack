@@ -3,7 +3,7 @@
 ## Hero
 **Sua IA gera codigo. Voce consegue explicar o diff?**
 
-Maverick AI Dev Stack e um kit gratuito para transformar pedido solto em tarefa delimitada, contexto enxuto e review verificavel.
+Maverick AI e um kit gratuito para transformar pedido solto em tarefa delimitada, contexto enxuto e review verificavel.
 
 CTA: **Receber o kit gratuito**
 

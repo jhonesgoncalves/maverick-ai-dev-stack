@@ -277,9 +277,151 @@
           "summary": "record it in REVIEW.md or run maverick flow approve ship add-cursor-pagination-orders-endpoint human-review"
         }
       ]
+    },
+    {
+      "at": "2026-09-27T21:46:38.201Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "0 manifest(s), 0 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "fail",
+          "issues": [
+            "No git diff found against the selected base."
+          ]
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the change and records the decision."
+          ],
+          "summary": "record it in REVIEW.md or run maverick flow approve ship add-cursor-pagination-orders-endpoint human-review"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T21:48:20.590Z",
+      "outcome": "done",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "0 manifest(s), 0 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "fail",
+          "issues": [
+            "No git diff found against the selected base."
+          ]
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pass",
+          "issues": [],
+          "summary": "approve by jhones"
+        }
+      ]
     }
   ],
-  "approvals": {},
+  "approvals": {
+    "human-review": {
+      "decision": "approve",
+      "by": "jhones",
+      "at": "2026-09-27T21:46:53.439Z"
+    }
+  },
   "integrity": "e375edf3fd5de5606ab4154a6b5fb215343b62897b84ddefb819b64f2699bdbd",
-  "status": "awaiting-approval"
+  "status": "done"
 }

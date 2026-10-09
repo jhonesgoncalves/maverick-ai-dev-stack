@@ -1,0 +1,15 @@
+<svg width="1400" height="360" viewBox="0 0 1400 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="orangeA" x1="46" y1="54" x2="220" y2="285" gradientUnits="userSpaceOnUse"><stop stop-color="#FF9A19"/><stop offset="0.42" stop-color="#FF6B00"/><stop offset="1" stop-color="#D94800"/></linearGradient>
+    <linearGradient id="orangeB" x1="305" y1="55" x2="164" y2="266" gradientUnits="userSpaceOnUse"><stop stop-color="#FFB02E"/><stop offset="0.36" stop-color="#FF7A00"/><stop offset="1" stop-color="#E74D00"/></linearGradient>
+    <linearGradient id="darkFold" x1="83" y1="109" x2="230" y2="262" gradientUnits="userSpaceOnUse"><stop stop-color="#4A1D04"/><stop offset="1" stop-color="#17110D"/></linearGradient>
+  </defs>
+  <g transform="translate(20,18) scale(.63)">
+    <path d="M80 384V177C80 161 99 153 110 164L284 338C296 350 296 369 284 381C272 393 253 393 241 381L133 273V331L80 384Z" fill="url(#orangeA)"/>
+    <path d="M432 384V177C432 161 413 153 402 164L282 284L322 324L379 267V331L432 384Z" fill="url(#orangeB)"/>
+    <path d="M133 203L284 354C296 366 296 385 284 397C272 409 253 409 241 397L110 266L133 203Z" fill="url(#darkFold)" opacity="0.82"/>
+    <path d="M80 177C80 161 99 153 110 164L133 187V250L80 303V177Z" fill="#FF7A00"/>
+  </g>
+  <text x="360" y="225" fill="#0A0A0A" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="142" font-weight="700" letter-spacing="-7">Maverick</text>
+  <text x="990" y="225" fill="#E85D00" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="142" font-weight="800" letter-spacing="-6">AI</text>
+</svg>

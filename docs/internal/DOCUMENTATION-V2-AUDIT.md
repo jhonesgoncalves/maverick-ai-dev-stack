@@ -130,7 +130,7 @@ The Lab consists of `lab/experiment-template.md` and `lab/scorecard.csv`, plus b
 - `src/cli/app.tsx` selects Ink `HomeScreen` only for an empty interactive invocation; otherwise it delegates to `src/cli.js`.
 - `src/cli.js` combines command dispatch and much of the command business logic.
 - `src/core/` contains presets, command registry, suggestion, project helpers, and Lens index construction.
-- `src/dashboard/` contains local HTTP server and a single-file browser UI.
+- `src/lens/` contains local HTTP server and a single-file browser UI.
 - `src/ui/` contains Ink presentation components.
 
 The core is not wholly UI-independent because `app.tsx` imports `main` from the large CLI module and command logic remains in that module. The dashboard uses a local HTTP server constrained to loopback hosts.

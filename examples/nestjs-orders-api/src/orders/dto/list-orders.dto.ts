@@ -7,4 +7,6 @@ export class ListOrdersDto {
   @IsOptional() @IsIn(['pending', 'paid', 'cancelled']) status?: OrderStatus;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) pageSize?: number;
+  @IsOptional() @IsString() cursor?: string;
+  @IsOptional() @IsString() limit?: string;
 }

@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: Performs an evidence-based application security review of a diff. Use when a change touches auth, input handling, data, secrets or dependencies.
-version: 1.0.0
+version: 1.1.0
 tags: [maverick, security-reviewer]
 tools: [read, shell]
 ---
@@ -23,4 +23,4 @@ Look for:
 For each issue: attack precondition, impact, evidence, smallest remediation, and how to test the fix.
 Do not invent vulnerabilities without a plausible path.
 
-If the repository uses Maverick, task artifacts live in `.maverick/tasks/<task>/`. Treat TASK.md as the scope contract.
+If the repository uses Maverick, task artifacts live in `.maverick/tasks/<task>/`. Treat PRD.md (what), SPEC.md when the task is spec-driven (exact behavior and contracts) and TECHSPEC.md (how) as the scope contract.

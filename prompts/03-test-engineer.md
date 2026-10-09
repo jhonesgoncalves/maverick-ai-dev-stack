@@ -1,6 +1,6 @@
 # Test Engineer Prompt
 
-Design tests from TASK.md before reading implementation details when possible.
+Design tests from the PRD.md acceptance criteria and the TECHSPEC.md Test Plan before reading implementation details when possible.
 
 Produce:
 - acceptance test matrix;

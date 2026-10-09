@@ -2,6 +2,8 @@ import { access, readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { colorEnabled, decorate, wordmark } from './style.js';
+import { fold, headingAliases } from './language.js';
 
 // The CLI runs both from src/ (tests, tsx) and bundled into dist/, so the
 // package root is located by walking up instead of assuming a fixed depth.
@@ -29,8 +31,19 @@ export async function readText(path) { try { return await readFile(path, 'utf8')
 export function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 export function pretty(value) { return `${JSON.stringify(value, null, 2)}\n`; }
 export function rel(cwd, path) { return relative(cwd, path) || '.'; }
-let sink = null;
-export function output(message) { if (sink) sink.push(String(message)); else console.log(message); }
+let sink = null, pendingHeader = null;
+/** Every command opens with the brand header on a terminal: the first `output` of a run adds `MAVERICK AI / <TITLE>` when the command did not print one itself. */
+export function brandOutput(title) { pendingHeader = title; }
+const branded = text => text.startsWith('MAVERICK AI') || text.startsWith(wordmark());
+export function output(message) {
+  if (sink) return void sink.push(String(message));
+  if (pendingHeader) {
+    const text = String(message).replace(/^\n+/, '');
+    if (colorEnabled() && !branded(text) && !/^\s*[[{]/.test(text)) console.log(decorate(`${brand()} / ${pendingHeader}`));
+    pendingHeader = null;
+  }
+  console.log(decorate(message));
+}
 
 /** Runs fn while collecting everything it would print, so commands can be reused as building blocks. */
 export async function captureOutput(fn) {
@@ -38,11 +51,29 @@ export async function captureOutput(fn) {
   sink = lines;
   try { return { value: await fn(), output: lines.join('\n') }; } catch (error) { error.output = lines.join('\n'); throw error; } finally { sink = previous; }
 }
-export function brand() { return process.env.NO_COLOR ? '⚔ MAVERICK' : '\x1b[38;5;208m⚔ MAVERICK\x1b[0m'; }
+/** The plain brand mark; `output` colours it (and the `/ SECTION` suffix) on interactive terminals. */
+export function brand() { return 'MAVERICK AI'; }
 
 export function replaceVars(text, vars) { return Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{{${k}}}`, v), text); }
-export function sectionPresent(text, name) { const e = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); return new RegExp(`^#{1,4}\\s+${e}\\s*$`, 'mi').test(text); }
-export function hasMeaningfulContent(text) { return !/\b(TODO|TBD|FILL ME)\b/i.test(text); }
+/** True when a heading exists, in any language it is localized to (see core/language.js). */
+export function sectionPresent(text, name) { return headingIndex(String(text).split('\n'), name).start >= 0; }
+/** The body of a Markdown section in any language, up to the next heading of the same or a higher level (nested headings stay inside). */
+export function sectionBody(text, name) {
+  const lines = String(text).split('\n'), { start, level, headings } = headingIndex(lines, name);
+  if (start < 0) return '';
+  const end = headings.findIndex((match, index) => index > start && match && match[1].length <= level);
+  return lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim();
+}
+
+function headingIndex(lines, name) {
+  // `# comments` inside fenced code blocks are not headings.
+  let fenced = false;
+  const headings = lines.map(line => { if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return null; } return fenced ? null : /^(#{1,6})\s+(.+?)\s*$/.exec(line); });
+  const wanted = headingAliases(name), start = headings.findIndex(match => match && wanted.includes(fold(match[2])));
+  return { start, level: start >= 0 ? headings[start][1].length : 0, headings };
+}
+/** Placeholders are upper case on purpose: "todo" is an ordinary word in Portuguese and in to-do features. */
+export function hasMeaningfulContent(text) { return !/\b(TODO|TBD|FILL ME)\b/.test(text); }
 export function requireSlug(slug) { if (!slugOk.test(slug || '')) throw new Error('use a lowercase slug such as add-orders-pagination'); }
 
 export function parseOptions(args) {

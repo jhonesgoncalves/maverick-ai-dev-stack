@@ -1,6 +1,6 @@
 # Preflight Prompt
 
-Read TASK.md and CONTEXT.md only. Do not edit yet.
+Read PRD.md and TECHSPEC.md only. Do not edit yet.
 
 Return:
 1. your understanding in <= 5 bullets;
@@ -9,4 +9,4 @@ Return:
 4. risks/assumptions;
 5. whether the task is small enough to execute safely.
 
-If the task conflicts with Out of Scope or Do Not Change, stop.
+If the task conflicts with the PRD Non-Goals or TECHSPEC.md Do Not Touch, stop.
