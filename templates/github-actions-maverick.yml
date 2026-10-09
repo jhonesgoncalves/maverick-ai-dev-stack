@@ -13,6 +13,6 @@ jobs:
         with:
           node-version: 20
       - name: Validate task artifacts
-        run: npx --yes maverick-ai-dev-stack validate {{TASK_SLUG}} --json
+        run: npx --yes @maverick-ai/cli validate {{TASK_SLUG}} --json
       - name: Check task policy
-        run: npx --yes maverick-ai-dev-stack policy check {{TASK_SLUG}} --json
+        run: npx --yes @maverick-ai/cli policy check {{TASK_SLUG}} --json

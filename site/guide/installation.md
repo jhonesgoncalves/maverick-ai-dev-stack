@@ -9,22 +9,22 @@ Maverick is a dependency-free Node.js CLI. It needs **Node 20 or newer** and wor
 ::: code-group
 
 ```bash [npx (no install)]
-npx maverick-ai-dev-stack init
+npx @maverick-ai/cli init
 ```
 
 ```bash [npm (global)]
-npm install -g maverick-ai-dev-stack
+npm install -g @maverick-ai/cli
 maverick init
 ```
 
 ```bash [pnpm]
-pnpm add -g maverick-ai-dev-stack
+pnpm add -g @maverick-ai/cli
 maverick init
 ```
 
 :::
 
-Every example in these docs uses the short `maverick` binary. With `npx`, replace `maverick` with `npx maverick-ai-dev-stack`.
+Every example in these docs uses the short `maverick` binary. With `npx`, replace `maverick` with `npx @maverick-ai/cli`.
 
 ## Check the setup
 

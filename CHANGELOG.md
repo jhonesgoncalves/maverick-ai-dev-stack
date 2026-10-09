@@ -4,6 +4,10 @@ All notable changes follow Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed: the npm package is now `@maverick-ai/cli`
+- Install with `npm install -g @maverick-ai/cli` or run `npx @maverick-ai/cli`; the `maverick` command, its configuration and the repository are unchanged. `maverick-ai-dev-stack` no longer receives releases; if it is installed globally, uninstall it first (`npm uninstall -g maverick-ai-dev-stack`), since both packages provide the `maverick` command.
+- The bundled MCP server and the generated GitHub Actions gate run `npx @maverick-ai/cli`. Projects that installed them earlier keep using the old package until they reinstall them.
+
 ### Fixed: approving in Lens finishes the flow and moves the task on
 - An approval recorded in Lens (or with `maverick flow approve`) went only to the flow state: the flow stayed **Awaiting approval** until it ran again, the form kept asking for a decision, and the task never left the Review stage, because the stage and `maverick readiness` read the decision from `REVIEW.md`. A decision now also lands in the gate's file (approving checks `- [x] approve` in `REVIEW.md` or `- [x] Spec approved` in `SPEC.md`; requesting changes unchecks it), and when the last run was only waiting on approvals it is decided at once instead of running every gate again. Approvals recorded before this fix reach the file on the next run.
 - Lens: the **Record your decision** form sits above the gates while the flow awaits approval, a gate with a recorded decision shows it, and the review step's **Next step** card says **Review and approve**.

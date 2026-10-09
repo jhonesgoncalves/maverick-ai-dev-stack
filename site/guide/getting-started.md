@@ -5,13 +5,13 @@
 Maverick AI is a vendor-neutral workflow for AI-assisted changes in existing repositories. It is not another coding agent: it is the structure *around* the agent — a PRD, a technical spec grounded in your code, a graph of tasks, recorded evidence and a human review decision — so a diff produced in minutes can still be defended in review.
 
 <AnimatedTerminal title="demo — zsh" :loop="false" :lines="[
-  { kind: 'cmd', text: 'npx maverick-ai-dev-stack init' },
+  { kind: 'cmd', text: 'npx @maverick-ai/cli init' },
   { kind: 'ok', text: '✓ project initialized: .maverick/config.json' },
-  { kind: 'cmd', text: 'npx maverick-ai-dev-stack new &quot;Add pagination to the orders API&quot;' },
+  { kind: 'cmd', text: 'npx @maverick-ai/cli new &quot;Add pagination to the orders API&quot;' },
   { kind: 'ok', text: '✓ task created: add-pagination-orders-api' },
   { kind: 'muted', text: 'Pipeline: [PRD] → TECHSPEC → TASKS' },
   { kind: 'muted', text: '▶ opening Claude Code with the maverick-new skill' },
-  { kind: 'cmd', text: 'npx maverick-ai-dev-stack validate add-pagination-orders-api --strict' },
+  { kind: 'cmd', text: 'npx @maverick-ai/cli validate add-pagination-orders-api --strict' },
   { kind: 'ok', text: 'PASS PRD, TECHSPEC and tasks are complete and traceable' }
 ]" />
 

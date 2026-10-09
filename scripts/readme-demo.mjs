@@ -15,7 +15,7 @@ const SANS = "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto
 
 // [kind, at (s), segments]; a segment is [text, color] or a string in the line's default color.
 const script = [
-  ['cmd', 0.6, 'npx maverick-ai-dev-stack new "Add cursor pagination to the orders endpoint"'],
+  ['cmd', 0.6, 'npx @maverick-ai/cli new "Add cursor pagination to the orders endpoint"'],
   ['out', 3.9, [['✓ ', C.ok], ['task created: ', C.out], ['add-cursor-pagination-orders-endpoint', C.text]]],
   ['out', 4.1, [['  Workflow: ', C.muted], ['Spec Driven', C.amber], [' (the idea defines an API, integration or shared contract)', C.muted]]],
   ['out', 4.3, [['  Pipeline: ', C.muted], ['[PRD]', C.orange], [' → SPEC → TECHSPEC → TASKS', C.out]]],

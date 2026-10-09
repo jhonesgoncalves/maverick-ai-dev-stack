@@ -15,7 +15,7 @@
 <text x="600" y="45" text-anchor="middle" fill="#9B9B96" font-size="13">~/orders-api — zsh</text>
 <text x="1160" y="45" text-anchor="end" fill="#FFB15A" font-size="12" letter-spacing="2.4">MAVERICK <tspan fill="#FF6B00" font-weight="700">AI</tspan></text>
 <g clip-path="url(#screen)">
-<text class="l0" x="40" y="104"><tspan fill="#FF6B00" font-weight="700">$</tspan><tspan fill="#F7F7F5" dx="9.03">npx maverick-ai-dev-stack new &quot;Add cursor pagination to the orders endpoint&quot;</tspan></text>
+<text class="l0" x="40" y="104"><tspan fill="#FF6B00" font-weight="700">$</tspan><tspan fill="#F7F7F5" dx="9.03">npx @maverick-ai/cli new &quot;Add cursor pagination to the orders endpoint&quot;</tspan></text>
 <g class="cover tl0" opacity="0"><rect x="58.06" y="89" width="1200" height="24.5" fill="#0B0B0B"/><rect x="58.06" y="90" width="9.03" height="19" fill="#FF6B00" opacity=".9"/></g>
 <text class="l1" x="40" y="128.5"><tspan fill="#38C172">✓ </tspan><tspan fill="#CFCFCA">task created: </tspan><tspan fill="#F7F7F5">add-cursor-pagination-orders-endpoint</tspan></text>
 <text class="l2" x="40" y="153"><tspan fill="#9B9B96">  Workflow: </tspan><tspan fill="#FFB15A">Spec Driven</tspan><tspan fill="#9B9B96"> (the idea defines an API, integration or shared contract)</tspan></text>

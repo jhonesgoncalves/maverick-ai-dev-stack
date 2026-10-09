@@ -33,7 +33,7 @@ maverick lens --json
 # {"address":"http://127.0.0.1:4173","host":"127.0.0.1","port":4173,"watch":true}
 
 # Without installing
-npx maverick-ai-dev-stack lens --open
+npx @maverick-ai/cli lens --open
 ```
 
 ## Behaviour

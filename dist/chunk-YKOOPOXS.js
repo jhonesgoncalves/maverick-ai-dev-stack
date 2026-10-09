@@ -94,7 +94,7 @@ function findPackageRoot(start) {
     const manifest = join(dir, "package.json");
     if (existsSync(manifest)) {
       try {
-        if (JSON.parse(readFileSync(manifest, "utf8")).name === "maverick-ai-dev-stack") return dir;
+        if (JSON.parse(readFileSync(manifest, "utf8")).name === "@maverick-ai/cli") return dir;
       } catch {
       }
     }

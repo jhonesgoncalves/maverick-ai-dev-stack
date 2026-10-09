@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/maverick-ai-dev-stack"><img src="https://img.shields.io/npm/v/maverick-ai-dev-stack?color=ff6b00&label=npm" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@maverick-ai/cli"><img src="https://img.shields.io/npm/v/@maverick-ai/cli?color=ff6b00&label=npm" alt="npm version"></a>
   <a href="https://github.com/jhonesgoncalves/maverick-ai-dev-stack/actions/workflows/pipeline.yml"><img src="https://github.com/jhonesgoncalves/maverick-ai-dev-stack/actions/workflows/pipeline.yml/badge.svg" alt="CI/CD"></a>
   <a href="https://jhonesgoncalves.github.io/maverick-ai-dev-stack/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-ff6b00" alt="Documentation"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1f6feb" alt="MIT license"></a>
@@ -35,7 +35,7 @@
 </p>
 
 ```bash
-npx maverick-ai-dev-stack init
+npx @maverick-ai/cli init
 ```
 
 <p align="center"><sub>Node 20+ · no account · no cloud · no telemetry · MIT</sub></p>
@@ -65,16 +65,16 @@ Maverick moves that work **before** the diff and keeps the receipts **after** it
 
 ```bash
 cd your-repo
-npx maverick-ai-dev-stack init
-npx maverick-ai-dev-stack new "Add cursor pagination to the orders endpoint"
-npx maverick-ai-dev-stack lens --open
+npx @maverick-ai/cli init
+npx @maverick-ai/cli new "Add cursor pagination to the orders endpoint"
+npx @maverick-ai/cli lens --open
 ```
 
 1. **`init`** interviews you: what the project does, which agents work on it, the language of the docs and of the code, the default workflow and the verification commands. It writes the ten flow skills once to `.agents/skills/` and links every agent to them (`.claude/skills → ../.agents/skills`). Every question has a flag, and `--yes` takes the suggestions.
 2. **`new`** derives a slug, picks a workflow, grounds the idea in your code (ranked files, tests, entry points, shared modules) and opens your agent with the right skill: your configured default, or the first of Claude Code, Codex, Cursor, Gemini, Antigravity, Copilot, Kiro and OpenCode it finds (`--agent` picks one). **From there, everything happens inside your agent.**
 3. **`lens`** opens a local cockpit on `127.0.0.1` to follow tasks, run gates and agents, and explore the architecture.
 
-Already inside an agent? Ask it to use the `maverick-new` skill (`/maverick-new <idea>` in Claude Code). Prefer a global command? `npm install --global maverick-ai-dev-stack`, then `maverick` (with no arguments it opens an interactive launcher).
+Already inside an agent? Ask it to use the `maverick-new` skill (`/maverick-new <idea>` in Claude Code). Prefer a global command? `npm install --global @maverick-ai/cli`, then `maverick` (with no arguments it opens an interactive launcher).
 
 > [!TIP]
 > **Try it on a realistic project first.** Clone this repository and run `bash examples/nestjs-orders-api/scripts/setup-playground.sh`. You get a NestJS API in its own Git repository with problems planted for Maverick to find (an import cycle, an unguarded webhook, hotspots across three authors) and a planned task to take from PRD to PR.

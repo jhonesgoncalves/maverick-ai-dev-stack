@@ -12,7 +12,7 @@
             <a class="mv-btn primary" :href="withBase('/guide/getting-started')">Get started <span aria-hidden="true">→</span></a>
             <a class="mv-btn" :href="withBase('/lens/')">Explore Lens</a>
           </div>
-          <CopyCommand command='npx maverick-ai-dev-stack new "Add cursor pagination to the orders endpoint"' />
+          <CopyCommand command='npx @maverick-ai/cli new "Add cursor pagination to the orders endpoint"' />
           <ul class="mv-hero-facts">
             <li><b>0</b> telemetry</li>
             <li><b>9</b> AI agents supported</li>
@@ -30,7 +30,7 @@
         <p>One command opens a local workspace: tasks and evidence, entry points, coupling, integrations, team knowledge and ranked findings. Nothing leaves your machine.</p>
       </div>
       <LensShowcase />
-      <div class="mv-center"><CopyCommand command="npx maverick-ai-dev-stack lens --open" /></div>
+      <div class="mv-center"><CopyCommand command="npx @maverick-ai/cli lens --open" /></div>
     </section>
 
     <section class="mv-section mv-reveal">

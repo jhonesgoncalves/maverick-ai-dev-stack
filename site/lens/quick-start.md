@@ -15,16 +15,16 @@ From the root of the repository you want to inspect:
 ::: code-group
 
 ```bash [npx]
-npx maverick-ai-dev-stack lens --open
+npx @maverick-ai/cli lens --open
 ```
 
 ```bash [global install]
-npm install -g maverick-ai-dev-stack
+npm install -g @maverick-ai/cli
 maverick lens --open
 ```
 
 ```bash [project dependency]
-npm install --save-dev maverick-ai-dev-stack
+npm install --save-dev @maverick-ai/cli
 npx maverick lens --open
 ```
 

@@ -28,7 +28,7 @@ The Overview calls out simple observable gaps, such as missing verification evid
 ## Start it locally
 
 ```bash
-npx maverick-ai-dev-stack lens --open
+npx @maverick-ai/cli lens --open
 ```
 
 `maverick dash` and `maverick lens` are aliases. The server defaults to `http://127.0.0.1:4173` and accepts loopback hosts only. Add `--no-watch` to stop filesystem watching, `--port <port>` to choose a local port, or `--json` for machine-readable startup information.

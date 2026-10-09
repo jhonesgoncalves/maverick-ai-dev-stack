@@ -5879,7 +5879,7 @@ Local only. No project data is uploaded.`);
   process.once("SIGTERM", close);
 }
 function info(options = {}) {
-  if (options.json) return output(JSON.stringify({ name: "maverick-ai-dev-stack", version: packageVersion }));
+  if (options.json) return output(JSON.stringify({ name: "@maverick-ai/cli", version: packageVersion }));
   output(`${brand()} / INFO
 Version ${packageVersion}
 AI-powered developer workspace. Understand. Build. Debug. Ship.

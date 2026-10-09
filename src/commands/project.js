@@ -263,7 +263,7 @@ async function lens(cwd, options = {}) {
 }
 
 function info(options = {}) {
-  if (options.json) return output(JSON.stringify({ name: 'maverick-ai-dev-stack', version: packageVersion }));
+  if (options.json) return output(JSON.stringify({ name: '@maverick-ai/cli', version: packageVersion }));
   output(`${brand()} / INFO\nVersion ${packageVersion}\nAI-powered developer workspace. Understand. Build. Debug. Ship.\nA vendor-neutral engineering workflow. No telemetry by default.`);
 }
 

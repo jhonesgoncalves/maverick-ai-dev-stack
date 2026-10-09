@@ -3,7 +3,7 @@
 Maverick Lens is the local web workspace for a repository: see what needs you, move tasks through their gates, run headless agents within the permissions you allow, record review decisions and explore the architecture. It reads the files Maverick already writes and changes them only by running `maverick` commands. It listens on loopback only, uploads nothing and has no telemetry.
 
 ```bash
-npx maverick-ai-dev-stack lens --open
+npx @maverick-ai/cli lens --open
 # or, installed
 maverick lens --open
 ```

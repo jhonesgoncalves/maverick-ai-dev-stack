@@ -1,5 +1,5 @@
 {
-  "name": "maverick-ai-dev-stack",
+  "name": "@maverick-ai/cli",
   "version": "1.5.0",
   "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
   "type": "module",
@@ -23,6 +23,9 @@
     "LICENSE-CODE",
     "LICENSE-CONTENT"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },

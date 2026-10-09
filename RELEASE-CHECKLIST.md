@@ -9,8 +9,10 @@ Releases are automated by `.github/workflows/pipeline.yml`: every push to `main`
 - [ ] Environments `npm` and `github-pages` exist
 
 ## npm
-- [ ] Trusted publisher configured on npmjs.com: user `jhonesgoncalves`, repository `maverick-ai-dev-stack`, workflow `pipeline.yml`, environment `npm`
-- [ ] Package publishing access set to require 2FA and disallow tokens once trusted publishing works; `NPM_TOKEN` secret removed
+- [ ] npm organization `maverick-ai` created (free for public packages); the package is `@maverick-ai/cli`
+- [ ] First publish of a new package name done by a maintainer (`npm login`, then `npm publish` from the tagged release commit) or with the `NPM_TOKEN` secret (granular token with read and write on the `@maverick-ai` scope), because a trusted publisher can only be added to a package that already exists
+- [ ] Trusted publisher configured on `@maverick-ai/cli`: user `jhonesgoncalves`, repository `maverick-ai-dev-stack`, workflow `pipeline.yml`, environment `npm`
+- [ ] Publishing access set to require 2FA and disallow tokens once trusted publishing works; `NPM_TOKEN` secret removed
 - [ ] `npm run release:dry` package contents audited
 
 ## Docs

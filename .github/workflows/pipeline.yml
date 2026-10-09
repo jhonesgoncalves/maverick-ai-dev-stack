@@ -48,7 +48,7 @@ jobs:
       id-token: write
     environment:
       name: npm
-      url: https://www.npmjs.com/package/maverick-ai-dev-stack/v/${{ steps.package.outputs.version }}
+      url: https://www.npmjs.com/package/@maverick-ai/cli/v/${{ steps.package.outputs.version }}
     outputs:
       version: ${{ steps.package.outputs.version }}
       sha: ${{ steps.commit.outputs.sha }}

@@ -46,6 +46,6 @@ const workflow = computed(() => presets[strict.value ? 'strict' : specDriven.val
 const reason = computed(() => `${workflow.value.description} Best for: ${workflow.value.bestFor.toLowerCase()}`);
 const command = computed(() => {
   const text = (idea.value.trim() || 'Add pagination to the orders API').replace(/"/g, "'");
-  return `npx maverick-ai-dev-stack new "${text}"${strict.value ? ' --strict' : specDriven.value ? ' --spec' : ''}`;
+  return `npx @maverick-ai/cli new "${text}"${strict.value ? ' --strict' : specDriven.value ? ' --spec' : ''}`;
 });
 </script>

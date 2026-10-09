@@ -5,7 +5,7 @@
 Maverick Lens is a local web workspace for the repository you run it in. It reads what Maverick already knows about the project — tasks and their gates, subtask graphs, flow runs, agent transcripts, specs, docs, Git state and a static analysis of the code — and puts it in one place where you can act on it: approve a gate, start an agent on a ready subtask, run `verify`, read the blast radius of a change, or turn an architecture finding into a task.
 
 ```bash
-npx maverick-ai-dev-stack lens --open
+npx @maverick-ai/cli lens --open
 ```
 
 <LensShowcase />
@@ -55,5 +55,5 @@ The sidebar groups the views in four sections:
 </div>
 
 ::: info Requirements
-Lens ships with the `maverick-ai-dev-stack` package and needs Node.js 20 or newer. It has no extra dependencies and works in any project Maverick can read, whatever its language. Git is optional; without it the Git-based views are empty.
+Lens ships with the `@maverick-ai/cli` package and needs Node.js 20 or newer. It has no extra dependencies and works in any project Maverick can read, whatever its language. Git is optional; without it the Git-based views are empty.
 :::
