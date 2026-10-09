@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 740" width="1440" height="740" role="img" aria-labelledby="t d">
+<title id="t">The Maverick Method</title><desc id="d">Nine stages in four phases: plan, build, prove and ship. Each stage runs a skill in the AI agent, writes one artifact, exits through a CLI gate and has a human checkpoint.</desc>
+<defs><radialGradient id="glow" cx="120" cy="40" r="520" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF6B00" stop-opacity=".09"/><stop offset="1" stop-color="#FF6B00" stop-opacity="0"/></radialGradient><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#FFB15A"/></marker><marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#9B9B96"/></marker></defs>
+<rect width="1440" height="740" rx="24" fill="#070707"/><rect width="1440" height="740" rx="24" fill="url(#glow)"/>
+<rect x=".5" y=".5" width="1439" height="739" rx="24" fill="none" stroke="#292929"/>
+<text x="40" y="50" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FFB15A" letter-spacing="2.6">MAVERICK <tspan fill="#FF6B00" font-weight="700">AI</tspan>  ·  THE METHOD</text>
+<text x="40" y="92" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="30" fill="#F7F7F5" font-weight="700">From one sentence to a merge-ready pull request</text>
+<text x="40" y="120" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="15.5" fill="#9B9B96">Every stage is a skill in your AI agent. Every exit is a CLI gate. Every decision belongs to a human.</text>
+<text x="190" y="162" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#FF6B00" font-weight="700" letter-spacing="2">01 PLAN</text>
+<text x="718" y="162" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11.5" fill="#9B9B96" text-anchor="end">what, exactly, and how</text>
+<line x1="190" y1="172" x2="718" y2="172" stroke="#FF6B00" stroke-width="2" stroke-linecap="round" opacity=".75"/>
+<text x="734" y="162" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#FF6B00" font-weight="700" letter-spacing="2">02 BUILD</text>
+<line x1="734" y1="172" x2="854" y2="172" stroke="#FF6B00" stroke-width="2" stroke-linecap="round" opacity=".75"/>
+<text x="870" y="162" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#FF6B00" font-weight="700" letter-spacing="2">03 PROVE</text>
+<text x="1262" y="162" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11.5" fill="#9B9B96" text-anchor="end">evidence before merge</text>
+<line x1="870" y1="172" x2="1262" y2="172" stroke="#FF6B00" stroke-width="2" stroke-linecap="round" opacity=".75"/>
+<text x="1278" y="162" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#FF6B00" font-weight="700" letter-spacing="2">04 SHIP</text>
+<line x1="1278" y1="172" x2="1398" y2="172" stroke="#FF6B00" stroke-width="2" stroke-linecap="round" opacity=".75"/>
+<text x="40" y="236" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#F7F7F5" font-weight="700" letter-spacing="1.6">AGENT</text>
+<text x="40" y="254" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96">runs the skill</text>
+<text x="40" y="322" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#F7F7F5" font-weight="700" letter-spacing="1.6">ARTIFACT</text>
+<text x="40" y="340" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96">one file per stage</text>
+<text x="40" y="398" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#F7F7F5" font-weight="700" letter-spacing="1.6">CLI GATE</text>
+<text x="40" y="416" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96">proves it is complete</text>
+<text x="40" y="484" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#F7F7F5" font-weight="700" letter-spacing="1.6">HUMAN</text>
+<text x="40" y="502" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96">decides</text>
+<line x1="40" y1="296" x2="1400" y2="296" stroke="#292929" stroke-dasharray="2 6"/>
+<line x1="40" y1="356" x2="1400" y2="356" stroke="#292929" stroke-dasharray="2 6"/>
+<line x1="40" y1="446" x2="1400" y2="446" stroke="#292929" stroke-dasharray="2 6"/>
+<line x1="250" y1="486" x2="1338" y2="486" stroke="#292929" stroke-width="1.5"/>
+<rect x="190" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="202" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">01</text>
+<text x="202" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">PRD</text>
+<text x="202" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-prd</text>
+<line x1="312" y1="238" x2="323" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="250" y1="284" x2="250" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="190" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="250" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">PRD.md</text>
+<line x1="250" y1="342" x2="250" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="190" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="200" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>validate</text>
+<text x="212" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">--stage prd</text>
+<line x1="250" y1="430" x2="250" y2="479" stroke="#292929" stroke-width="1.5"/>
+<circle cx="250" cy="486" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="250" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">answers product</text>
+<text x="250" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">questions</text>
+<rect x="326" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#C84E00" stroke-dasharray="5 4"/>
+<text x="338" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">02</text>
+<text x="436" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#FFB15A" text-anchor="end">spec-driven</text>
+<text x="338" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">SPEC</text>
+<text x="338" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-spec</text>
+<line x1="448" y1="238" x2="459" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="386" y1="284" x2="386" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="326" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="386" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">SPEC.md</text>
+<line x1="386" y1="342" x2="386" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="326" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="336" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>flow run spec</text>
+<text x="348" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">&lt;task&gt;</text>
+<line x1="386" y1="430" x2="386" y2="472" stroke="#292929" stroke-width="1.5"/>
+<path d="M386 472 L400 486 L386 500 L372 486 Z" fill="#FF6B00"/>
+<text x="386" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#F7F7F5" font-weight="600" text-anchor="middle">approves the</text>
+<text x="386" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#F7F7F5" font-weight="600" text-anchor="middle">behavior spec</text>
+<rect x="462" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="474" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">03</text>
+<text x="474" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">TECHSPEC</text>
+<text x="474" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.4" fill="#FF6B00">maverick-techspec</text>
+<line x1="584" y1="238" x2="595" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="522" y1="284" x2="522" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="462" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="522" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">TECHSPEC.md</text>
+<line x1="522" y1="342" x2="522" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="462" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="472" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>validate</text>
+<text x="484" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.4" fill="#9B9B96">--stage techspec</text>
+<line x1="522" y1="430" x2="522" y2="479" stroke="#292929" stroke-width="1.5"/>
+<circle cx="522" cy="486" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="522" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">confirms the</text>
+<text x="522" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">approach</text>
+<rect x="598" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="610" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">04</text>
+<text x="610" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">TASKS</text>
+<text x="610" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-tasks</text>
+<line x1="720" y1="238" x2="731" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="658" y1="284" x2="658" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="598" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="658" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">subtasks/</text>
+<line x1="658" y1="342" x2="658" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="598" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="608" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>validate</text>
+<text x="620" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">--stage tasks</text>
+<line x1="658" y1="430" x2="658" y2="479" stroke="#292929" stroke-width="1.5"/>
+<circle cx="658" cy="486" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="658" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">confirms the</text>
+<text x="658" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">task graph</text>
+<rect x="734" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="746" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">05</text>
+<text x="844" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9B9B96" text-anchor="end">↻ per task</text>
+<text x="746" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">BUILD</text>
+<text x="746" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-build</text>
+<line x1="856" y1="238" x2="867" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="794" y1="284" x2="794" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="734" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="794" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">code + tests</text>
+<line x1="794" y1="342" x2="794" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="734" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="744" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>subtask next</text>
+<text x="756" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">&lt;task&gt;</text>
+<line x1="794" y1="430" x2="794" y2="479" stroke="#292929" stroke-width="1.5"/>
+<circle cx="794" cy="486" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="794" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">OKs each</text>
+<text x="794" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">next subtask</text>
+<rect x="870" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="882" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">06</text>
+<text x="882" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">VERIFY</text>
+<text x="882" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-review</text>
+<line x1="992" y1="238" x2="1003" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="930" y1="284" x2="930" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="870" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="930" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">EVIDENCE.md</text>
+<line x1="930" y1="342" x2="930" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="870" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="880" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>verify · guard</text>
+<text x="892" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">deps &lt;task&gt;</text>
+<line x1="930" y1="430" x2="930" y2="479" stroke="#292929" stroke-width="1.5"/>
+<circle cx="930" cy="486" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="930" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">reads the</text>
+<text x="930" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">evidence</text>
+<rect x="1006" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#C84E00" stroke-dasharray="5 4"/>
+<text x="1018" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">07</text>
+<text x="1116" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#FFB15A" text-anchor="end">strict</text>
+<text x="1018" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">SECURITY</text>
+<text x="1018" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-review</text>
+<line x1="1128" y1="238" x2="1139" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="1066" y1="284" x2="1066" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="1006" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="1066" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.6" fill="#F7F7F5" text-anchor="middle">SECURITY-REPORT.md</text>
+<line x1="1066" y1="342" x2="1066" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="1006" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="1016" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>security</text>
+<text x="1028" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">&lt;task&gt;</text>
+<line x1="1066" y1="430" x2="1066" y2="479" stroke="#292929" stroke-width="1.5"/>
+<circle cx="1066" cy="486" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="1066" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">reads the</text>
+<text x="1066" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9B9B96" text-anchor="middle">findings</text>
+<rect x="1142" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="1154" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">08</text>
+<text x="1154" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">REVIEW</text>
+<text x="1154" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-review</text>
+<line x1="1264" y1="238" x2="1275" y2="238" stroke="#FFB15A" stroke-width="1.5" marker-end="url(#ar)"/>
+<line x1="1202" y1="284" x2="1202" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="1142" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="1202" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">REVIEW.md</text>
+<line x1="1202" y1="342" x2="1202" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="1142" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="1152" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>review --diff</text>
+<text x="1164" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">flow run ship</text>
+<line x1="1202" y1="430" x2="1202" y2="472" stroke="#292929" stroke-width="1.5"/>
+<path d="M1202 472 L1216 486 L1202 500 L1188 486 Z" fill="#FF6B00"/>
+<text x="1202" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#F7F7F5" font-weight="600" text-anchor="middle">records the</text>
+<text x="1202" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#F7F7F5" font-weight="600" text-anchor="middle">decision</text>
+<rect x="1278" y="192" width="120" height="92" rx="12" fill="#0E0E0E" stroke="#292929"/>
+<text x="1290" y="212" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">09</text>
+<text x="1290" y="242" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#F7F7F5" font-weight="700">PR</text>
+<text x="1290" y="268" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#FF6B00">maverick-ship</text>
+<line x1="1338" y1="284" x2="1338" y2="306" stroke="#292929" stroke-width="1.5"/>
+<rect x="1278" y="306" width="120" height="36" rx="8" fill="#151515" stroke="#292929"/>
+<text x="1338" y="329" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#F7F7F5" text-anchor="middle">PR-DRAFT.md</text>
+<line x1="1338" y1="342" x2="1338" y2="370" stroke="#292929" stroke-width="1.5"/>
+<rect x="1278" y="370" width="120" height="60" rx="8" fill="#0E0E0E" stroke="#292929"/>
+<text x="1288" y="393" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>readiness</text>
+<text x="1300" y="412" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9B9B96">pr &lt;task&gt;</text>
+<line x1="1338" y1="430" x2="1338" y2="472" stroke="#292929" stroke-width="1.5"/>
+<path d="M1338 472 L1352 486 L1338 500 L1324 486 Z" fill="#FF6B00"/>
+<text x="1338" y="524" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#F7F7F5" font-weight="600" text-anchor="middle">opens and</text>
+<text x="1338" y="541" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" fill="#F7F7F5" font-weight="600" text-anchor="middle">merges the PR</text>
+<line x1="40" y1="570" x2="1400" y2="570" stroke="#292929"/>
+<path d="M48 586 L60 598 L48 610 L36 598 Z" fill="#FF6B00"/>
+<text x="72" y="602" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#F7F7F5">Human gate <tspan fill="#9B9B96">blocks until a person decides</tspan></text>
+<circle cx="372" cy="598" r="7" fill="#070707" stroke="#FFB15A" stroke-width="2"/>
+<text x="388" y="602" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#F7F7F5">Checkpoint <tspan fill="#9B9B96">the agent asks before moving on</tspan></text>
+<rect x="700" y="587" width="30" height="22" rx="5" fill="#0E0E0E" stroke="#C84E00" stroke-dasharray="5 4"/>
+<text x="742" y="602" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#F7F7F5">Optional stage <tspan fill="#9B9B96">SPEC with --spec, SECURITY with --strict</tspan></text>
+<text x="1400" y="602" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9B9B96" text-anchor="end">where am I?  <tspan fill="#FF6B00">$ </tspan><tspan fill="#F7F7F5">maverick status</tspan></text>
+<text x="40" y="640" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#9B9B96" letter-spacing="1.6">PRINCIPLES</text>
+<text x="1400" y="640" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9B9B96" text-anchor="end">start  <tspan fill="#FF6B00">$ </tspan><tspan fill="#F7F7F5">maverick new "&lt;idea&gt;"</tspan>     resume  <tspan fill="#FF6B00">$ </tspan><tspan fill="#F7F7F5">maverick new &lt;task&gt;</tspan></text>
+<rect x="40" y="656" width="190" height="38" rx="19" fill="#0E0E0E" stroke="#292929"/>
+<text x="58" y="680" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">01</text>
+<text x="82" y="680" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#F7F7F5">Context before code</text>
+<rect x="242" y="656" width="212" height="38" rx="19" fill="#0E0E0E" stroke="#292929"/>
+<text x="260" y="680" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">02</text>
+<text x="284" y="680" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#F7F7F5">One artifact per stage</text>
+<rect x="466" y="656" width="212" height="38" rx="19" fill="#0E0E0E" stroke="#292929"/>
+<text x="484" y="680" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">03</text>
+<text x="508" y="680" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#F7F7F5">Research before asking</text>
+<rect x="690" y="656" width="205" height="38" rx="19" fill="#0E0E0E" stroke="#292929"/>
+<text x="708" y="680" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">04</text>
+<text x="732" y="680" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#F7F7F5">Evidence before merge</text>
+<rect x="907" y="656" width="346" height="38" rx="19" fill="#0E0E0E" stroke="#292929"/>
+<text x="925" y="680" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">05</text>
+<text x="949" y="680" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#F7F7F5">The human decides, Maverick never merges</text>
+</svg>

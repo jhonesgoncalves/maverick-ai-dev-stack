@@ -1,0 +1,139 @@
+diff --git a/docs/api.md b/docs/api.md
+index e036593..d570379 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -5,7 +5,7 @@ All routes except `/health` live under `/api/v1` and require the `x-api-key` hea
+ | Method | Path | Description |
+ | --- | --- | --- |
+ | GET | /health | Liveness probe (public) |
+-| GET | /api/v1/orders | List orders (`customerId`, `status`, `page`, `pageSize`) |
++| GET | /api/v1/orders | List orders (`customerId`, `status`, `cursor`, `limit`; legacy `page`, `pageSize`) |
+ | GET | /api/v1/orders/export | CSV export |
+ | GET | /api/v1/orders/:id | Order detail |
+ | POST | /api/v1/orders | Create and charge an order |
+diff --git a/src/orders/dto/list-orders.dto.ts b/src/orders/dto/list-orders.dto.ts
+index 763b419..48cacf5 100644
+--- a/src/orders/dto/list-orders.dto.ts
++++ b/src/orders/dto/list-orders.dto.ts
+@@ -7,4 +7,6 @@ export class ListOrdersDto {
+   @IsOptional() @IsIn(['pending', 'paid', 'cancelled']) status?: OrderStatus;
+   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+   @IsOptional() @Type(() => Number) @IsInt() @Min(1) pageSize?: number;
++  @IsOptional() @IsString() cursor?: string;
++  @IsOptional() @Type(() => Number) @IsInt() @Min(1) limit?: number;
+ }
+diff --git a/src/orders/orders.service.spec.ts b/src/orders/orders.service.spec.ts
+index 2a11ee9..3823955 100644
+--- a/src/orders/orders.service.spec.ts
++++ b/src/orders/orders.service.spec.ts
+@@ -48,6 +48,27 @@ describe('OrdersService', () => {
+     expect(page.data).toHaveLength(2);
+   });
+ 
++  it('walks every order with a cursor, without duplicates', async () => {
++    for (let i = 0; i < 5; i++) await service.create({ customerId: 'c-1', items: [{ sku: `s${i}`, quantity: 1, unitPrice: 1 }] });
++    const first = await service.list({ limit: 3 });
++    expect(first.data).toHaveLength(3);
++    expect(first.nextCursor).toBeDefined();
++    await service.create({ customerId: 'c-1', items: [{ sku: 'late', quantity: 1, unitPrice: 1 }] });
++    const second = await service.list({ limit: 3, cursor: first.nextCursor });
++    const ids = [...first.data, ...second.data].map(order => order.id);
++    expect(new Set(ids).size).toBe(6);
++    expect(second.nextCursor).toBeUndefined();
++  });
++
++  it('caps the limit and returns an empty page without a cursor', async () => {
++    const page = await service.list({ limit: 1000 });
++    expect(page).toEqual({ data: [], limit: 100, nextCursor: undefined });
++  });
++
++  it('rejects an invalid cursor', async () => {
++    await expect(service.list({ cursor: 'not-a-cursor' })).rejects.toThrow('invalid cursor');
++  });
++
+   it('refunds paid orders on cancel', async () => {
+     const order = await service.create({ customerId: 'c-1', items: [{ sku: 'x', quantity: 1, unitPrice: 5 }] });
+     await service.cancel(order.id);
+diff --git a/src/orders/orders.service.ts b/src/orders/orders.service.ts
+index 9646fef..d5954b4 100644
+--- a/src/orders/orders.service.ts
++++ b/src/orders/orders.service.ts
+@@ -1,4 +1,4 @@
+-import { Injectable, NotFoundException } from '@nestjs/common';
++import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+ import { ConfigService } from '@nestjs/config';
+ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+ import { CacheService } from '../common/cache/cache.service';
+@@ -10,6 +10,27 @@ import { Order } from './order.entity';
+ import { orderTotal } from './order-pricing';
+ import { OrdersRepository } from './orders.repository';
+ 
++/** Cursor pages carry `limit`/`nextCursor`; legacy offset pages carry `page`/`pageSize`/`total`. */
++export interface OrdersPage {
++  data: Order[];
++  limit?: number;
++  nextCursor?: string;
++  page?: number;
++  pageSize?: number;
++  total?: number;
++}
++
++const encodeCursor = (order: Order): string => Buffer.from(`${order.createdAt}|${order.id}`).toString('base64url');
++
++function decodeCursor(cursor: string): { createdAt: string; id: string } {
++  const [createdAt, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
++  if (!createdAt || !id || Number.isNaN(Date.parse(createdAt))) throw new BadRequestException('invalid cursor');
++  return { createdAt, id };
++}
++
++const after = (order: Order, cursor: { createdAt: string; id: string }): boolean =>
++  order.createdAt > cursor.createdAt || (order.createdAt === cursor.createdAt && order.id > cursor.id);
++
+ @Injectable()
+ export class OrdersService {
+   constructor(
+@@ -21,9 +42,10 @@ export class OrdersService {
+     private readonly config: ConfigService,
+   ) {}
+ 
+-  // TODO: replace offset pagination with cursor pagination (see docs/decisions/adr-001).
+-  async list(query: ListOrdersDto) {
++  async list(query: ListOrdersDto): Promise<OrdersPage> {
+     const max = this.config.get<number>('orders.maxPageSize', 100);
++    if (query.cursor !== undefined || query.limit !== undefined) return this.listByCursor(query, max);
++    // Offset pagination is kept for one release (ADR 001).
+     const pageSize = Math.min(query.pageSize ?? this.config.get<number>('orders.defaultPageSize', 20), max);
+     const page = query.page ?? 1;
+     const key = `orders:${query.customerId ?? '*'}:${query.status ?? '*'}:${page}:${pageSize}`;
+@@ -33,6 +55,19 @@ export class OrdersService {
+     });
+   }
+ 
++  private async listByCursor(query: ListOrdersDto, max: number): Promise<OrdersPage> {
++    const limit = Math.min(query.limit ?? this.config.get<number>('orders.defaultPageSize', 20), max);
++    const cursor = query.cursor ? decodeCursor(query.cursor) : undefined;
++    const key = `orders:${query.customerId ?? '*'}:${query.status ?? '*'}:cursor:${query.cursor ?? ''}:${limit}`;
++    return this.cache.wrap<OrdersPage>(key, 30, async () => {
++      const rows = this.orders.all()
++        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
++        .filter(order => (!query.customerId || order.customerId === query.customerId) && (!query.status || order.status === query.status) && (!cursor || after(order, cursor)));
++      const data = rows.slice(0, limit);
++      return { data, limit, nextCursor: rows.length > limit ? encodeCursor(data[data.length - 1]) : undefined };
++    });
++  }
++
+   get(id: string): Order {
+     const order = this.orders.find(id);
+     if (!order) throw new NotFoundException(`order ${id} not found`);
+diff --git a/test/orders.e2e-spec.ts b/test/orders.e2e-spec.ts
+index 85aeacf..c3dd75b 100644
+--- a/test/orders.e2e-spec.ts
++++ b/test/orders.e2e-spec.ts
+@@ -29,5 +29,7 @@ describe('Orders API (e2e)', () => {
+     expect(list.body.total).toBeGreaterThanOrEqual(1);
+   });
+ 
++  it('rejects an invalid cursor', () => request(app.getHttpServer()).get('/api/v1/orders?cursor=bogus').set(key).expect(400));
++
+   it('validates the payload', () => request(app.getHttpServer()).post('/api/v1/orders').set(key).send({ customerId: 'c-1', items: [] }).expect(400));
+ });

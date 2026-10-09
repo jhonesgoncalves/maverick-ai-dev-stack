@@ -6,7 +6,7 @@ Context is not "send the whole repo". Context is the minimum evidence needed to 
 Architecture, conventions, commands, boundaries. Keep in repo-level instructions.
 
 ## Layer 2 — task context
-Files, behavior, constraints and examples specific to the current task. Keep in CONTEXT.md.
+Files, behavior, constraints and examples specific to the current task. Keep in TECHSPEC.md (Current State, File References, Do Not Touch).
 
 ## Layer 3 — just-in-time context
 A file or log opened because the current hypothesis needs it.

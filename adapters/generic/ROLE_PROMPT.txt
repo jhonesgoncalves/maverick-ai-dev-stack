@@ -1,1 +1,1 @@
-Use TASK.md as the contract, CONTEXT.md as scoped context, and the matching prompt under prompts/ for your role. Never expand scope silently.
+Use PRD.md (what) and TECHSPEC.md (how) as the contract, the current subtasks/task_NN.md as the unit of work, and the matching prompt under prompts/ for your role. Never expand scope silently.

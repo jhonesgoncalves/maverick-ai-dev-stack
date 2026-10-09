@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 520" width="1440" height="520" role="img" aria-labelledby="t d">
+<title id="t">How build runs</title><desc id="d">The maverick-build skill takes ready subtasks one at a time in dependency order: pick, start, change, test, verify, done, then asks before the next. flow run ship automates the gates.</desc>
+<defs><radialGradient id="glow" cx="120" cy="40" r="520" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF6B00" stop-opacity=".09"/><stop offset="1" stop-color="#FF6B00" stop-opacity="0"/></radialGradient><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#FFB15A"/></marker><marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#9B9B96"/></marker></defs>
+<rect width="1440" height="520" rx="24" fill="#070707"/><rect width="1440" height="520" rx="24" fill="url(#glow)"/>
+<rect x=".5" y=".5" width="1439" height="519" rx="24" fill="none" stroke="#292929"/>
+<text x="40" y="50" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#FFB15A" letter-spacing="2.6">MAVERICK <tspan fill="#FF6B00" font-weight="700">AI</tspan>  ·  BUILD LOOP</text>
+<text x="40" y="92" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="30" fill="#F7F7F5" font-weight="700">How build runs: one ready subtask at a time</text>
+<text x="40" y="120" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="15.5" fill="#9B9B96">Each subtask is a checklist of steps, tests and criteria. The build checks every item as it is done.</text>
+<rect x="40" y="150" width="208" height="150" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<text x="58" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">01</text>
+<text x="84" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">PICK</text>
+<text x="58" y="220" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">the next ready task,</text>
+<text x="58" y="240" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">in dependency order</text>
+<line x1="58" y1="260" x2="230" y2="260" stroke="#292929"/>
+<text x="58" y="282" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>subtask next &lt;task&gt;</text>
+<line x1="251" y1="225" x2="271" y2="225" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="274" y="150" width="208" height="150" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<text x="292" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">02</text>
+<text x="318" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">START</text>
+<text x="292" y="220" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">marks it in</text>
+<text x="292" y="240" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">progress</text>
+<line x1="292" y1="260" x2="464" y2="260" stroke="#292929"/>
+<text x="292" y="282" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>subtask set NN in-progress</text>
+<line x1="485" y1="225" x2="505" y2="225" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="508" y="150" width="208" height="150" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<text x="526" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">03</text>
+<text x="552" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">STEP</text>
+<text x="526" y="220" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">one step at a time,</text>
+<text x="526" y="240" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">checked as it is done</text>
+<line x1="526" y1="260" x2="698" y2="260" stroke="#292929"/>
+<text x="526" y="282" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FFB15A">- [ ] → - [x]</text>
+<line x1="719" y1="225" x2="739" y2="225" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="742" y="150" width="208" height="150" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<text x="760" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">04</text>
+<text x="786" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">TEST</text>
+<text x="760" y="220" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">each test, checked</text>
+<text x="760" y="240" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">only when it passes</text>
+<line x1="760" y1="260" x2="932" y2="260" stroke="#292929"/>
+<text x="760" y="282" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FFB15A">- [ ] UT-01 → - [x]</text>
+<line x1="953" y1="225" x2="973" y2="225" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="976" y="150" width="208" height="150" rx="16" fill="#0E0E0E" stroke="#292929"/>
+<text x="994" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">05</text>
+<text x="1020" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">VERIFY</text>
+<text x="994" y="220" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">its Verification, then</text>
+<text x="994" y="240" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">the project checks</text>
+<line x1="994" y1="260" x2="1166" y2="260" stroke="#292929"/>
+<text x="994" y="282" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>verify &lt;task&gt;</text>
+<line x1="1187" y1="225" x2="1207" y2="225" stroke="#FFB15A" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="1210" y="150" width="208" height="150" rx="16" fill="#0E0E0E" stroke="#38C172"/>
+<text x="1228" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#FF6B00">06</text>
+<text x="1254" y="182" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#F7F7F5" font-weight="700" letter-spacing="1.8">DONE</text>
+<text x="1228" y="220" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">refused while an</text>
+<text x="1228" y="240" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#F7F7F5">item is unchecked</text>
+<line x1="1228" y1="260" x2="1400" y2="260" stroke="#292929"/>
+<text x="1228" y="282" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>subtask set NN done</text>
+<path d="M1314 302 V 340 H 144 V 306" fill="none" stroke="#FFB15A" stroke-width="1.5" stroke-dasharray="6 5" marker-end="url(#ar)"/>
+<rect x="520" y="328" width="400" height="26" rx="13" fill="#070707"/>
+<text x="720" y="346" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#FFB15A" text-anchor="middle">more ready subtasks? you say yes → next one</text>
+<text x="1314" y="372" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#38C172" text-anchor="middle">all done → VERIFY</text>
+<line x1="40" y1="396" x2="1400" y2="396" stroke="#292929"/>
+<text x="40" y="420" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9B9B96" font-weight="700" letter-spacing="1.6">SCOPE GUARD</text>
+<text x="40" y="446" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>guard &lt;task&gt;</text>
+<text x="40" y="470" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#9B9B96">the diff stays inside the TECHSPEC file references</text>
+<text x="740" y="420" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9B9B96" font-weight="700" letter-spacing="1.6">AUTOMATE</text>
+<text x="740" y="446" font-family="'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#F7F7F5"><tspan fill="#FF6B00">$ </tspan>flow run ship &lt;task&gt; --agent claude-code</text>
+<text x="740" y="470" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#9B9B96">gates rerun until done, stalled or waiting for a person</text>
+</svg>

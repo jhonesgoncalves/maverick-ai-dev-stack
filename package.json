@@ -1,5 +1,5 @@
 {
-  "name": "maverick-ai-dev-stack",
+  "name": "@maverick-ai/cli",
   "version": "1.6.0",
   "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
   "type": "module",
@@ -10,6 +10,8 @@
     "bin",
     "dist",
     "templates",
+    "capabilities",
+    "flows",
     "prompts",
     "agents",
     "workflows",
@@ -21,6 +23,9 @@
     "LICENSE-CODE",
     "LICENSE-CONTENT"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -68,19 +73,24 @@
     "docs:build": "vitepress build site",
     "docs:preview": "vitepress preview site",
     "docs:check": "node scripts/check-docs-links.mjs && node scripts/check-doc-quality.mjs",
-    "dash:example": "node scripts/dash-example.mjs",
+    "docs:shots": "node scripts/docs-screenshots.mjs",
+    "lens:example": "node scripts/lens-example.mjs",
     "demo:test": "node --test demo/test/*.test.js",
     "release:dry": "npm_config_cache=${TMPDIR:-/tmp}/maverick-npm-cache npm pack --dry-run",
     "prepack": "npm run build"
   },
   "dependencies": {
     "ink": "^6.8.0",
-    "react": "^19.2.0"
+    "react": "^19.2.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
     "@types/react": "^19.2.0",
     "eslint": "^9.25.1",
+    "medium-zoom": "^1.1.0",
+    "playwright": "^1.63.0",
     "prettier": "^3.5.3",
     "search-insights": "^2.17.3",
     "tsup": "^8.3.5",

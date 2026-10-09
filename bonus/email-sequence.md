@@ -1,7 +1,7 @@
 # 3-email sequence for the free kit
 
 ## 1 — Entrega
-Assunto: Seu Maverick AI Dev Stack
+Assunto: Seu Maverick AI
 
 Aqui esta o kit. Comece pelo TASK.md, nao pelos agents. Escolha uma tarefa pequena e escreva o que a IA nao pode mudar. Depois me responda: onde voce mais perde tempo hoje — contexto, implementacao ou review?
 

@@ -1,6 +1,6 @@
-- [ ] Existing behavior described
-- [ ] Reading order is explicit
-- [ ] Constraints and Do Not Change are explicit
+- [ ] TECHSPEC.md Current State describes existing behavior
+- [ ] File References cite real `path:lines` with a reason
+- [ ] Constraints and Do Not Touch are explicit
 - [ ] Commands are executable
 - [ ] Context is minimal, not a repo dump
 - [ ] Unknowns are marked

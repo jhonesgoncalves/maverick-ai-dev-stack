@@ -1,0 +1,148 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Pushes to main queue up so each release starts from the previous tag; pull requests cancel stale runs.
+concurrency:
+  group: maverick-pipeline-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    name: Quality gate (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run demo:test
+      - run: npm run build
+      - run: npm run release:dry
+
+  release:
+    name: Version and publish npm package
+    needs: quality
+    # Every push to main is released; the release commit itself must not create another release.
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.actor != 'github-actions[bot]' &&
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@maverick-ai/cli/v/${{ steps.package.outputs.version }}
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          # npm trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Select semantic version bump from commits
+        id: version
+        shell: bash
+        run: |
+          LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          RANGE="${LAST_TAG:+$LAST_TAG..}HEAD"
+          MESSAGES="$(git log --format=%B "$RANGE")"
+          BUMP=patch
+          if grep -Eq 'BREAKING CHANGE:|^[a-z]+(\([^)]*\))?!:' <<< "$MESSAGES"; then
+            BUMP=major
+          elif grep -Eq '^feat(\([^)]*\))?:' <<< "$MESSAGES"; then
+            BUMP=minor
+          fi
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+      - name: Bump package version
+        id: package
+        shell: bash
+        run: |
+          npm version "${{ steps.version.outputs.bump }}" --no-git-tag-version
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          # A version published by an earlier run whose push then failed is never reused.
+          while [ -n "$(npm view "$NAME@$VERSION" version 2>/dev/null)" ]; do
+            npm version patch --no-git-tag-version
+            VERSION="$(node -p "require('./package.json').version")"
+          done
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Publish public package to npm
+        # Publishing comes before the push, so a failed publish leaves no commit or tag behind and the job can be re-run.
+        # Trusted publishing (OIDC) is used when configured on npmjs.com; NPM_TOKEN is only a fallback.
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Commit and tag release
+        id: commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          git commit -m "chore(release): v${{ steps.package.outputs.version }}"
+          git tag -a "v${{ steps.package.outputs.version }}" -m "Release v${{ steps.package.outputs.version }}"
+          git push origin HEAD:main "v${{ steps.package.outputs.version }}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub release
+        run: gh release create "v${{ steps.package.outputs.version }}" --title "v${{ steps.package.outputs.version }}" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  documentation:
+    name: Build documentation
+    needs: [quality, release]
+    # Runs when the release succeeded or was skipped (pull requests, manual runs), from the release commit when there is one.
+    if: ${{ !cancelled() && needs.quality.result == 'success' && needs.release.result != 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.sha || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/.vitepress/dist
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    needs: documentation
+    if: ${{ !cancelled() && needs.documentation.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,405 @@
+{
+  "version": 1,
+  "capabilities": {
+    "skill/maverick-build": {
+      "kind": "skill",
+      "version": "1.3.0",
+      "source": "built-in",
+      "integrity": "9c7ec71b8f786402a98431dede645cc1d4d4536b4c3fcfd5f124e475e951e449",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-build/SKILL.md",
+              "sha256": "c549472c06b60baf70fd8c3a9920552f64b647f87e35e78b88e95d26cad1e136"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-new": {
+      "kind": "skill",
+      "version": "2.3.0",
+      "source": "built-in",
+      "integrity": "27034d75b4e20c2913ce8977753fa49ea670fc0bb8b7d21bc8314632bd94404f",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-new/SKILL.md",
+              "sha256": "453d63cb2746ce605aca26bd97865997d272bc269c915fad1ddb9eedbe730e57"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-prd": {
+      "kind": "skill",
+      "version": "2.2.0",
+      "source": "built-in",
+      "integrity": "cf2c920f3a8b33a89ef8b19c1fc73f18d5e5de24162faf21eab17d8bb70df606",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "codex": {
+          "files": [],
+          "keys": []
+        },
+        "cursor": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".cursor/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "gemini": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".gemini/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "kiro": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".kiro/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-prd/references/prd-format.md",
+              "sha256": "8f2e24b9d913b52c2a5badb7e57e06914f51809bc5f477051a241d849dccd668"
+            },
+            {
+              "path": ".agents/skills/maverick-prd/references/question-protocol.md",
+              "sha256": "386911f00db33f10ecaa719d179d6723a30ab05baa48420fb0672ba2805b0c54"
+            },
+            {
+              "path": ".agents/skills/maverick-prd/SKILL.md",
+              "sha256": "08a6c586edcf0344e424b5c4c95497ee95affa79b922e3a2e288b547c11b0ad6"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-review": {
+      "kind": "skill",
+      "version": "1.2.0",
+      "source": "built-in",
+      "integrity": "bf9047faae8129a838134d504484302f5f634eee108d2643191d3bad8f7c2da7",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-review/SKILL.md",
+              "sha256": "0027920660b9c82a687dd65c851baf1f8a47dbde322d4561132430bc1dbffb03"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-ship": {
+      "kind": "skill",
+      "version": "1.1.0",
+      "source": "built-in",
+      "integrity": "846622ec11fc2b4d5317dd0d9016d95833a66477c233e03ed7e793663b1d3c42",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "codex": {
+          "files": [],
+          "keys": []
+        },
+        "cursor": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".cursor/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "gemini": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".gemini/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "kiro": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".kiro/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-ship/SKILL.md",
+              "sha256": "a2e336f4d2d78416a43a8d3a52c4ec90a5dfc26afd0c15e6b6e70dce29e6a43e"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-spec": {
+      "kind": "skill",
+      "version": "1.1.0",
+      "source": "built-in",
+      "integrity": "b3ba4d237d0cbed1d95e4feab29f5cc345ffd4243205a9dbd6688665d90dd7a7",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-spec/references/spec-format.md",
+              "sha256": "3a51ec6e38b047e81a019964e1fb7a838d28f6191287d780571912582457cff5"
+            },
+            {
+              "path": ".agents/skills/maverick-spec/SKILL.md",
+              "sha256": "72374a6604d94d5bd6f96f3a276408cbaf65cd025f68aa96baab582ba4f51266"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-status": {
+      "kind": "skill",
+      "version": "1.3.0",
+      "source": "built-in",
+      "integrity": "065f5b105bacfffa5a851c7e9ef37f696cebafc70734c668de14579c446b1d34",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-status/SKILL.md",
+              "sha256": "bed2fa7c5a9fc695cbe4379776f1536bc8958981946755b545a65f5db8001a36"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-sync": {
+      "kind": "skill",
+      "version": "1.0.0",
+      "source": "built-in",
+      "integrity": "5b2935dfc080e5a349d7df6753b4f5ffd92150641d851c5e3a6fa54aae194223",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-sync/SKILL.md",
+              "sha256": "07d679852f854549a6ca1d5ce5a2994b807276a2c6c1a9e36e4c4767f3bf825d"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-tasks": {
+      "kind": "skill",
+      "version": "2.4.0",
+      "source": "built-in",
+      "integrity": "0e4712aa593891951d6e5ee09b964fa07d276d10923e39e903fbf37ed31d9513",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-tasks/references/task-format.md",
+              "sha256": "9983204aa22d7335280522d017e0509baac6eba847f435a725140a036c524ff6"
+            },
+            {
+              "path": ".agents/skills/maverick-tasks/SKILL.md",
+              "sha256": "a350ad702da9b8ea58a4dae18b646f4e8c329530c36dd6c6071c442f393c2bba"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
+    "skill/maverick-techspec": {
+      "kind": "skill",
+      "version": "2.3.0",
+      "source": "built-in",
+      "integrity": "353f7dc80c80839fa9c37ef50f674f1358be2499f5ae0305ac17b0781ae322ba",
+      "installedAt": "2026-09-27",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-techspec/references/techspec-format.md",
+              "sha256": "2a12df9011d655211d0a347d5979187a0e1222a439675d220a780206395747ad"
+            },
+            {
+              "path": ".agents/skills/maverick-techspec/SKILL.md",
+              "sha256": "277e893418ae0431db921ca7e729582a216c08048c4c1622ab721fb306dc2b29"
+            }
+          ],
+          "keys": []
+        }
+      }
+    }
+  }
+}

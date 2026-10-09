@@ -1,0 +1,114 @@
+{
+  "flow": "spec",
+  "runs": [
+    {
+      "at": "2026-09-27T20:22:58.667Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "spec-artifact",
+          "type": "artifact",
+          "severity": "block",
+          "description": "SPEC.md has every required section and no placeholders.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "spec-validation",
+          "type": "maverick",
+          "severity": "block",
+          "description": "PRD.md and SPEC.md pass validation; scenarios have WHEN and THEN and every AC-NN is defined in the PRD.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "spec-approval",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved SPEC.md (checked box in SPEC.md or maverick flow approve).",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the behavior, contracts and compatibility impact in SPEC.md and approves it."
+          ],
+          "summary": "record it in SPEC.md or run maverick flow approve spec add-cursor-pagination-orders-endpoint spec-approval"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T20:27:05.623Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "spec-artifact",
+          "type": "artifact",
+          "severity": "block",
+          "description": "SPEC.md has every required section and no placeholders.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "spec-validation",
+          "type": "maverick",
+          "severity": "block",
+          "description": "PRD.md and SPEC.md pass validation; scenarios have WHEN and THEN and every AC-NN is defined in the PRD.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "spec-approval",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved SPEC.md (checked box in SPEC.md or maverick flow approve).",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the behavior, contracts and compatibility impact in SPEC.md and approves it."
+          ],
+          "summary": "record it in SPEC.md or run maverick flow approve spec add-cursor-pagination-orders-endpoint spec-approval"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T20:27:36.545Z",
+      "outcome": "done",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "spec-artifact",
+          "type": "artifact",
+          "severity": "block",
+          "description": "SPEC.md has every required section and no placeholders.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "spec-validation",
+          "type": "maverick",
+          "severity": "block",
+          "description": "PRD.md and SPEC.md pass validation; scenarios have WHEN and THEN and every AC-NN is defined in the PRD.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "spec-approval",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved SPEC.md (checked box in SPEC.md or maverick flow approve).",
+          "status": "pass",
+          "issues": [],
+          "summary": "approve by maverick"
+        }
+      ]
+    }
+  ],
+  "approvals": {
+    "spec-approval": {
+      "decision": "approve",
+      "by": "maverick",
+      "at": "2026-09-27T20:27:33.160Z"
+    }
+  },
+  "integrity": "9c24c0b4e7f2b20bc32053c2c08f443c386ea06fe6ec7d89d12798f6af7b7f94",
+  "status": "done"
+}

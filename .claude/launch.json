@@ -1,0 +1,43 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lens-example",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/lens-example.mjs"
+      ],
+      "port": 4175
+    },
+    {
+      "name": "lens-example-alt",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "LENS_EXAMPLE_PORT=4176 LENS_EXAMPLE_NO_OPEN=1 exec node scripts/lens-example.mjs"
+      ],
+      "port": 4176
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vitepress",
+        "dev",
+        "site",
+        "--port",
+        "5183"
+      ],
+      "port": 5183
+    },
+    {
+      "name": "lens-nest",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd examples/nestjs-orders-api && exec node --input-type=module -e \"import {startLens} from '../../src/lens/server.js'; await startLens({cwd:process.cwd(),port:4192}); console.log('Lens ready on 4192')\""
+      ],
+      "port": 4192
+    }
+  ]
+}

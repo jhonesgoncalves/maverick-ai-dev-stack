@@ -1,3 +1,3 @@
 # Maverick Lab
 
-The Lab is a lightweight experiment framework, not a benchmark. Use its template and scorecard to compare a specific workflow under stated conditions.
+The Lab is a small experiment framework, not a benchmark. Use its experiment template and scorecard to compare a specific workflow under stated conditions.

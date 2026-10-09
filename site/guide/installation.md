@@ -1,16 +1,53 @@
 # Installation
 
-Use Node 20 or newer. Run without a global install:
+<p class="mv-kicker">SETUP</p>
 
-```bash
-npx maverick-ai-dev-stack init
+Maverick is a dependency-free Node.js CLI. It needs **Node 20 or newer** and works in any repository — the language of your project does not matter.
+
+## Run it
+
+::: code-group
+
+```bash [npx (no install)]
+npx @maverick-ai/cli init
 ```
 
-Or install the package globally after it is published:
-
-```bash
-npm install -g maverick-ai-dev-stack
+```bash [npm (global)]
+npm install -g @maverick-ai/cli
 maverick init
 ```
 
-The intended package name has not been externally verified; maintainers should check availability before publishing.
+```bash [pnpm]
+pnpm add -g @maverick-ai/cli
+maverick init
+```
+
+:::
+
+Every example in these docs uses the short `maverick` binary. With `npx`, replace `maverick` with `npx @maverick-ai/cli`.
+
+## Check the setup
+
+```bash
+maverick doctor
+```
+
+`doctor` checks the configuration, the detected stack and that each toolchain binary it would run (for example `npm`, `pytest` or `go`) is on your `PATH`. Add `--fix` for a list of suggested fixes.
+
+## What gets written
+
+`init` creates a single `.maverick/config.json`. Tasks live under `.maverick/tasks/<slug>/` as JSON and Markdown you can commit and review. The Lens cache in `.maverick/cache/` is local and can be ignored.
+
+```text
+.maverick/
+├── config.json          # project settings and default workflow
+├── tasks/
+│   └── add-pagination/  # TASK.json, PRD.md, TECHSPEC.md, subtasks/, REVIEW.md
+└── cache/               # Lens index (safe to .gitignore)
+```
+
+::: info No telemetry
+Maverick never sends project data anywhere. Lens listens on loopback only.
+:::
+
+Next: [your first task](/guide/first-task).

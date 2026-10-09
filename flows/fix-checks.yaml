@@ -1,0 +1,17 @@
+apiVersion: maverick.flow/v1
+name: fix-checks
+description: Bounded fix loop for lint, typecheck and test failures; stops when checks pass, stall, or the cap is reached.
+contract:
+  goal: Lint, typecheck and tests pass for {{task}} without widening the task scope.
+  iterationCap: 5
+  noProgressWindow: 2
+gates:
+  - id: checks
+    type: check
+    kinds: [lint, typecheck, test]
+    description: Detected lint, typecheck and test commands pass.
+  - id: scope
+    type: maverick
+    run: guard
+    severity: warn
+    description: Fixes stay within the declared task scope.

@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "project": {
+    "name": "nestjs-orders-api",
+    "description": "api de pedidos",
+    "language": "TypeScript",
+    "framework": "NestJS"
+  },
+  "workflow": {
+    "default": "standard"
+  },
+  "language": {
+    "docs": "pt-BR",
+    "code": "en"
+  },
+  "adapter": "generic",
+  "taskRoot": ".maverick/tasks",
+  "authoring": {
+    "context": "api de pedidos"
+  },
+  "capabilities": {
+    "targets": [
+      "claude-code",
+      "codex",
+      "cursor",
+      "gemini",
+      "kiro"
+    ],
+    "layout": "linked"
+  },
+  "runtime": {
+    "trusted": [
+      "antigravity",
+      "claude-code",
+      "codex",
+      "gemini"
+    ],
+    "default": {
+      "provider": "claude-code"
+    },
+    "stages": {
+      "tasks": {
+        "provider": "claude-code",
+        "model": "sonnet",
+        "effort": "low"
+      },
+      "build": {
+        "provider": "claude-code",
+        "model": "sonnet",
+        "effort": "low"
+      }
+    }
+  }
+}

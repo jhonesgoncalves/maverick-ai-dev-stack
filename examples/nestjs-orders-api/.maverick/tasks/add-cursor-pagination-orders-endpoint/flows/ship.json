@@ -1,0 +1,427 @@
+{
+  "flow": "ship",
+  "runs": [
+    {
+      "at": "2026-09-27T21:12:45.182Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "fail",
+          "issues": [
+            "Not in TECHSPEC.md File References or any task: test/intel.test.js",
+            "Not in TECHSPEC.md File References or any task: test/runtime.test.js",
+            "Not in TECHSPEC.md File References or any task: test/stack.test.js",
+            "Not in TECHSPEC.md File References or any task: workflows/code-review.md",
+            "Not in TECHSPEC.md File References or any task: workflows/feature.md"
+          ]
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "0 manifest(s), 0 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the change and records the decision."
+          ],
+          "summary": "record it in REVIEW.md or run maverick flow approve ship add-cursor-pagination-orders-endpoint human-review"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T21:27:56.543Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "fail",
+          "issues": [
+            "Not in TECHSPEC.md File References or any task: test/intel.test.js",
+            "Not in TECHSPEC.md File References or any task: test/runtime.test.js",
+            "Not in TECHSPEC.md File References or any task: test/stack.test.js",
+            "Not in TECHSPEC.md File References or any task: workflows/code-review.md",
+            "Not in TECHSPEC.md File References or any task: workflows/feature.md"
+          ]
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "0 manifest(s), 0 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the change and records the decision."
+          ],
+          "summary": "record it in REVIEW.md or run maverick flow approve ship add-cursor-pagination-orders-endpoint human-review"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T21:39:02.008Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "fail",
+          "issues": [
+            "Change budget exceeded: 72/8 files.",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-build/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-new/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-prd/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-prd/references/prd-format.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-prd/references/question-protocol.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-review/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-ship/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-spec/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-spec/references/spec-format.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-status/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-sync/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-tasks/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-tasks/references/task-format.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-techspec/SKILL.md",
+            "Not in TECHSPEC.md File References or any task: .agents/skills/maverick-techspec/references/techspec-format.md",
+            "Not in TECHSPEC.md File References or any task: .claude/skills",
+            "Not in TECHSPEC.md File References or any task: .cursor/skills",
+            "Not in TECHSPEC.md File References or any task: .env.example",
+            "Not in TECHSPEC.md File References or any task: .gemini/skills",
+            "Not in TECHSPEC.md File References or any task: .gitignore",
+            "Not in TECHSPEC.md File References or any task: .kiro/skills",
+            "Not in TECHSPEC.md File References or any task: AGENTS.md",
+            "Not in TECHSPEC.md File References or any task: CLAUDE.md",
+            "Not in TECHSPEC.md File References or any task: GEMINI.md",
+            "Not in TECHSPEC.md File References or any task: README.md",
+            "Not in TECHSPEC.md File References or any task: eslint.config.mjs",
+            "Not in TECHSPEC.md File References or any task: nest-cli.json",
+            "Not in TECHSPEC.md File References or any task: package-lock.json",
+            "Not in TECHSPEC.md File References or any task: package.json",
+            "Not in TECHSPEC.md File References or any task: scripts/setup-playground.sh",
+            "Not in TECHSPEC.md File References or any task: seed/add-cursor-pagination.patch",
+            "Not in TECHSPEC.md File References or any task: seed/tasks/add-cursor-pagination/PRD.md",
+            "Not in TECHSPEC.md File References or any task: seed/tasks/add-cursor-pagination/TECHSPEC.md",
+            "Not in TECHSPEC.md File References or any task: seed/tasks/add-cursor-pagination/subtasks/_tasks.md",
+            "Not in TECHSPEC.md File References or any task: seed/tasks/add-cursor-pagination/subtasks/task_01.md",
+            "Not in TECHSPEC.md File References or any task: seed/tasks/add-cursor-pagination/subtasks/task_02.md",
+            "Not in TECHSPEC.md File References or any task: src/app.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/common/cache/cache.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/common/guards/api-key.guard.ts",
+            "Not in TECHSPEC.md File References or any task: src/customers/customer.entity.ts",
+            "Not in TECHSPEC.md File References or any task: src/customers/customers.controller.ts",
+            "Not in TECHSPEC.md File References or any task: src/customers/customers.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/customers/customers.repository.ts",
+            "Not in TECHSPEC.md File References or any task: src/customers/customers.service.ts",
+            "Not in TECHSPEC.md File References or any task: src/health/health.controller.ts",
+            "Not in TECHSPEC.md File References or any task: src/notifications/notifications.listener.ts",
+            "Not in TECHSPEC.md File References or any task: src/notifications/notifications.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/orders/dto/create-order.dto.ts",
+            "Not in TECHSPEC.md File References or any task: src/orders/orders.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/payments/currency.ts",
+            "Not in TECHSPEC.md File References or any task: src/payments/payments.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/payments/payments.service.ts",
+            "Not in TECHSPEC.md File References or any task: src/payments/webhooks.controller.ts",
+            "Not in TECHSPEC.md File References or any task: src/reports/reports.controller.ts",
+            "Not in TECHSPEC.md File References or any task: src/reports/reports.module.ts",
+            "Not in TECHSPEC.md File References or any task: src/reports/reports.service.ts",
+            "Not in TECHSPEC.md File References or any task: test/jest-e2e.json",
+            "Not in TECHSPEC.md File References or any task: tsconfig.build.json",
+            "Not in TECHSPEC.md File References or any task: tsconfig.json"
+          ]
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "1 manifest(s), 1 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "fail",
+          "issues": [
+            "Security: sensitive-looking path changed; confirm secrets and PII were not included.",
+            "Dependencies: lockfile changed; review new packages, licenses, and vulnerabilities."
+          ]
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the change and records the decision."
+          ],
+          "summary": "record it in REVIEW.md or run maverick flow approve ship add-cursor-pagination-orders-endpoint human-review"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T21:46:38.201Z",
+      "outcome": "awaiting-approval",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "0 manifest(s), 0 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "fail",
+          "issues": [
+            "No git diff found against the selected base."
+          ]
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pending",
+          "issues": [
+            "awaiting approval: A human reviews the change and records the decision."
+          ],
+          "summary": "record it in REVIEW.md or run maverick flow approve ship add-cursor-pagination-orders-endpoint human-review"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-27T21:48:20.590Z",
+      "outcome": "done",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "artifacts",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Task artifacts contain every required section.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "checks",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Lint, typecheck, tests and build pass for the detected stack.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "scope",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Changed files stay within the declared task scope.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "security",
+          "type": "maverick",
+          "severity": "block",
+          "description": "No high-signal security patterns in the diff.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "dependencies",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Dependency changes are reported for review.",
+          "status": "pass",
+          "issues": [],
+          "summary": "0 manifest(s), 0 lockfile(s) changed"
+        },
+        {
+          "id": "diff-review",
+          "type": "maverick",
+          "severity": "warn",
+          "description": "Automated diff findings are written for the reviewer.",
+          "status": "fail",
+          "issues": [
+            "No git diff found against the selected base."
+          ]
+        },
+        {
+          "id": "human-review",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md or with maverick flow approve.",
+          "status": "pass",
+          "issues": [],
+          "summary": "approve by jhones"
+        }
+      ]
+    }
+  ],
+  "approvals": {
+    "human-review": {
+      "decision": "approve",
+      "by": "jhones",
+      "at": "2026-09-27T21:46:53.439Z"
+    }
+  },
+  "integrity": "e375edf3fd5de5606ab4154a6b5fb215343b62897b84ddefb819b64f2699bdbd",
+  "status": "done"
+}
