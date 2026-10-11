@@ -1,7 +1,7 @@
 export default [{
   // Global ignores: build output, VitePress cache, and the vendored brand kit (source assets, not app code)
-  // and the NestJS sample, which has its own TypeScript lint setup.
-  ignores: ['node_modules/**', 'dist/**', 'site/.vitepress/**', 'maverick-ai-brandkit/**', 'examples/nestjs-orders-api/**']
+  // and the NestJS sample and the marketing video, which have their own lint setups.
+  ignores: ['node_modules/**', 'dist/**', 'site/.vitepress/**', 'maverick-ai-brandkit/**', 'examples/nestjs-orders-api/**', 'marketing/**']
 }, {
   languageOptions: { ecmaVersion: 2022, sourceType: 'module', globals: { console: 'readonly', process: 'readonly', Buffer: 'readonly' } },
   rules: { 'no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }], 'no-undef': 'error' }

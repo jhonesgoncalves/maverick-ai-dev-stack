@@ -1,0 +1,34 @@
+{
+  "voice": {
+    "pt": {
+      "hook": 7.68,
+      "question": 4.437333,
+      "logo": 6.704,
+      "plan": 5.888,
+      "gates": 5.938667,
+      "decision": 4.266667,
+      "compare": 5.632,
+      "lens": 5.12,
+      "agents": 6.485333,
+      "cta": 8.106667
+    },
+    "en": {
+      "hook": 6.16,
+      "question": 3.754667,
+      "logo": 4.96,
+      "plan": 5.28,
+      "gates": 4.56,
+      "decision": 2.538667,
+      "compare": 4.64,
+      "lens": 4.24,
+      "agents": 7.2,
+      "cta": 5.594667
+    }
+  },
+  "music": {
+    "seconds": 90,
+    "loop": false,
+    "drop": 52.202902
+  },
+  "sfx": true
+}

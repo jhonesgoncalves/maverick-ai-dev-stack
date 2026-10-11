@@ -1,0 +1,56 @@
+{
+  "local": {
+    "qwen": {
+      "model": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16",
+      "voice": "Ryan",
+      "instruct": "Confident, energetic product-launch narrator. Crisp, punchy delivery, warm and assured, moderate-fast pace."
+    },
+    "chatterbox": {
+      "reference": "audio-src/reference-ryan.wav",
+      "exaggeration": 0.6,
+      "cfgWeight": 0.3
+    }
+  },
+  "music": {
+    "seconds": 90,
+    "prompt": "Dark minimal modern electronic instrumental for a tech product launch film. Warm pulsing analog synth bass, soft kick drum, crisp hi-hats, subtle bright arpeggio. Confident, focused, premium. Steady 110 BPM groove that lifts gently in the second half.",
+    "seed": 7,
+    "negativePrompt": "vocals, singing, speech, choir, lo-fi, distorted, noisy, muddy"
+  },
+  "sfx": {
+    "whoosh": {
+      "text": "Soft cinematic air whoosh transition, smooth and warm, no impact",
+      "seconds": 2
+    },
+    "hit": {
+      "text": "Deep cinematic logo reveal hit, warm sub bass boom with a subtle bright shimmer tail",
+      "seconds": 3
+    }
+  },
+  "lines": {
+    "pt": {
+      "hook": "Seu agente de IA acabou de escrever mil e duzentas linhas. Mexeu na autenticação. E todos os testes passam.",
+      "question": "Você faria o merge? Gerar código ficou barato. Confiar nele ficou caro.",
+      "logo": "Este é o Maverick AI. Seu agente escreve o código. O Maverick faz ele merecer o merge.",
+      "plan": "Uma frase vira requisitos, uma especificação ancorada no seu código e o grafo de tarefas.",
+      "gates": "Sete gates checam escopo, segurança, dependências e testes antes de qualquer merge.",
+      "decision": "O Maverick nunca aprova nada sozinho. Quem decide é você.",
+      "compare": "O que foi pedido, a evidência, a aprovação. Cada decisão fica num arquivo.",
+      "lens": "E o Lens é um cockpit local para tarefas, gates e arquitetura.",
+      "agents": "Não é mais um agente de código. Funciona com Claude Code, Codex, Cursor, Gemini e outros.",
+      "cta": "A inteligência artificial escreve. Engenheiros decidem. Maverick AI: open source e gratuito."
+    },
+    "en": {
+      "hook": "Your AI agent just wrote twelve hundred lines. It touched authentication. And all tests pass.",
+      "question": "Would you merge it? AI made diffs cheap. Trust got expensive.",
+      "logo": "This is Maverick AI. Your agent writes the code. Maverick makes it mergeable.",
+      "plan": "One sentence becomes a PRD, a spec grounded in your code, and a task graph.",
+      "gates": "Seven gates check scope, security, dependencies and tests before anything ships.",
+      "decision": "Maverick never merges. You do.",
+      "compare": "What was asked, the evidence, the approval. Every decision lives in a file.",
+      "lens": "And Lens gives you a local cockpit for tasks, gates and architecture.",
+      "agents": "It's not another coding agent. It works with Claude Code, Codex, Cursor, Gemini and more.",
+      "cta": "AI writes. Engineers decide. Maverick AI: open source and free to try."
+    }
+  }
+}

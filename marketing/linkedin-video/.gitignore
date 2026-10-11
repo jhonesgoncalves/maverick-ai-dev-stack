@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+.env
+
+# Ignore the output video from Git but not videos you import into src/.
+out
+
+# Remotion agent skills are installed locally (npx skills add remotion-dev/skills), not redistributed.
+.claude/skills/
+
+# Local Python environments and model outputs for the audio pipeline.
+.venvs/
+audio-src/*.wav
