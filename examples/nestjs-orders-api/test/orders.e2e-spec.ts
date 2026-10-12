@@ -29,5 +29,10 @@ describe('Orders API (e2e)', () => {
     expect(list.body.total).toBeGreaterThanOrEqual(1);
   });
 
+  it('creates an order with a sku that is not in the catalog', async () => {
+    const created = await request(app.getHttpServer()).post('/api/v1/orders').set(key).send({ customerId: 'c-1', items: [{ sku: 'not-in-catalog', quantity: 1, unitPrice: 7.35 }] }).expect(201);
+    expect(created.body.items[0].unitPrice).toBe(7.35);
+  });
+
   it('validates the payload', () => request(app.getHttpServer()).post('/api/v1/orders').set(key).send({ customerId: 'c-1', items: [] }).expect(400));
 });

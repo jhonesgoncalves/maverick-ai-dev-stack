@@ -3,6 +3,7 @@ export interface AppConfig {
   redisUrl?: string;
   payments: { mode: 'fake' | 'http'; baseUrl: string };
   orders: { defaultPageSize: number; maxPageSize: number };
+  products: { defaultPageSize: number; maxPageSize: number };
 }
 
 export default (): AppConfig => ({
@@ -13,4 +14,5 @@ export default (): AppConfig => ({
     baseUrl: process.env.PAYMENTS_BASE_URL || 'https://payments.example.test/v1',
   },
   orders: { defaultPageSize: 20, maxPageSize: 100 },
+  products: { defaultPageSize: 20, maxPageSize: 100 },
 });

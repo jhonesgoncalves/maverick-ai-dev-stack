@@ -9,6 +9,7 @@ import { HealthController } from './health/health.controller';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ProductsModule } from './products/products.module';
 import { ReportsModule } from './reports/reports.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { ReportsModule } from './reports/reports.module';
     CacheModule,
     CustomersModule,
     OrdersModule,
+    ProductsModule,
     PaymentsModule,
     NotificationsModule,
     ReportsModule,
