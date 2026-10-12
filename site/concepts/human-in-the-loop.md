@@ -16,6 +16,8 @@ The human owns authorization, design trade-offs, execution permissions, the revi
 | Review | Approve, approve with follow-up, or request changes | Only a checked box in `REVIEW.md` or `flow approve` passes the `human-review` gate, unless you turn on auto-approval for the flow |
 | Merge | Whether this goes in | Maverick has no merge command. `maverick-ship` commits, pushes or opens a PR only when you ask |
 | Agent power | Which agents may run here, and how much they may do | `runtime.trusted`, `runtime.maxPermission`, hooks |
+| A stuck or disputed loop | What a loop that ran out of rungs, or whose agent disputes a check, does next | The loop stops with `LOOP-ESCALATION.md`; only `loop run --resume --note` continues it ([Loop engineering](/concepts/loop-engineering)) |
+| Judges that disagree | Whether a change meets its criteria when independent judges are not sure | The judge gate waits; `flow approve` records your decision for that exact change |
 
 ## Why it matters
 

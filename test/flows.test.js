@@ -49,7 +49,7 @@ test('built-in flows are valid and invalid project flows are reported precisely'
     '.maverick/flows/renamed.yaml': 'apiVersion: maverick.flow/v1\nname: other\ndescription: Name does not match file.\ncontract: { goal: x }\ngates: [{ id: a, type: artifact, file: PRD.md }]\n'
   });
   const { flows, errors } = await loadFlows(cwd);
-  assert.deepEqual(flows.map(flow => flow.name).sort(), ['fix-checks', 'ship', 'spec']);
+  assert.deepEqual(flows.map(flow => flow.name).sort(), ['fix-checks', 'loop', 'pr', 'ship', 'spec']);
   assert.match(errors.find(error => error.file === 'dupes.yaml').message, /duplicate gate id "a"/);
   assert.match(errors.find(error => error.file === 'vague.yaml').message, /gates\.0\.type/);
   assert.match(errors.find(error => error.file === 'renamed.yaml').message, /must match the file name/);

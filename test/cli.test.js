@@ -43,7 +43,7 @@ test('new rejects unsafe slugs and overwrite, and resumes an existing task by sl
 });
 
 test('workflow stages are fixed and strict adds a security gate', () => {
-  assert.deepEqual(stagesForPreset('standard'), ['prd', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr']);
+  assert.deepEqual(stagesForPreset('standard'), ['prd', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr', 'done']);
   assert.ok(stagesForPreset('strict').includes('security'));
   assert.throws(() => stagesForPreset('lightweight'), /invalid workflow/);
 });

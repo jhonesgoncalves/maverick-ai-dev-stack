@@ -1,0 +1,3 @@
+# Loop state: checkpoints index, locks, in-flight backups and rejected patches.
+*
+!.gitignore

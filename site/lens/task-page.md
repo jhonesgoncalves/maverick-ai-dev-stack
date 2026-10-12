@@ -9,10 +9,10 @@
 | Part | Shows |
 |---|---|
 | **Header** | The task id, its workflow and either its stage or the reason it needs you, then the title. |
-| **Stage stepper** | The stages of the workflow, with completed stages checked and the current one highlighted. A `standard` task goes PRD → Tech spec → Tasks → Build → Verify → Review → PR; `spec-driven` adds Spec; `strict` adds Security. |
+| **Stage stepper** | The stages of the workflow, with completed stages checked and the current one highlighted. A `standard` task goes PRD → Tech spec → Tasks → Build → Verify → Review → PR → Done; `spec-driven` adds Spec; `strict` adds Security. |
 | **Tabs** | Overview, Subtasks, Gates & approvals, Artifacts, Activity — with counts. Each tab has its own address, such as `#/tasks/<task>/gates`. |
 | **Next step** | One recommendation, the command behind it and a button that does it. |
-| **Details** | Stage (*n* of *m*), workflow, subtasks done, acceptance criteria with a test, evidence captured or pending, created and updated dates. |
+| **Details** | Stage (*n* of *m*), workflow, subtasks done, acceptance criteria with a test, evidence captured or pending, the pull request once it is open, who finished the task and when, created and updated dates. |
 | **Run** | Every task command Lens may run, one click each. |
 
 ## Next step
@@ -27,7 +27,10 @@ The rail always proposes exactly one thing to do, chosen from the stage:
 | Verify | Run lint, typecheck, tests and build and record the evidence | `maverick verify <task>` | **Run verify** |
 | Security | Run the security gate on the diff | `maverick security <task>` | **Run security scan** |
 | Review | Run the ship flow, review and decide | `maverick flow run ship <task>` | **Open gates** |
-| PR | Draft the pull request description | `maverick pr <task>` | **Draft pull request** |
+| PR | Draft, approve and open the pull request | `maverick flow run pr <task>` | **Open pull request** |
+| PR, draft awaiting approval | Read `PR-DRAFT.md` and approve opening it | `maverick flow approve pr <task> approval` | **Review and approve** |
+| PR, pull request open | Finish the task once it merges | `maverick done <task>` | **Finish task**, with a link to the pull request |
+| Done | Nothing; reopen it to work on it again | `maverick reopen <task>` | **Reopen task** |
 
 Planning stages copy instructions instead of running anything, because the PRD and specs are written by the agent you work with, in your editor or terminal. Paste them into Claude Code, Codex, Cursor or any agent, or run the planning stage headlessly with **Run an agent**.
 
@@ -109,9 +112,17 @@ When an approval gate is pending, the **Record your decision** form appears. Whi
 
 The decision is recorded the way `maverick flow approve` records it: in the flow state (`flows/<flow>.json`) and in the gate's file, so an approval of `human-review` checks `- [x] approve` in `REVIEW.md` and the task moves on to the PR stage. When every blocking check of the last run already passed, the flow is decided at once (**Passing** after an approval, **Needs fixes** after a change request); otherwise run the flow again.
 
+### Opening the pull request
+
+At the PR stage the task offers the `pr` flow next to `ship`. **Open pull request** runs it: it checks the review decision and merge readiness, writes `PR-DRAFT.md` (or keeps the one you edited), and stops at its `approval` gate. Read the draft on the Artifacts tab (its heading is the pull request's title), then approve it with the **Record your decision** form. Approving runs the `open` gate at once: Maverick finds the provider from the `origin` remote (GitHub, GitLab, Azure DevOps or Bitbucket), moves the change off the base branch if needed, commits it, pushes the branch and opens the pull request with `gh`, `glab` or `az`. The gate links to the pull request, and **Details** shows it. Without the provider's CLI the branch is pushed and the gate links to the provider's page for creating it. The `open` gate shows **waiting** until every blocking gate before it passed, so nothing is pushed before the approval.
+
+### Finishing a task
+
+**Finish task** (in **Next step** once the pull request is open, and in the Run card at any stage) asks who finished it and an optional note, then runs `maverick done <task>`. The task moves to **Done**: it leaves the Inbox and sits in the Done lane of the board. Before the PR stage the dialog says which gates were skipped and finishes with `--force`. **Reopen task** runs `maverick reopen <task>`.
+
 ### Auto-approve
 
-The **Auto-approve** switch next to **Run *flow*** turns auto-approval on or off for that flow in every task, through `maverick flow auto-approve <flow> on|off` (Lens asks before turning it on). With it on, a run whose blocking checks all pass approves its pending approval gates instead of waiting for you. The gate shows **auto-approved**, and the checked box in the gate's file is followed by a note that no human recorded the decision. A run with a failing blocking check is never auto-approved.
+The **Auto-approve** switch next to **Run *flow*** turns auto-approval on or off for that flow in every task, through `maverick flow auto-approve <flow> on|off` (Lens asks before turning it on). With it on, a run whose blocking checks all pass approves its pending approval gates instead of waiting for you; for the `pr` flow that means the pull request is opened in the same run. The gate shows **auto-approved**, and the checked box in the gate's file is followed by a note that no human recorded the decision. A run with a failing blocking check is never auto-approved.
 
 ## Artifacts
 
@@ -119,7 +130,7 @@ Every Markdown file of the task, grouped as **Plan** (`PRD.md`, `SPEC.md`, `TECH
 
 ## Activity
 
-A timeline of the last 40 events: flow runs and their outcomes, approvals and change requests with their notes, and updates to plan, review and subtask files, newest first.
+A timeline of the last 40 events: flow runs and their outcomes, approvals and change requests with their notes, updates to plan, review and subtask files, the pull request and the task's completion, newest first.
 
 ## The Run card
 
@@ -135,5 +146,7 @@ A timeline of the last 40 events: flow runs and their outcomes, approvals and ch
 | Readiness | `maverick readiness <task>` |
 | Checkpoint | `maverick checkpoint <task>` |
 | Draft pull request | `maverick pr <task>` |
+| Open pull request | `maverick flow run pr <task>` |
+| Finish task / Reopen task | `maverick done <task>` / `maverick reopen <task>` |
 
 Each opens the output panel and refreshes the task when it finishes. These, the subtask status change and the flow run are the only task commands the server accepts; anything else is refused. See the [HTTP API](./api.md#actions).

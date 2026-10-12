@@ -2,7 +2,7 @@ import { $, api, closeOverlays, esc, icon, LANES, pill, ring, STAGE_LABEL, STATE
 import { loadProject, store } from '../app.js';
 
 const ui = { query: '', filter: 'all', layout: 'list', sort: 'recent' };
-const FILTERS = ['all', 'attention', 'active', 'ready', 'queued'];
+const FILTERS = ['all', 'attention', 'active', 'ready', 'queued', 'done'];
 
 export const title = () => 'Tasks';
 export const crumbs = () => ['<b>Tasks</b>'];
@@ -21,7 +21,7 @@ function rows(list) {
 }
 
 function board(list) {
-  return `<div class="kanban" style="grid-template-columns:repeat(${LANES.length},minmax(200px,1fr))">${LANES.map(lane => {
+  return `<div class="kanban" style="grid-template-columns:repeat(${LANES.length},minmax(180px,1fr))">${LANES.map(lane => {
     const col = list.filter(t => lane.stages.includes(t.stage));
     return `<div class="col"><div class="col-head"><span class="dot ${lane.tone}"></span>${lane.label}<em>${col.length}</em></div><div class="col-body">${col.map(t => {
       const s = taskState(t), sub = t.subtasks || {};
@@ -43,7 +43,7 @@ export function render({ route }) {
   if (!all.length) body = `<div class="card empty-state"><div class="glyph">${icon('tasks')}</div><h3>No tasks yet</h3><p>A task takes one change from idea to merged pull request: PRD, spec, subtasks, gates and review.</p><button class="btn primary" data-act="new-task">${icon('plus')}New task</button></div>`;
   else if (!list.length) body = `<div class="card empty">No task matches${ui.query ? ` “${esc(ui.query)}”` : ''} in ${esc(ui.filter === 'all' ? 'all tasks' : STATE[ui.filter][1].toLowerCase())}. <button class="link" data-act="clear">Clear filters</button></div>`;
   else if (ui.layout === 'board') body = board(list);
-  else body = ['attention', 'active', 'ready', 'queued'].map(s => [s, list.filter(t => taskState(t).state === s)]).filter(([, l]) => l.length)
+  else body = ['attention', 'active', 'ready', 'queued', 'done'].map(s => [s, list.filter(t => taskState(t).state === s)]).filter(([, l]) => l.length)
     .map(([s, l]) => `<div class="group-title"><span class="dot ${STATE[s][0]}"></span>${STATE[s][1]} <span class="faint">${l.length}</span></div><div class="rows">${rows(l)}</div>`).join('');
   return `<div class="page ${ui.layout === 'board' ? 'wide' : ''}">
     <div class="page-head"><div><h1>Tasks</h1><p>Every change from idea to merged pull request.</p></div><div class="actions"><button class="btn" data-act="new-task">${icon('plus')}New task</button></div></div>

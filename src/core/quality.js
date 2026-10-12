@@ -29,6 +29,32 @@ export function pathReferences(text, { includeNew = false } = {}) {
   return [...new Set(refs)];
 }
 
+/**
+ * TECHSPEC "Do Not Touch" as glob patterns. Unlike `pathReferences`, globs and directories are
+ * kept, because this list is enforced: `dist/` becomes `dist/**`, a plain path matches itself.
+ */
+export function doNotTouchPatterns(spec) {
+  const patterns = [];
+  for (const [, raw] of sectionBody(spec, 'Do Not Touch').matchAll(/`([^`\s]+)`/g)) {
+    const path = raw.replace(/^\.\//, '');
+    if (!path || /^[-~]|:\/\/|^FILL|[<>{}$|()]/i.test(path) || path === '/' || path.split('/').includes('..')) continue;
+    patterns.push(path.endsWith('/') ? `${path}**` : path);
+  }
+  return [...new Set(patterns)];
+}
+
+/**
+ * The files a task says it will touch, new files included: TECHSPEC File References and Impact,
+ * plus every subtask's Files section (`all`), and the given subtask's own Files (`subtask`).
+ */
+export async function declaredScope(taskDir, { subtask } = {}) {
+  const spec = await readFile(join(taskDir, 'TECHSPEC.md'), 'utf8').catch(() => ''), graph = await loadGraph(taskDir);
+  const files = text => pathReferences(text, { includeNew: true });
+  const all = [...new Set(files([sectionBody(spec, 'File References'), sectionBody(spec, 'Impact'), ...graph.items.map(item => sectionBody(item.body, 'Files'))].join('\n')))];
+  const own = subtask ? files(sectionBody(graph.items.find(item => item.id === subtask.id)?.body ?? subtask.body ?? '', 'Files')) : [];
+  return { all, subtask: own, doNotTouch: doNotTouchPatterns(spec) };
+}
+
 function requirementFindings(text, section = 'Requirements') {
   const blocks = sectionBody(text, section).split(REQUIREMENT_HEADING).slice(1), findings = [];
   if (!blocks.length) return [{ level: 'fail', message: `${section} has no "### Requirement:" blocks; write each behavior as a requirement with scenarios` }];

@@ -1,4 +1,4 @@
-import { $, api, clock, copy, dialog, drawer, esc, icon, markdown, OUTCOME, pill, PLANNING, STAGE_LABEL, taskState, timeAgo, toast } from '../lib.js';
+import { $, api, clock, copy, dialog, drawer, esc, icon, linkify, markdown, OUTCOME, pill, PLANNING, STAGE_LABEL, taskState, timeAgo, toast } from '../lib.js';
 import { loadDetail, loadProject, render as renderApp, store } from '../app.js';
 import { fixWithAgent, startAgent } from './agents.js';
 
@@ -21,7 +21,18 @@ function nextStep(t) {
   if (t.stage === 'security') return { text: 'Run the security gate on the diff.', command: `maverick security ${t.id}`, label: 'Run security scan', act: 'run', action: 'security' };
   if (t.stage === 'review' && t.flows.find(f => f.name === 'ship')?.status === 'awaiting-approval') return { text: 'Every blocking check of the ship flow passed. Review the change and record your decision.', command: `maverick flow approve ship ${t.id} human-review`, label: 'Review and approve', act: 'tab', tab: 'gates' };
   if (t.stage === 'review') return { text: 'Run the ship flow, review the change and record your decision.', command: `maverick flow run ship ${t.id}`, label: 'Open gates', act: 'tab', tab: 'gates' };
-  return { text: 'Every gate passed. Draft the pull request description.', command: `maverick pr ${t.id}`, label: 'Draft pull request', act: 'run', action: 'pr' };
+  if (t.stage === 'done') return { text: `Finished ${new Date(t.done.at).toLocaleDateString()} by ${t.done.by}${t.done.note ? `: ${t.done.note}` : '.'}`, command: `maverick reopen ${t.id}`, label: 'Reopen task', act: 'reopen', link: t.pullRequest?.url };
+  return prStep(t);
+}
+
+/** The PR stage: the pr flow drafts, waits for the approval and opens the pull request; then the task is finished. */
+function prStep(t) {
+  const flow = t.flows.find(f => f.name === 'pr'), pr = t.pullRequest, finish = { command: `maverick done ${t.id}`, label: 'Finish task', act: 'finish', link: pr?.url };
+  if (pr?.opened) return { ...finish, text: `Pull request${pr.number ? ` #${pr.number}` : ''} is open. Once it merges, finish the task.` };
+  if (pr && flow?.status === 'done') return { ...finish, text: `${pr.branch} is pushed${pr.url ? '. Create the pull request on its page' : ', but the provider is unknown. Open the pull request yourself'}, then finish the task.` };
+  if (flow?.status === 'awaiting-approval') return { text: 'The pull request is drafted. Read PR-DRAFT.md, then approve opening it.', command: `maverick flow approve pr ${t.id} approval`, label: 'Review and approve', act: 'tab', tab: 'gates?flow=pr' };
+  if (['revise', 'stalled', 'exhausted'].includes(flow?.status)) return { text: 'The pr flow could not open the pull request. Read why on its gates, fix it and run it again.', command: `maverick flow run pr ${t.id}`, label: 'Open gates', act: 'tab', tab: 'gates?flow=pr' };
+  return { text: 'Every gate passed. The pr flow drafts the pull request, waits for your approval, then opens it on the repository\'s git provider.', command: `maverick flow run pr ${t.id}`, label: 'Open pull request', act: 'run-flow', flow: 'pr' };
 }
 
 /* ── Tabs ────────────────────────────────────────────────────────── */
@@ -65,13 +76,14 @@ function gates(t, route) {
   const result = gate => last?.results.find(r => r.id === gate.id);
   // A recorded decision is the current state of an approval gate, even before the flow runs again.
   const statusOf = gate => { const r = result(gate), approval = flow.approvals[gate.id]; if (gate.type === 'approval' && approval) return approval.decision === 'approve' ? 'pass' : 'fail'; if (!r) return 'idle'; return r.status === 'fail' && gate.severity === 'warn' ? 'warn' : r.status; };
-  const mark = { pass: 'check', fail: 'x', warn: 'alert', pending: 'clock', idle: 'clock' };
-  const approvals = flow.gates.filter(g => g.type === 'approval'), pending = approvals.filter(g => statusOf(g) !== 'pass');
+  const mark = { pass: 'check', fail: 'x', warn: 'alert', pending: 'clock', idle: 'clock', skipped: 'clock' };
+  // A judge that could not decide waits on a human too, for the exact change it saw.
+  const approvals = flow.gates.filter(g => g.type === 'approval' || (g.type === 'judge' && result(g)?.status === 'pending')), pending = approvals.filter(g => statusOf(g) !== 'pass');
   // While the flow waits on a human, the decision is the next step, so it comes before the gates.
   const waiting = flow.status === 'awaiting-approval';
   const decision = pending.length ? `<form class="card" style="${waiting ? 'margin-bottom' : 'margin-top'}:16px" data-approval data-flow="${esc(flow.name)}"><div class="card-head"><h3>Record your decision</h3><span class="count">${pending.map(g => esc(g.id)).join(', ')}</span></div><div class="approve-box">
       ${pending.length > 1 ? `<label for="ap-gate">Gate</label><select class="select" id="ap-gate" name="gate" style="height:34px">${pending.map(g => `<option value="${esc(g.id)}">${esc(g.id)}</option>`).join('')}</select>` : `<input type="hidden" name="gate" value="${esc(pending[0].id)}">`}
-      <p class="muted" style="margin:0">${esc(pending[0].prompt || '')}</p>
+      <p class="muted" style="margin:0">${esc(pending[0].prompt || (pending[0].type === 'judge' ? `The judges could not decide (${result(pending[0])?.summary || 'no verdict'}). Your decision applies to this exact change.` : ''))}</p>
       <label for="ap-by">Reviewed by</label><input id="ap-by" name="by" value="${esc(reviewer())}" autocomplete="name" required placeholder="Your name">
       <label for="ap-why">Note <span class="faint">(required to request changes)</span></label><textarea id="ap-why" name="reason" rows="3" placeholder="What you checked, and anything to follow up"></textarea>
       <div class="row"><button type="button" class="btn ok" data-act="decide" data-decision="approve">${icon('check')}Approve</button><button type="button" class="btn bad" data-act="decide" data-decision="reject">${icon('x')}Request changes</button></div>
@@ -83,12 +95,12 @@ function gates(t, route) {
       ${flow.history.length ? `<span class="history" title="Last runs">${flow.history.map(h => `<i class="${(OUTCOME[h.outcome] || [''])[0]}" title="${esc(h.outcome)} · ${esc(clock(h.at))}"></i>`).join('')}</span>` : ''}
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center">${approvals.length ? `<label class="switch" title="When every blocking check passes, ${esc(flow.name)} approves its pending approval gates itself, for every task in this repository"><input type="checkbox" data-change="auto-approve" data-flow="${esc(flow.name)}" ${flow.autoApprove ? 'checked' : ''}><i aria-hidden="true"></i><span>Auto-approve</span></label>` : ''}${flow.status === 'revise' ? `<button class="btn sm" data-act="fix-agent" data-flow="${esc(flow.name)}">${icon('agent')}Fix with agent</button>` : ''}${terminal ? `<button class="btn sm" data-act="run-flow" data-flow="${esc(flow.name)}" data-reset="1">${icon('undo')}Reset and run</button>` : `<button class="btn sm primary" data-act="run-flow" data-flow="${esc(flow.name)}">${icon('play')}Run ${esc(flow.name)}</button>`}</span></div>
     <div style="padding:10px 16px;border-bottom:1px solid var(--line-soft);color:var(--muted);font-size:12.5px">${esc(flow.contract.goal.replace(/\{\{\s*task\s*\}\}/g, t.id))}</div>
-    ${flow.gates.map(g => { const r = result(g), st = statusOf(g), approval = g.type === 'approval' ? flow.approvals[g.id] : null; return `<div class="gate"><span class="mark ${st === 'idle' ? 'pending' : st}">${icon(mark[st])}</span>
+    ${flow.gates.map(g => { const r = result(g), st = statusOf(g), approval = g.type === 'approval' ? flow.approvals[g.id] : null; return `<div class="gate"><span class="mark ${st === 'idle' || st === 'skipped' ? 'pending' : st}">${icon(mark[st])}</span>
       <div style="min-width:0"><b>${esc(g.id)}</b> <span class="pill" style="margin-left:4px">${esc(g.type === 'maverick' ? g.run : g.type)}</span>${g.severity === 'warn' ? ' <span class="pill">warn only</span>' : ''}
         <p>${esc(g.description || g.prompt || '')}</p>
-        ${approval ? `<div class="summary">${approval.auto ? 'auto-approved' : `${approval.decision === 'approve' ? 'approved' : 'changes requested'} by ${esc(approval.by)}`} · ${esc(timeAgo(approval.at))}${approval.reason ? ` — ${esc(approval.reason)}` : ''}</div>` : r?.summary ? `<div class="summary">${esc(r.summary)}</div>` : ''}
-        ${r?.issues?.length && !approval && st !== 'pass' ? `<ul class="${st === 'warn' || st === 'pending' ? 'warn' : ''}">${r.issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}</div>
-      ${pill(st === 'idle' ? 'not run' : st, st === 'pass' ? 'ok' : st === 'fail' ? 'bad' : st === 'warn' ? 'warn' : st === 'pending' ? 'accent' : '')}</div>`; }).join('')}
+        ${approval ? `<div class="summary">${approval.auto ? 'auto-approved' : `${approval.decision === 'approve' ? 'approved' : 'changes requested'} by ${esc(approval.by)}`} · ${esc(timeAgo(approval.at))}${approval.reason ? ` — ${esc(approval.reason)}` : ''}</div>` : r?.summary ? `<div class="summary">${linkify(r.summary)}</div>` : ''}
+        ${r?.issues?.length && !approval && st !== 'pass' ? `<ul class="${st === 'warn' || st === 'pending' ? 'warn' : ''}">${r.issues.map(i => `<li>${linkify(i)}</li>`).join('')}</ul>` : ''}</div>
+      ${pill(st === 'idle' ? 'not run' : st === 'skipped' ? 'waiting' : st, st === 'pass' ? 'ok' : st === 'fail' ? 'bad' : st === 'warn' ? 'warn' : st === 'pending' ? 'accent' : '')}</div>`; }).join('')}
   </div>
   ${waiting ? '' : decision}`;
 }
@@ -118,25 +130,30 @@ export async function render(ctx) {
   const body = tab === 'subtasks' ? subtasks(t) : tab === 'gates' ? gates(t, route) : tab === 'artifacts' ? artifacts(t, route) : tab === 'activity' ? activity(t) : overview(t);
   return `<div class="page"><div class="detail"><div style="min-width:0">
     <div class="task-head"><div class="ids"><span>${esc(t.id)}</span><span class="faint">·</span>${pill(t.workflow)}${pill(state.state === 'attention' ? state.reason : STAGE_LABEL[t.stage] || t.stage, state.tone)}</div><h1>${esc(t.title)}</h1></div>
-    <div class="stepper" aria-label="Workflow stages">${t.stages.map((s, i) => { const st = i < idx ? 'done' : i === idx ? 'cur' : ''; return `<div class="step ${st}" title="${esc(STAGE_LABEL[s] || s)}${st === 'cur' ? ' (current)' : ''}"><span>${st === 'done' ? icon('check') : ''}${esc(STAGE_LABEL[s] || s)}</span><i></i></div>`; }).join('')}</div>
+    <div class="stepper" aria-label="Workflow stages">${t.stages.map((s, i) => { const st = i < idx || t.stage === 'done' ? 'done' : i === idx ? 'cur' : ''; return `<div class="step ${st}" title="${esc(STAGE_LABEL[s] || s)}${st === 'cur' ? ' (current)' : ''}"><span>${st === 'done' ? icon('check') : ''}${esc(STAGE_LABEL[s] || s)}</span><i></i></div>`; }).join('')}</div>
     <nav class="tabs" aria-label="Task sections">${TABS.map(([k, l]) => `<a href="#/tasks/${q(t.id)}/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${l}${counts[k] !== undefined ? `<em>${counts[k]}</em>` : ''}</a>`).join('')}</nav>
     ${body}
   </div>
   <aside class="rail">
     <section class="card next"><div class="card-body"><div class="eyebrow" style="color:var(--accent-ink)">Next step</div><p>${esc(next.text)}</p>
       <div class="cmd"><span title="${esc(next.command)}">${esc(next.command)}</span><button class="icon-btn" style="width:22px;height:22px" data-act="copy-cmd" data-cmd="${esc(next.command)}" aria-label="Copy command">${icon('copy')}</button></div>
-      <button class="btn primary" style="width:100%;justify-content:center" data-act="${next.act}" ${next.action ? `data-action="${next.action}"` : ''} ${next.tab ? `data-tab="${next.tab}"` : ''} ${next.id ? `data-id="${esc(next.id)}"` : ''} data-cmd="${esc(next.command)}">${icon(next.act === 'copy-cmd' ? 'copy' : next.act === 'tab' ? 'chev' : 'play')}${esc(next.label)}</button></div></section>
+      ${next.link ? `<a class="btn" style="width:100%;justify-content:center;margin-bottom:8px" href="${esc(next.link)}" target="_blank" rel="noreferrer">${icon('external')}${t.pullRequest?.opened ? `Open pull request${t.pullRequest.number ? ` #${esc(t.pullRequest.number)}` : ''}` : 'Create the pull request'}</a>` : ''}
+      <button class="btn primary" style="width:100%;justify-content:center" data-act="${next.act}" ${next.action ? `data-action="${next.action}"` : ''} ${next.tab ? `data-tab="${next.tab}"` : ''} ${next.flow ? `data-flow="${esc(next.flow)}"` : ''} ${next.id ? `data-id="${esc(next.id)}"` : ''} data-cmd="${esc(next.command)}">${icon({ 'copy-cmd': 'copy', tab: 'chev', finish: 'check', reopen: 'undo', 'run-flow': next.flow === 'pr' ? 'pr' : 'play' }[next.act] || 'play')}${esc(next.label)}</button></div></section>
     <section class="card"><div class="card-head"><h3>Details</h3></div><dl class="props">
       <dt>Stage</dt><dd>${pill(STAGE_LABEL[t.stage] || t.stage, 'accent')}<span class="muted">${idx + 1}/${t.stages.length}</span></dd>
       <dt>Workflow</dt><dd>${esc(t.workflow)}</dd>
       <dt>Subtasks</dt><dd>${t.subtasks.length ? `${done} of ${t.subtasks.length} done` : '—'}</dd>
       <dt>Criteria</dt><dd>${t.criteria.length ? `${t.criteria.filter(c => c.tested).length}/${t.criteria.length} tested` : '—'}</dd>
       <dt>Evidence</dt><dd>${t.evidence ? pill('captured', 'ok') : pill('pending')}</dd>
+      ${t.pullRequest ? `<dt>Pull request</dt><dd title="${esc(t.pullRequest.branch)} → ${esc(t.pullRequest.base)}">${t.pullRequest.url ? `<a href="${esc(t.pullRequest.url)}" target="_blank" rel="noreferrer">${t.pullRequest.opened ? (t.pullRequest.number ? `#${esc(t.pullRequest.number)}` : 'open') : 'create it'} ${icon('external')}</a>` : pill('branch pushed')}${t.pullRequest.opened ? pill('open', 'ok') : ''}</dd>` : ''}
+      ${t.done ? `<dt>Finished</dt><dd class="mono muted" style="font-size:12px" title="${esc(t.done.note || '')}">${esc(new Date(t.done.at).toLocaleDateString())} · ${esc(t.done.by)}</dd>` : ''}
       ${t.created ? `<dt>Created</dt><dd class="mono muted" style="font-size:12px">${esc(new Date(t.created).toLocaleDateString())}</dd>` : ''}
       <dt>Updated</dt><dd class="mono muted" style="font-size:12px">${esc(timeAgo(summary.updated))}</dd></dl></section>
     <section class="card"><div class="card-head"><h3>Run</h3><span class="count">maverick</span></div><div class="card-body" style="display:grid;gap:2px;padding:8px">
       <button class="btn ghost" style="justify-content:flex-start" data-act="run-agent">${icon('agent')}Run an agent<span class="mono faint" style="margin-left:auto;font-size:11px">agent run</span></button>
-      ${[['check', 'Validate artifacts', 'validate'], ['shield', 'Verify', 'verify'], ['search', 'Scope guard', 'guard'], ['alert', 'Security scan', 'security'], ['puzzle', 'Dependencies', 'deps'], ['file', 'Review diff', 'review'], ['bolt', 'Readiness', 'readiness'], ['branch', 'Checkpoint', 'checkpoint'], ['pr', 'Draft pull request', 'pr']].map(([ic, l, c]) => `<button class="btn ghost" style="justify-content:flex-start" data-act="run" data-action="${c}">${icon(ic)}${l}<span class="mono faint" style="margin-left:auto;font-size:11px">${c}</span></button>`).join('')}
+      ${[['check', 'Validate artifacts', 'validate'], ['shield', 'Verify', 'verify'], ['search', 'Scope guard', 'guard'], ['alert', 'Security scan', 'security'], ['puzzle', 'Dependencies', 'deps'], ['file', 'Review diff', 'review'], ['bolt', 'Readiness', 'readiness'], ['branch', 'Checkpoint', 'checkpoint'], ['file', 'Draft pull request', 'pr']].map(([ic, l, c]) => `<button class="btn ghost" style="justify-content:flex-start" data-act="run" data-action="${c}">${icon(ic)}${l}<span class="mono faint" style="margin-left:auto;font-size:11px">${c}</span></button>`).join('')}
+      <button class="btn ghost" style="justify-content:flex-start" data-act="run-flow" data-flow="pr">${icon('pr')}Open pull request<span class="mono faint" style="margin-left:auto;font-size:11px">flow run pr</span></button>
+      ${t.stage === 'done' ? `<button class="btn ghost" style="justify-content:flex-start" data-act="reopen">${icon('undo')}Reopen task<span class="mono faint" style="margin-left:auto;font-size:11px">reopen</span></button>` : `<button class="btn ghost" style="justify-content:flex-start" data-act="finish">${icon('check')}Finish task<span class="mono faint" style="margin-left:auto;font-size:11px">done</span></button>`}
     </div></section>
   </aside></div></div>`;
 }
@@ -165,6 +182,29 @@ export async function runFlowFor(id, flow, reset = false) {
   } catch (error) { sheet.done({ ok: false, output: error.message }); }
   store.detail.delete(id); store.runs = null; await loadProject().catch(() => {});
   if (location.hash.startsWith(`#/tasks/${q(id)}`) || location.hash.startsWith('#/inbox') || location.hash.startsWith('#/runs')) renderApp({ keepScroll: true });
+}
+
+/** Finishes a task with `maverick done`, after a confirmation that says what is left when it is not at the PR stage. */
+export async function finishTask(id) {
+  const t = store.detail.get(id) || store.project.tasks.find(item => item.id === id), early = Boolean(t && t.stage !== 'pr');
+  const values = await dialog({
+    title: `Finish ${t?.title || id}?`,
+    text: early ? `This task is at the <b>${esc(STAGE_LABEL[t.stage] || t.stage)}</b> stage, so its gates have not all passed. Finishing it now is recorded in <code class="mono">TASK.json</code> with that stage (<code class="mono">maverick done --force</code>).` : `${t?.pullRequest?.opened ? 'Finish it once its pull request has merged. ' : ''}The task moves to <b>Done</b> and leaves the Inbox; you can reopen it.`,
+    fields: [{ name: 'by', label: 'Finished by', value: reviewer(), autocomplete: 'name' }, { name: 'note', label: 'Note (optional)', placeholder: 'Merged, released in 1.8' }],
+    confirm: early ? 'Finish anyway' : 'Finish task', tone: early ? 'bad' : 'primary'
+  });
+  if (!values) return;
+  try { if (values.by?.trim()) localStorage.setItem('lens.reviewer', values.by.trim()); } catch { /* private mode */ }
+  try { const result = await api('/api/action', { action: 'done', task: id, by: values.by, note: values.note, force: early }); toast(result.ok ? `${t?.title || id} is done` : result.error, result.ok ? 'ok' : 'bad'); }
+  catch (error) { toast(error.message, 'bad'); }
+  await refreshTask(id);
+}
+
+async function reopenTask(id) {
+  if (!await dialog({ title: 'Reopen this task?', text: 'It goes back to the stage its files say it is at, and shows up in the Inbox again.', confirm: 'Reopen task' })) return;
+  try { const result = await api('/api/action', { action: 'reopen', task: id }); toast(result.ok ? 'Task reopened' : result.error, result.ok ? 'ok' : 'bad'); }
+  catch (error) { toast(error.message, 'bad'); }
+  await refreshTask(id);
 }
 
 async function runCommand(id, action) {
@@ -221,6 +261,8 @@ export const actions = {
   'start-subtask': (el, { route }) => startAgent({ task: route.id, subtask: el.dataset.id, heading: `Start subtask ${el.dataset.id}` }),
   'run-agent': (el, { route }) => startAgent({ task: route.id, heading: 'Run an agent on this task' }),
   'fix-agent': (el, { route }) => fixWithAgent(route.id, el.dataset.flow),
+  finish: (el, { route }) => finishTask(route.id),
+  reopen: (el, { route }) => reopenTask(route.id),
   'subtask-status': async (el, { route }) => {
     const previous = [...el.options].find(o => o.defaultSelected)?.value;
     el.disabled = true;
@@ -241,14 +283,16 @@ export const actions = {
     form.querySelectorAll('button').forEach(b => { b.disabled = true; });
     try {
       const { outcome } = await api('/api/task-flow/approval', { task: route.id, flow: form.dataset.flow, gate: data.gate, decision, by: data.by.trim(), reason: data.reason });
-      const now = outcome && `${form.dataset.flow} ${(OUTCOME[outcome] || ['', outcome])[1].toLowerCase()}`;
+      const now = outcome && (form.dataset.flow === 'pr' && outcome === 'done' ? 'pull request opened' : `${form.dataset.flow} ${(OUTCOME[outcome] || ['', outcome])[1].toLowerCase()}`);
       toast(decision === 'approve' ? `Approved · ${now || `run ${form.dataset.flow} again to finalize`}` : `Changes requested${now ? ` · ${now}` : ''}`, decision === 'approve' ? 'ok' : 'warn');
     } catch (error) { toast(error.message, 'bad'); }
     await refreshTask(route.id);
   },
   'auto-approve': async (el, { route }) => {
     const flow = el.dataset.flow, enabled = el.checked;
-    if (enabled && !await dialog({ title: `Auto-approve the ${flow} flow?`, text: `When every blocking check passes, a run of <b>${esc(flow)}</b> approves its pending approval gates itself instead of waiting for a human, for every task in this repository. Auto-approved gates say so. This is written to <code class="mono">.maverick/config.json</code>.`, confirm: 'Turn on auto-approve' })) { el.checked = false; return; }
+    // A flow with a gate that acts (the pr flow's `open`) commits, pushes and opens the pull request on its own.
+    const acting = store.detail.get(route.id)?.flows.find(item => item.name === flow)?.gates.some(gate => gate.run === 'pr-open');
+    if (enabled && !await dialog({ title: `Auto-approve the ${flow} flow?`, text: `When every blocking check passes, a run of <b>${esc(flow)}</b> approves its pending approval gates itself instead of waiting for a human, for every task in this repository.${acting ? ' For this flow that means Maverick commits the change, pushes the branch and opens the pull request without asking.' : ''} Auto-approved gates say so. This is written to <code class="mono">.maverick/config.json</code>.`, confirm: 'Turn on auto-approve' })) { el.checked = false; return; }
     el.disabled = true;
     try {
       const result = await api('/api/task-flow/auto-approve', { flow, enabled });

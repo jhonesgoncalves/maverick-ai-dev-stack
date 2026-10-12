@@ -1,14 +1,17 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadConfig } from './config.js';
 import { taskStage } from './pipeline.js';
 import { requirePreset } from './presets.js';
-import { exists, readJson, rel, requireSlug } from './util.js';
+import { exists, pretty, readJson, rel, requireSlug } from './util.js';
 
 export function taskPath(cwd, config, slug) { requireSlug(slug); return join(cwd, config.taskRoot, slug); }
 
 /** The task's metadata (idea, workflow, creation date). Empty when TASK.json is missing. */
 export async function taskMeta(dir) { return await exists(join(dir, 'TASK.json')) ? readJson(join(dir, 'TASK.json')) : {}; }
+
+/** Writes TASK.json: the task's metadata, plus its pull request and completion once they happen. */
+export async function writeTaskMeta(dir, meta) { await writeFile(join(dir, 'TASK.json'), pretty(meta)); }
 
 export async function taskPreset(dir) { return (await taskMeta(dir)).workflow || 'standard'; }
 

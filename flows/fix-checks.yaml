@@ -10,6 +10,10 @@ gates:
     type: check
     kinds: [lint, typecheck, test]
     description: Detected lint, typecheck and test commands pass.
+  - id: integrity
+    type: maverick
+    run: integrity
+    description: The fixes do not delete, skip or weaken tests, or edit the check configuration.
   - id: scope
     type: maverick
     run: guard

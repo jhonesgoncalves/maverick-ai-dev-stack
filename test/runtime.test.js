@@ -8,7 +8,7 @@ import { main } from '../src/cli.js';
 import { captureOutput } from '../src/core/util.js';
 import { runHooks } from '../src/runtime/hooks.js';
 import { resolveRun } from '../src/runtime/policy.js';
-import { parseResultBlock } from '../src/runtime/prompt.js';
+import { HEADLESS_RULES, parseResultBlock } from '../src/runtime/prompt.js';
 import { BUILTIN_PROVIDERS, providersFor } from '../src/runtime/providers.js';
 
 process.env.MAVERICK_HOME = await mkdtemp(join(tmpdir(), 'maverick-home-'));
@@ -88,7 +88,10 @@ test('stream parsers normalise each provider into the same events', () => {
 });
 
 test('result blocks are parsed strictly', () => {
-  assert.deepEqual(parseResultBlock(`x\n${result('done', 'ok')}`), { status: 'done', summary: 'ok', questions: [], filesChanged: [] });
+  assert.deepEqual(parseResultBlock(`x\n${result('done', 'ok')}`), { status: 'done', summary: 'ok', questions: [], filesChanged: [], notes: [], disputes: [] });
+  const disputed = parseResultBlock('```maverick-result\n{"status":"blocked","summary":"s","disputes":[{"target":"test/a.test.js","reason":"expects the old format"}]}\n```');
+  assert.deepEqual(disputed.disputes, [{ target: 'test/a.test.js', reason: 'expects the old format' }]);
+  assert.match(HEADLESS_RULES, /disputes/);
   assert.equal(parseResultBlock('```maverick-result\n{"status":"maybe"}\n```'), null);
   assert.equal(parseResultBlock('no block'), null);
 });
@@ -175,6 +178,25 @@ test('flow run --agent fixes blocking issues until the gates pass', async () => 
 
   const asking = await project({ files: { '.maverick/flows/fix.yaml': flow }, action: `process.env.FAKE_TEXT = ${JSON.stringify(result('needs-input', 'Which API version?'))};` });
   await assert.rejects(quiet({ cwd: asking, args: ['flow', 'run', 'fix', 'demo', '--agent'] }), /agent needs a human: needs-input/);
+
+  // Each fix is recorded with the flow run it produced, so an iteration links to its transcript.
+  const state = JSON.parse(await readFile(join(cwd, '.maverick/tasks/demo/flows/fix.json'), 'utf8'));
+  assert.equal(state.runs.at(-1).agent.provider, 'claude-code');
+  assert.match(state.runs.at(-1).agent.transcript, /runs\/.*-claude-code\.jsonl$/);
+});
+
+test('flow run --agent never reads a missing result block as done, and its dry run shows the fix prompt', async () => {
+  const gate = `${JSON.stringify(process.execPath)} -e "process.exit(require('fs').existsSync('fixed') ? 0 : 1)"`;
+  const flow = `apiVersion: maverick.flow/v1\nname: fix\ndescription: Loop used by runtime tests.\ncontract:\n  goal: Fixed for {{task}}.\n  iterationCap: 4\n  noProgressWindow: 3\ngates:\n  - id: fixed\n    type: command\n    run: ${JSON.stringify(gate)}\n`;
+  const silent = await project({ files: { '.maverick/flows/fix.yaml': flow }, action: "process.env.FAKE_TEXT = 'I changed some things.';" });
+  await assert.rejects(quiet({ cwd: silent, args: ['flow', 'run', 'fix', 'demo', '--agent'] }), /no maverick-result block and the gates still fail/);
+  assert.equal((await calls(silent)).length, 1);
+
+  const dry = await project({ files: { '.maverick/flows/fix.yaml': flow } });
+  const error = await quiet({ cwd: dry, args: ['flow', 'run', 'fix', 'demo', '--agent', '--dry-run'] }).then(() => null, err => err);
+  assert.match(error.message, /outcome: revise/);
+  assert.match(error.output, /AGENT FIX \(dry run[\s\S]*## Blocking issues to fix/);
+  assert.ok(!existsSync(join(dry, '.fake-calls.jsonl')), 'a dry run starts no agent');
 });
 
 test('agent trust is a reviewed config change', async () => {

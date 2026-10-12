@@ -45,7 +45,7 @@ export default defineConfig({
     sidebar: {
       '/lens/': [
         { text: 'Getting started', items: [{ text: 'Introduction', link: '/lens/' }, ...items('/lens', [['quick-start', 'Quick start'], ['interface', 'The interface']])] },
-        { text: 'Workspace', items: items('/lens', [['inbox-and-tasks', 'Inbox and tasks'], ['task-page', 'The task page'], ['agents', 'Agents'], ['runs', 'Runs']]) },
+        { text: 'Workspace', items: items('/lens', [['inbox-and-tasks', 'Inbox and tasks'], ['task-page', 'The task page'], ['agents', 'Agents'], ['runs', 'Runs'], ['loops', 'Loops']]) },
         { text: 'Codebase', items: items('/lens', [['devtools', 'Devtools'], ['library', 'Library and changes']]) },
         { text: 'System', items: items('/lens', [['system', 'Capabilities and settings']]) },
         { text: 'Reference', items: items('/lens', [['cli', 'maverick lens'], ['configuration', 'Configuration'], ['api', 'HTTP API'], ['security', 'Security model'], ['troubleshooting', 'Troubleshooting']]) },
@@ -54,7 +54,7 @@ export default defineConfig({
       '/': [
         { text: 'Get started', items: [{ text: 'Introduction', link: '/guide/getting-started' }, { text: 'Installation', link: '/guide/installation' }, { text: 'Your first task', link: '/guide/first-task' }, { text: 'The Maverick Method', link: '/guide/method' }, { text: 'From idea to tasks', link: '/guide/planning' }, { text: 'The workflow', link: '/guide/workflow' }, { text: 'FAQ', link: '/faq' }] },
         { text: 'Maverick Lens', items: [{ text: 'Lens documentation', link: '/lens/' }, { text: 'Devtools', link: '/lens/devtools' }, { text: 'Announcement', link: '/announcements/maverick-lens' }] },
-        { text: 'Concepts', collapsed: false, items: [{ text: 'Overview', link: '/concepts/' }, ...items('/concepts', [['context-engineering', 'Context engineering'], ['brief', 'Task brief'], ['planning', 'Planning'], ['verification', 'Verification'], ['review', 'Review'], ['human-in-the-loop', 'Human in the loop']])] },
+        { text: 'Concepts', collapsed: false, items: [{ text: 'Overview', link: '/concepts/' }, ...items('/concepts', [['context-engineering', 'Context engineering'], ['brief', 'Task brief'], ['planning', 'Planning'], ['verification', 'Verification'], ['review', 'Review'], ['human-in-the-loop', 'Human in the loop'], ['loop-engineering', 'Loop engineering']])] },
         { text: 'Reference', items: [{ text: 'CLI', link: '/reference/cli' }, { text: 'Configuration', link: '/reference/config' }, ...items('/reference', [['artifacts', 'Task artifacts'], ['prompts', 'Prompts'], ['agents', 'Agents'], ['workflows', 'Workflows']])] },
         { text: 'Adapters', collapsed: true, items: items('/integrations', [['claude-code', 'Claude Code'], ['codex', 'Codex'], ['cursor', 'Cursor'], ['generic', 'Generic agents']]) },
         { text: 'Maverick Lab', collapsed: true, items: items('/lab', [['introduction', 'Introduction'], ['experiment-design', 'Experiment design'], ['measurement', 'Measurement']]) },

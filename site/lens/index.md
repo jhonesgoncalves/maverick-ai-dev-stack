@@ -40,7 +40,7 @@ The sidebar groups the views in four sections:
 
 | Section | Views | Read more |
 |---|---|---|
-| **Workspace** | Inbox, Tasks, Runs | [Inbox and tasks](./inbox-and-tasks.md), [The task page](./task-page.md), [Runs](./runs.md) |
+| **Workspace** | Inbox, Tasks, Runs, Loops | [Inbox and tasks](./inbox-and-tasks.md), [The task page](./task-page.md), [Runs](./runs.md), [Loops](./loops.md) |
 | **Codebase** | Overview, Architecture, Entry points, Hotspots, Findings, Changes — plus Coupling, Cycles, Impact, Integrations, Team and Debt inside Devtools | [Devtools](./devtools.md), [Library and changes](./library.md) |
 | **Library** | Specs, Docs, Lab | [Library and changes](./library.md) |
 | **System** | Agents, Capabilities, Settings, CLI reference | [Agents](./agents.md), [Capabilities and settings](./system.md) |

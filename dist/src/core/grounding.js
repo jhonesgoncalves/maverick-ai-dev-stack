@@ -14,8 +14,8 @@ import { selectVerificationCommands } from './stack.js';
 const STOPWORDS = new Set(`a an and are as at be by can do for from has have how i in into is it its let make me my need new of on or our should so that the their them then there this to up use using want we when where which will with without would add adds allow allows change create creates feature implement support update user users able also any each every only same like just more most other some such than too very via through about into onto over under after before while
 o os as um uma uns umas de do da dos das no na nos nas em ao aos para por pelo pela com sem que quando onde como mais menos ser estar ter fazer criar cria adicionar adiciona permitir permite deve devem pode podem precisa quero queremos seja sejam isso esse essa este esta e ou se ja nao sim tambem cada todo toda todos todas nova novo novas novos usuario usuarios funcionalidade tela sistema`.split(/\s+/));
 
-const GENERATED = ['dist', 'build', 'out', 'coverage', 'vendor', 'target', '.next', '.nuxt'];
-const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'Cargo.lock', 'poetry.lock', 'uv.lock', 'Gemfile.lock', 'composer.lock', 'go.sum', 'pubspec.lock', 'mix.lock'];
+export const GENERATED = ['dist', 'build', 'out', 'coverage', 'vendor', 'target', '.next', '.nuxt'];
+export const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'Cargo.lock', 'poetry.lock', 'uv.lock', 'Gemfile.lock', 'composer.lock', 'go.sum', 'pubspec.lock', 'mix.lock'];
 
 const fold = text => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /** A cheap, language-agnostic stem: long words keep their first six letters, short ones lose a plural "s". */

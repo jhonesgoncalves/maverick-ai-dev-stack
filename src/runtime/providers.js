@@ -19,6 +19,7 @@ const toolDetail = input => short(input?.file_path || input?.path || input?.comm
 const claude = {
   id: 'claude-code', name: 'Claude Code', bin: 'claude',
   permissions: { 'read-only': true, edit: true, full: true },
+  reportsCost: true, // total_cost_usd on the result event
   efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   editShell: 'verification',
   models: { suggested: ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5', 'claude-haiku-4-5'] },
@@ -220,6 +221,7 @@ const kiro = {
 // narrowed from the command line: only full is offered.
 const opencode = {
   id: 'opencode', name: 'OpenCode', bin: 'opencode',
+  reportsCost: true, // summed from step_finish events
   permissions: { 'read-only': 'opencode run may approve shell commands even with the plan agent; use full or another provider', edit: 'opencode run may approve shell commands on its own; use full or another provider', full: true },
   interactive: ({ prompt, model }) => [...(model ? ['--model', model] : []), '--prompt', prompt],
   invocation({ prompt, model }) {

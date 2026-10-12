@@ -1,18 +1,20 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeCommand, findReferences, gitDiff, inspectProject, lacksGitBaseline, writeEvidence } from '../core/project-tools.js';
+import { executeCommand, findReferences, gitDiff, inspectProject, lacksGitBaseline, LOCKFILE_PATTERN as LOCKFILE, MANIFEST_PATTERN as MANIFEST, writeEvidence } from '../core/project-tools.js';
 import { selectVerificationCommands } from '../core/stack.js';
 import { getTask } from '../core/tasks.js';
 import { buildGraph, createResolver, impactOf } from '../intel/graph.js';
 import { extractRoutes } from '../intel/routes.js';
 import { brand, changedFilesFromDiff, exists, output, packageRoot, pretty, readJson, readText, rel, sectionBody } from '../core/util.js';
-import { acIds, pathReferences } from '../core/quality.js';
+import { acIds, declaredScope } from '../core/quality.js';
 import { heading, projectLanguage } from '../core/language.js';
 import { loadGraph } from '../subtasks/graph.js';
-
-// Dependency files across ecosystems, matched against changed paths.
-const LOCKFILE = /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|pdm\.lock|Pipfile\.lock|requirements[\w.-]*\.txt|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock|mix\.lock|pubspec\.lock|packages\.lock\.json|gradle\.lockfile|Package\.resolved)$/;
-const MANIFEST = /(?:^|\/)(?:package\.json|pyproject\.toml|Pipfile|setup\.py|setup\.cfg|go\.mod|Cargo\.toml|Gemfile|composer\.json|mix\.exs|pubspec\.yaml|pom\.xml|build\.gradle(?:\.kts)?|[^/]+\.(?:csproj|fsproj|vbproj)|Directory\.Packages\.props|Package\.swift)$/;
+import { fingerprintsFor } from '../flows/fingerprint.js';
+import { detectStack } from '../core/stack.js';
+import { inPlace, resolveRef, treeOf } from '../loop/git.js';
+import { auditIntegrity, detectOracleSet, renderIntegrityReport } from '../loop/integrity.js';
+import { loopSettings } from '../loop/model.js';
 
 async function verifyTask(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
@@ -20,9 +22,11 @@ async function verifyTask(cwd, slug, options = {}) {
   const selected = selectVerificationCommands(map.stack, config);
   if (!selected.length) throw new Error('no verification commands detected; run maverick stack, or declare verification.commands in .maverick/config.json');
   const results = [];
-  for (const item of selected) results.push(await executeCommand(cwd, item.command, item.cwd));
+  for (const item of selected) results.push(await executeCommand(cwd, item.command, item.cwd, 200000));
   const evidence = await writeEvidence(dir, slug, results);
-  const payload = { ok: results.every(result => result.ok), results: results.map((result, index) => ({ command: result.command, kind: selected[index].kind, source: selected[index].source, ok: result.ok, code: result.code })), evidence: rel(cwd, evidence) };
+  // Failing tests by name, so a flow (or loop) can tell "fewer failures" from "the same failures".
+  const named = result => { if (result.ok) return {}; const { ids, keys } = fingerprintsFor({ command: result.command, output: result.output, cwd }); return { failing: ids, keys }; };
+  const payload = { ok: results.every(result => result.ok), results: results.map((result, index) => ({ command: result.command, kind: selected[index].kind, source: selected[index].source, ok: result.ok, code: result.code, ...named(result) })), evidence: rel(cwd, evidence) };
   if (options.json) output(JSON.stringify(payload, null, 2));
   else { output(`${brand()} / VERIFY`); results.forEach(result => output(`${result.ok ? 'PASS' : 'FAIL'} ${result.command}`)); output(`Evidence: ${payload.evidence}`); }
   if (!payload.ok) throw new Error('verification failed');
@@ -115,9 +119,8 @@ async function impact(cwd, path, options = {}) {
 async function guardScope(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
   // The declared scope is every file the technical spec and the tasks say they will touch, new files included.
-  const spec = await readText(join(dir, 'TECHSPEC.md')), graph = await loadGraph(dir);
-  const [diff, noBaseline] = await Promise.all([gitDiff(cwd, options.against || 'HEAD'), lacksGitBaseline(cwd)]), changed = changedFilesFromDiff(diff);
-  const expected = [...new Set(pathReferences([sectionBody(spec, 'File References'), sectionBody(spec, 'Impact'), ...graph.items.map(item => sectionBody(item.body, 'Files'))].join('\n'), { includeNew: true }))];
+  const [diff, noBaseline, scope] = await Promise.all([gitDiff(cwd, options.against || 'HEAD'), lacksGitBaseline(cwd), declaredScope(dir)]), changed = changedFilesFromDiff(diff);
+  const expected = scope.all;
   const outsideScope = expected.length ? changed.filter(file => !expected.includes(file)) : [];
   const maxFiles = config.maxChangedFilesGuideline || 8;
   const findings = [noBaseline ? 'No git baseline: git tracks no file in this project, so its changes cannot be told apart. Commit the project (or run it from its own repository) before the task starts.' : null, changed.length > maxFiles ? `Change budget exceeded: ${changed.length}/${maxFiles} files.` : null, ...outsideScope.map(file => `Not in TECHSPEC.md File References or any task: ${file}`)].filter(Boolean);
@@ -196,10 +199,49 @@ async function showReview(cwd, slug) {
   output(`Review: ${rel(cwd, join(dir, 'REVIEW.md'))}${created ? ' (written from PRD.md and the tasks)' : ''}`);
 }
 
+/**
+ * Audits the change since `--against` (default HEAD) for weakened checks: deleted or skipped
+ * tests, fewer assertions, silenced lint or types, changed check configuration or CI, protected
+ * paths. The same guard every loop iteration passes; here it works on any change.
+ */
+async function integrityCheck(cwd, slug, options = {}) {
+  const { config, dir } = await getTask(cwd, slug);
+  // Outside git there is no change to audit (as for security and deps); inside, a baseline is required.
+  if (!(await executeCommand(cwd, 'git rev-parse --is-inside-work-tree', '', 100)).ok) {
+    const payload = { ok: true, level: 'off', against: null, findings: [], stats: { note: 'not a git repository: nothing to audit' } };
+    return output(options.json ? JSON.stringify(payload, null, 2) : `${brand()} / INTEGRITY ${slug}\nNOTE not a git repository: nothing to audit`);
+  }
+  if (await lacksGitBaseline(cwd)) throw new Error('git tracks no file of this project; commit it so its changes can be audited');
+  const against = typeof options.against === 'string' ? options.against : 'HEAD';
+  const settings = loopSettings(config, null, { integrity: typeof options.level === 'string' ? options.level : undefined });
+  const commit = await resolveRef(cwd, against);
+  if (!commit) throw new Error(`unknown revision: ${against}`);
+  const stack = await detectStack(cwd), scratch = await mkdtemp(join(tmpdir(), 'maverick-integrity-'));
+  try {
+    // The working tree as a tree object, through a private index: the user's index is never touched.
+    const tree = inPlace({ cwd, task: slug, indexFile: join(scratch, 'index'), inflight: scratch });
+    const head = await tree.snapshot(), base = await treeOf(cwd, commit);
+    const report = await auditIntegrity(cwd, { base, head, diff: await tree.diff(base, head), taskDir: dir, settings, config, stack });
+    const oracle = options.oracle ? await detectOracleSet(cwd, { config, stack, taskDir: dir, settings }) : null;
+    const path = join(dir, 'INTEGRITY.md');
+    await writeFile(path, renderIntegrityReport(slug, report, { against, oracle }));
+    const payload = { ok: report.ok, level: report.level, against, findings: report.findings, stats: report.stats, ...(oracle && { oracle: { digest: oracle.digest, counts: oracle.counts, entries: oracle.entries } }), path: rel(cwd, path) };
+    if (options.json) output(JSON.stringify(payload, null, 2));
+    else {
+      output(`${brand()} / INTEGRITY ${slug}\nCompared with ${against} · level ${report.level}`);
+      report.findings.forEach(item => output(`${item.severity === 'block' ? 'FAIL' : 'WARN'} ${item.kind}${item.file ? ` ${item.file}` : ''}: ${item.message}`));
+      if (oracle) output(`\nProtected: ${Object.entries(oracle.counts).map(([role, count]) => `${count} ${role}`).join(', ') || 'nothing detected'}\n${oracle.entries.slice(0, 40).map(entry => `  ${entry.role.padEnd(14)}${entry.path}`).join('\n')}`);
+      output(`${report.ok ? 'PASS no test, check or configuration was weakened' : ''}\nReport: ${payload.path}`.trim());
+    }
+    if (!report.ok) throw new Error('integrity findings require human review');
+  } finally { await rm(scratch, { recursive: true, force: true }); }
+}
+
 export const gateCommands = [
   { id: 'checkpoint', description: 'Save current Git state and diff.', aliases: [], usage: 'checkpoint <task>', run: ({ cwd, arg, options }) => checkpoint(cwd, arg, options) },
   { id: 'impact', description: 'Find bounded project references to a file.', aliases: [], usage: 'impact <path>', run: ({ cwd, arg, options }) => impact(cwd, arg, options) },
   { id: 'guard', description: 'Compare changed files with declared task scope.', aliases: [], usage: 'guard <task>', run: ({ cwd, arg, options }) => guardScope(cwd, arg, options) },
+  { id: 'integrity', description: 'Catch weakened checks: deleted or skipped tests, looser assertions, silenced lint, edited check config.', aliases: [], usage: 'integrity <task> [--against <ref>] [--level strict|standard|off] [--oracle]', run: ({ cwd, arg, options }) => integrityCheck(cwd, arg, options) },
   { id: 'readiness', description: 'Evaluate merge-readiness gates.', aliases: [], usage: 'readiness <task>', run: ({ cwd, arg, options }) => readiness(cwd, arg, options) },
   { id: 'policy', description: 'Initialize, show, or check repository policy.', aliases: [], usage: 'policy init|show|check <task>', run: ({ cwd, arg, third, options }) => policy(cwd, arg, third, options) },
   { id: 'verify', description: 'Run detected checks for any stack and save evidence.', aliases: [], usage: 'verify <task> [--json]', run: ({ cwd, arg, options }) => verifyTask(cwd, arg, options) },

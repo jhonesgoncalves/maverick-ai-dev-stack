@@ -2,7 +2,7 @@
 
 <p class="mv-kicker">CORE</p>
 
-Every change moves through one pipeline. **PRD** says what changes and why. In spec-driven work, **SPEC** fixes the exact behavior and contracts, and a human approves it. **TECHSPEC** grounds the approach in real files. **Tasks** split it into a dependency graph with tests. **Build** makes focused changes. **Verify** collects evidence. **Review** is a human decision. **PR** records the rationale. Every stage runs as a skill inside your AI coding agent: `maverick-new` plans, `maverick-build` builds, `maverick-review` verifies and reviews, and `maverick-ship` drafts the PR. See [The Maverick Method](/guide/method) for the stage-by-stage playbook and [From idea to tasks](/guide/planning#everything-happens-in-the-agent).
+Every change moves through one pipeline. **PRD** says what changes and why. In spec-driven work, **SPEC** fixes the exact behavior and contracts, and a human approves it. **TECHSPEC** grounds the approach in real files. **Tasks** split it into a dependency graph with tests. **Build** makes focused changes. **Verify** collects evidence. **Review** is a human decision. **PR** records the rationale and opens the pull request once a human approves the draft. **Done** is recorded when it has landed. Every stage runs as a skill inside your AI coding agent: `maverick-new` plans, `maverick-build` builds, `maverick-review` verifies and reviews, and `maverick-ship` drafts the PR. See [The Maverick Method](/guide/method) for the stage-by-stage playbook and [From idea to tasks](/guide/planning#everything-happens-in-the-agent).
 
 Pick a workflow and click a stage to see what it produces:
 
@@ -22,7 +22,8 @@ Every stage is a skill. In **Claude Code**, type it as a slash command with the 
 | **VERIFY** | `/maverick-review <task>` | `EVIDENCE.md` | `maverick verify`, `guard`, `deps` | read the evidence |
 | **SECURITY** <Badge type="warning" text="strict" /> | `/maverick-review <task>` | `SECURITY-REPORT.md` | `maverick security <task>` | read the findings |
 | **REVIEW** | `/maverick-review <task>` | `REVIEW.md` | `maverick flow run ship <task>` | **◆ record the decision** |
-| **PR** | `/maverick-ship <task>` | `PR-DRAFT.md` | `maverick readiness <task>`, `maverick pr <task>` | **◆ merge** |
+| **PR** | `/maverick-ship <task>` | `PR-DRAFT.md`, the pull request | `maverick flow run pr <task>` | **◆ approve the draft, then merge** |
+| **DONE** | — | `TASK.json` | `maverick done <task>` | finish the task |
 
 You don't have to remember the table. `/maverick-new <idea>` chains the planning skills for you and asks before each one, `maverick new <task>` reopens the agent with the right skill for the current stage, and `maverick status` names it in each task's next step. See [The Maverick Method](/guide/method) for each stage in depth.
 
@@ -47,7 +48,7 @@ maverick new "Replace the shared cache layer" --strict      # strict
 `spec-driven` puts a behavioral spec in the middle of the pipeline:
 
 ```text
-PRD ──► SPEC ──► [human approves] ──► TECHSPEC ──► TASKS ──► BUILD ──► VERIFY ──► REVIEW ──► PR
+PRD ──► SPEC ──► [human approves] ──► TECHSPEC ──► TASKS ──► BUILD ──► VERIFY ──► REVIEW ──► PR ──► DONE
 what     exact behavior                how           graph      tests first
 and why  and contracts                                          against SPEC
 ```

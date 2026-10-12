@@ -57,6 +57,7 @@ Maverick moves that work **before** the diff and keeps the receipts **after** it
 | **"Tests pass"** | Trust me | `EVIDENCE.md`: every command, exit code and output |
 | **Security and dependencies** | Hope | `SECURITY-REPORT.md` and `DEPENDENCY-REVIEW.md` for the diff |
 | **When the agent stops** | When it feels done | A contract: `done`, `revise`, `awaiting-approval`, `stalled` or `exhausted` |
+| **An agent left running** | Grades its own work, may "fix" tests | `maverick loop`: the harness checks every iteration, rolls back regressions and weakened tests, and records it all |
 | **Who said "ship it"** | ¯\\\_(ツ)\_/¯ | A human decision, recorded in `REVIEW.md` |
 
 **Maverick is not another coding agent.** Keep the one you like, or the five your team already uses. Maverick is the workflow around them, and it works the same way in all of them.
@@ -179,7 +180,7 @@ Only `done` exits zero. After `stalled` or `exhausted` the flow refuses to run u
 <details>
 <summary><b>Write your own flow</b></summary>
 
-Add flows to `.maverick/flows/<name>.yaml`. Gates are typed, never free text: `check` (the detected lint, typecheck, test and build), `maverick` (validate, verify, guard, security, deps, policy, review, readiness), `command`, `artifact` (file, sections, pattern) and `approval`. Gates with `severity: warn` report without blocking.
+Add flows to `.maverick/flows/<name>.yaml`. Gates are typed, never free text: `check` (the detected lint, typecheck, test and build), `maverick` (validate, verify, guard, integrity, security, deps, policy, review, readiness), `command`, `artifact` (file, sections, pattern), `approval` and `judge` (an independent agent from another model family that decides the criteria). Gates with `severity: warn` report without blocking.
 
 ```yaml
 apiVersion: maverick.flow/v1
@@ -205,6 +206,25 @@ maverick subtask set my-task 01 done
 ```
 
 </details>
+
+## Loops you can leave running
+
+A loop builds a planned task subtask by subtask with a fresh agent context each time. The agent writes code; **Maverick decides every iteration** with evidence it collects itself, so the loop cannot grade its own work.
+
+```bash
+maverick loop run my-task --dry-run                   # the plan, the oracle and the first prompt
+maverick loop run my-task --max-iterations 8 --judge  # build it, within a budget
+maverick loop status my-task                          # or follow it live in Lens → Loops
+maverick loop verify my-task                          # the record still matches every checkpoint
+```
+
+- **Integrity guard.** Every diff is audited for deleted, skipped or focused tests, fewer or looser assertions, silenced lint or types, and edits to check configuration or CI, in twelve languages. An agent that thinks a check is wrong reports a dispute instead of changing it.
+- **Ratchet with rollback.** Each iteration is a checkpoint. A gate that passed never fails again; anything worse is rolled back automatically and the reason goes into the next prompt.
+- **Escalation across vendors.** No progress, oscillation, churn or overclaiming climbs a ladder: the diagnosis, more reasoning, another vendor, then you, with an escalation packet.
+- **Cross-family judge.** With `--judge`, a reviewer from a different model family, working read-only on an export of the change, must accept each subtask. It sees the diff and the harness's evidence, never the author's explanation.
+- **Budgets with a forecast, and a ledger.** Iteration, time and cost limits stop the loop *before* an iteration that would cross them. Every decision is in a hash-chained ledger tied to the checkpoint commits.
+
+In place, checkpoints are hidden refs: your HEAD, branch and index are never touched. With `--worktree`, the loop works on its own branch outside your checkout. A loop never commits to your branch and never pushes; only the `pr` flow does, after you approve the pull request draft. Read [Loop engineering](https://jhonesgoncalves.github.io/maverick-ai-dev-stack/concepts/loop-engineering).
 
 ## Bring every agent you use
 
@@ -241,7 +261,7 @@ maverick agent stage build --provider codex --effort high
 
 - **Trust is a reviewed decision.** Only providers in `runtime.trusted` run, and `agent trust` writes that list to a file your team reviews.
 - **Configuration is the ceiling.** `read-only`, `edit` and `full` map to each tool's own flags; a run can lower the level but never exceed `runtime.maxPermission`. Where the tool has an allow-list, `edit` pre-approves only your verification commands and read-only Git.
-- **No side effects.** Agents are told not to commit, push, open pull requests or touch credentials, and must end with a `done`, `blocked` or `needs-input` result. A flow stops as soon as an agent asks for a human.
+- **No side effects.** Agents are told not to commit, push, open pull requests or touch credentials, and must end with a `done`, `blocked` or `needs-input` result. A flow stops as soon as an agent asks for a human. An agent that believes a check is wrong reports it as a dispute instead of changing it.
 - **Bounded and auditable.** Timeouts, iteration caps and stall detection end every run; every run leaves a JSONL transcript.
 - **The right model per step.** Planning gets the strongest model with high reasoning, building the coding workhorse, fixing a lighter setting. Override per run with `--model` and `--effort`, or route by subtask type and complexity.
 
@@ -412,9 +432,10 @@ Delete `.maverick/` and the skill folders. Your code never depended on it.
 ```text
 Get started      init · language · status · doctor · lens
 Plan & build     new · instructions · generate · validate · subtask · packet
-Verify & review  verify · checkpoint · guard · security · deps · review · readiness · policy
+Verify & review  verify · checkpoint · guard · integrity · security · deps · review · readiness · policy
 Deliver          pr · handoff · learn · ci github
 Flows            flow list · show · validate · run · status · approve · auto-approve
+Loops            loop run · status · stop · verify · log · clean
 Agents           agent list · trust · untrust · stage · run · runs · adapter · mcp
 Intelligence     map · stack · graph · coupling · routes · hotspots · impact · audit
 Capabilities     catalog · add · remove · installed · sync

@@ -16,6 +16,50 @@ The optional `flows.autoApprove` key lists the flows that approve their own pend
 { "flows": { "autoApprove": ["ship"] } }
 ```
 
+The optional `pr` section tunes the pull requests that `maverick pr open` and the `pr` flow open. `provider` (`github`, `gitlab`, `azure` or `bitbucket`) names the provider when the remote's host does not, for example a self-hosted GitLab at `git.example.com`. `remote` and `base` set the remote and target branch when they cannot be inferred (the branch's upstream remote or `origin`, and the remote's default branch). `draft: true` opens draft pull requests. `commit: false` stops Maverick from committing uncommitted changes, so you commit them yourself first.
+
+```json
+{ "pr": { "provider": "gitlab", "base": "develop", "draft": true } }
+```
+
 The `workflow.default` key sets the workflow for new tasks: `standard` (the default) or `strict`. `maverick new --strict` overrides it per task.
 
 The optional `authoring` section is given to every stage skill that writes planning artifacts (`maverick new`, `maverick generate` and `maverick instructions`). `context` is free text of up to 50 KB with project constraints, such as "money is stored in integer cents". `rules` maps a stage (`PRD`, `TECHSPEC` or `TASKS`) to extra rules for it. See [From idea to tasks](/guide/planning#project-rules).
+
+## Loops {#loops}
+
+The optional `loop` section sets how `maverick loop run` works for this repository. Every key has a default, and the budget flags override the budgets for one run. See [Loop engineering](/concepts/loop-engineering).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `flow` | `loop` | The oracle flow. Its blocking non-approval gates decide each iteration; approval and judge gates are decided separately |
+| `providers` | none | The rotation for the `switch-provider` step, for example `["claude-code", "codex", "gemini"]`. Each must be trusted and installed. A provider from a model family not yet tried is preferred |
+| `isolation` | `in-place` | `in-place` (your checkout, checkpoints as hidden refs under `refs/maverick/loops/`) or `worktree` (its own worktree and branch `maverick/loop/<task>`) |
+| `worktreeDir`, `setup`, `setupTimeoutMinutes` | `~/.maverick/worktrees`, none, `20` | Where worktrees go, and the commands run once in a new worktree, such as `npm ci` |
+| `budgets` | `{ "maxIterations": 10, "maxMinutes": 120, "forecast": "p90" }` | Hard limits, plus `maxCostUsd`. `forecast` (`p90`, `mean` or `off`) stops the loop before an iteration expected to cross a limit |
+| `stall` | `{ "window": <flow no-progress window>, "churnLines": 300, "rollbackStreak": 3, "overclaims": 2 }` | When the diagnosis calls a scope stuck |
+| `escalation` | `["retry-with-diagnosis", "raise-effort", "switch-provider", "human"]` | The ladder, one rung per stall; it always ends with `human` |
+| `maxEffort` | `xhigh` | The highest reasoning effort `raise-effort` may choose |
+| `protectedPaths` | `["**/.env", "**/.env.*"]` | Globs no iteration may change |
+| `blastRadius` | `{ "maxFiles": 25, "maxLines": 1500 }` | The largest change one iteration may make; lockfiles and generated files do not count |
+| `integrity` | `standard` | `strict`, `standard` or `off`, or `{ "level", "severity": { "<kind>": "block" \| "warn" \| "off" }, "allow": [{ "kind", "path", "reason" }] }` |
+| `ratchet` | `{ "newFailures": "count", "recheck": 1 }` | `strict` also rejects a newly failing test when the count does not grow; `recheck` runs a regressed gate again before calling it a regression |
+| `gateTimeoutMinutes`, `stopPollMs` | `20`, `500` | Time limit per gate run, and how often a running agent checks for a stop request |
+| `judge` | `{ "enabled": false }` | `enabled` (or `--judge`), `prefer` (judges to try first) and `isolation` (`export`, the default, or `live`) |
+
+`runtime.families` names the model family of providers whose CLI can run several vendors' models, so judges and the `switch-provider` step can tell them apart: `{ "copilot": "openai", "aider": "deepseek" }`. Without it, Copilot, Cursor, Kiro, OpenCode and custom providers count as unknown unless the model name says otherwise, and a judge is never assumed independent of them. The `judge` stage in `runtime.stages` sets the judge's default provider, model and effort.
+
+The loop also adds three hook events: `before-loop-iteration` (blocking: exit 2 stops the loop, and `{"appendPrompt": "..."}` adds to the prompt), `after-loop-iteration` and `after-loop`.
+
+```json
+{
+  "loop": {
+    "providers": ["claude-code", "codex"],
+    "budgets": { "maxIterations": 12, "maxCostUsd": 5 },
+    "protectedPaths": ["src/payments/**", "**/.env"],
+    "integrity": { "level": "standard", "allow": [{ "kind": "oracle-config-modified", "path": "eslint.config.js", "reason": "this task adds a lint rule" }] },
+    "judge": { "enabled": true }
+  },
+  "runtime": { "families": { "copilot": "openai" } }
+}
+```

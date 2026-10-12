@@ -19,6 +19,11 @@ gates:
     run: guard
     severity: warn
     description: Changed files stay within the declared task scope.
+  - id: integrity
+    type: maverick
+    run: integrity
+    severity: warn
+    description: No test was deleted, skipped or weakened, and no check configuration changed unannounced.
   - id: security
     type: maverick
     run: security

@@ -5,17 +5,18 @@ export const $$ = (selector, root = document) => [...root.querySelectorAll(selec
 export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const icon = (id, cls = 'i') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
 
-export const STAGE_LABEL = { prd: 'PRD', spec: 'Spec', techspec: 'Tech spec', tasks: 'Tasks', build: 'Build', verify: 'Verify', security: 'Security', review: 'Review', pr: 'PR' };
+export const STAGE_LABEL = { prd: 'PRD', spec: 'Spec', techspec: 'Tech spec', tasks: 'Tasks', build: 'Build', verify: 'Verify', security: 'Security', review: 'Review', pr: 'PR', done: 'Done' };
 export const PLANNING = ['prd', 'spec', 'techspec', 'tasks'];
 export const LANES = [
   { id: 'plan', label: 'Plan', tone: 'info', stages: PLANNING },
   { id: 'build', label: 'Build', tone: 'accent', stages: ['build'] },
   { id: 'verify', label: 'Verify', tone: 'accent', stages: ['verify', 'security'] },
   { id: 'review', label: 'Review', tone: 'warn', stages: ['review'] },
-  { id: 'ship', label: 'Ship', tone: 'ok', stages: ['pr'] }
+  { id: 'ship', label: 'Ship', tone: 'ok', stages: ['pr'] },
+  { id: 'done', label: 'Done', tone: 'ok', stages: ['done'] }
 ];
 export const OUTCOME = { 'awaiting-approval': ['warn', 'Awaiting approval'], done: ['ok', 'Passing'], revise: ['bad', 'Needs fixes'], stalled: ['bad', 'Stalled'], exhausted: ['bad', 'Out of iterations'], 'not run': ['', 'Not run'] };
-export const STATE = { attention: ['bad', 'Needs you'], active: ['accent', 'In progress'], ready: ['ok', 'Ready to ship'], queued: ['info', 'Not started'] };
+export const STATE = { attention: ['bad', 'Needs you'], active: ['accent', 'In progress'], ready: ['ok', 'Ready to ship'], queued: ['info', 'Not started'], done: ['ok', 'Done'] };
 
 export function timeAgo(value) {
   if (!value) return '—';
@@ -32,12 +33,15 @@ export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** Where a task stands for a human: what needs them, what is moving, what can ship. */
 export function taskState(task) {
+  // A finished task needs nobody, whatever its flows last said.
+  if (task.stage === 'done') return { state: 'done', tone: 'ok', reason: 'Finished', kind: 'done' };
   const flows = task.flows || [];
   const failing = flows.find(flow => ['revise', 'stalled', 'exhausted'].includes(flow.status));
   const approval = flows.find(flow => flow.status === 'awaiting-approval');
   if (failing) return { state: 'attention', tone: 'bad', reason: `${failing.flow} flow needs fixes`, kind: 'failing', flow: failing.flow };
   if (approval) return { state: 'attention', tone: 'warn', reason: `${approval.flow} flow awaits your approval`, kind: 'approval', flow: approval.flow };
   if (task.subtasks?.problems) return { state: 'attention', tone: 'bad', reason: `${plural(task.subtasks.problems, 'subtask graph problem')}`, kind: 'graph' };
+  if (task.stage === 'pr' && task.pullRequest?.opened) return { state: 'ready', tone: 'ok', reason: 'Pull request open: finish the task once it merges', kind: 'merge' };
   if (task.stage === 'pr') return { state: 'ready', tone: 'ok', reason: 'Ready: open the pull request', kind: 'ship' };
   if (task.stage === 'prd' && !(task.artifacts || []).includes('PRD.md')) return { state: 'queued', tone: 'info', reason: 'Write the PRD', kind: 'plan' };
   if (task.stage === 'build' && task.subtasks?.ready?.length) return { state: 'active', tone: 'accent', reason: `Subtask ${task.subtasks.ready[0]} is ready to build`, kind: 'build' };
@@ -45,9 +49,10 @@ export function taskState(task) {
 }
 export function stageProgress(task) {
   const stages = task.stages || [], index = stages.indexOf(task.stage);
+  if (task.stage === 'done') return 100;
   return index < 0 ? 0 : Math.round((index / stages.length) * 100);
 }
-export const stagesMini = task => `<div class="stages-mini" title="${esc(STAGE_LABEL[task.stage] || task.stage)}">${(task.stages || []).map((stage, i) => `<i class="${i < task.stages.indexOf(task.stage) ? 'done' : stage === task.stage ? 'cur' : ''}"></i>`).join('')}</div>`;
+export const stagesMini = task => `<div class="stages-mini" title="${esc(STAGE_LABEL[task.stage] || task.stage)}">${(task.stages || []).map((stage, i) => `<i class="${i < task.stages.indexOf(task.stage) || task.stage === 'done' ? 'done' : stage === task.stage ? 'cur' : ''}"></i>`).join('')}</div>`;
 export const ring = task => { const p = stageProgress(task); return `<div class="ring" style="--p:${p}" data-label="${p}" aria-label="${p}% through the workflow"></div>`; };
 
 /* ── API ─────────────────────────────────────────────────────────── */
@@ -122,6 +127,9 @@ export function dialog({ title, text = '', fields = [], confirm = 'Confirm', ton
     (o.querySelector('input, textarea') || o.querySelector('[type=submit]')).focus();
   });
 }
+
+/** Escaped text with its http(s) URLs as links that open in a new tab. */
+export const linkify = text => esc(text).replace(/https?:\/\/[^\s<>"']+/g, url => `<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`);
 
 /* ── Markdown (escaped first, so no raw HTML ever reaches the page) ── */
 function inline(text) {

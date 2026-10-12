@@ -1,0 +1,20 @@
+apiVersion: maverick.flow/v1
+name: loop
+description: The default oracle of maverick loop; every detected check and the security scan block, scope is reported.
+contract:
+  goal: The task {{task}} is implemented as its PRD, spec and technical spec describe, and every check passes.
+  iterationCap: 20
+  noProgressWindow: 3
+gates:
+  - id: checks
+    type: check
+    description: Detected lint, typecheck, test and build commands pass.
+  - id: security
+    type: maverick
+    run: security
+    description: No secrets, private keys or shell execution patterns in the change.
+  - id: scope
+    type: maverick
+    run: guard
+    severity: warn
+    description: The change stays within the files the task declares.

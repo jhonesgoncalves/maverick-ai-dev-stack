@@ -35,12 +35,14 @@ async function artifactList(dir) {
   return files;
 }
 
-// Flows a task can use: `ship` always, `spec` for spec-driven tasks, and any flow that already ran for it.
-async function taskFlows(cwd, dir, preset) {
+// Flows a task can use: `ship` always, `spec` for spec-driven tasks, `pr` from the PR stage on,
+// and any flow that already ran for it.
+async function taskFlows(cwd, dir, preset, stage) {
   const [{ flows }, config] = await Promise.all([loadFlows(cwd), loadConfig(cwd).catch(() => null)]), result = [];
+  const offered = name => name === 'ship' || (name === 'spec' && preset.id === 'spec-driven') || (name === 'pr' && ['pr', 'done'].includes(stage));
   for (const flow of flows) {
     const state = await readState(dir, flow.name);
-    if (!state.runs.length && flow.name !== 'ship' && !(flow.name === 'spec' && preset.id === 'spec-driven')) continue;
+    if (!state.runs.length && !offered(flow.name)) continue;
     result.push({
       name: flow.name, description: flow.description, source: flow.source, contract: flow.contract,
       gates: flow.gates.map(gate => ({ id: gate.id, type: gate.type, run: gate.run, severity: gate.severity, description: gate.description, prompt: gate.prompt })),
@@ -48,10 +50,12 @@ async function taskFlows(cwd, dir, preset) {
       history: state.runs.slice(-10).map(run => ({ at: run.at, outcome: run.outcome, iteration: run.iteration }))
     });
   }
-  return result.sort((a, b) => (a.name === 'ship' ? -1 : b.name === 'ship' ? 1 : a.name.localeCompare(b.name)));
+  // The flow the task is at comes first: ship until the PR stage, then pr.
+  const first = ['pr', 'done'].includes(stage) && result.some(flow => flow.name === 'pr') ? 'pr' : 'ship';
+  return result.sort((a, b) => (a.name === first ? -1 : b.name === first ? 1 : a.name.localeCompare(b.name)));
 }
 
-function activityOf(flows, artifacts) {
+function activityOf(flows, artifacts, meta = {}) {
   const tone = { done: 'ok', revise: 'bad', stalled: 'bad', exhausted: 'bad', 'awaiting-approval': 'warn' };
   const items = [];
   for (const flow of flows) {
@@ -59,13 +63,16 @@ function activityOf(flows, artifacts) {
     for (const [gate, approval] of Object.entries(flow.approvals)) items.push({ at: approval.at, tone: approval.decision === 'approve' ? 'accent' : 'bad', text: `${approval.by} ${approval.decision === 'approve' ? 'approved' : 'requested changes on'} ${gate}`, detail: approval.reason || '' });
   }
   for (const artifact of artifacts.filter(item => item.kind !== 'report')) items.push({ at: artifact.updated, tone: 'info', text: `${artifact.file} updated`, detail: '' });
+  if (meta.pullRequest?.at) items.push({ at: meta.pullRequest.at, tone: 'ok', text: meta.pullRequest.opened ? `Pull request${meta.pullRequest.number ? ` #${meta.pullRequest.number}` : ''} opened` : `${meta.pullRequest.branch} pushed`, detail: meta.pullRequest.url || '' });
+  if (meta.done?.at) items.push({ at: meta.done.at, tone: 'ok', text: `${meta.done.by} finished the task`, detail: meta.done.note || '' });
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
 }
 
 /** Everything the task page shows, read from the task directory. */
 export async function taskDetail(cwd, slug) {
   const { dir, preset, meta } = await getTask(cwd, requireSlug(slug));
-  const [status, graph, artifacts, flows] = await Promise.all([taskStage(dir, preset, slug), loadGraph(dir), artifactList(dir), taskFlows(cwd, dir, preset)]);
+  const status = await taskStage(dir, preset, slug);
+  const [graph, artifacts, flows] = await Promise.all([loadGraph(dir), artifactList(dir), taskFlows(cwd, dir, preset, status.stage)]);
   const [prd, spec, techspec] = await Promise.all(['PRD.md', 'SPEC.md', 'TECHSPEC.md'].map(file => read(join(dir, file))));
   const tested = acIds(sectionBody(techspec, 'Test Plan')), specified = acIds(spec);
   const criteria = sectionBody(prd, 'Acceptance Criteria').split('\n').filter(line => acIds(line).length).map(line => {
@@ -79,7 +86,8 @@ export async function taskDetail(cwd, slug) {
     goal: sectionBody(prd, 'Overview').trim(), goals: bullets(sectionBody(prd, 'Goals')), nonGoals: bullets(sectionBody(prd, 'Non-Goals')),
     scope: pathReferences([sectionBody(techspec, 'File References'), sectionBody(techspec, 'Impact')].join('\n'), { includeNew: true }),
     criteria, subtasks, subtaskProblems: graph.problems, statuses: STATUSES, artifacts, flows,
-    evidence: artifacts.some(item => item.file === 'EVIDENCE.md'), activity: activityOf(flows, artifacts)
+    evidence: artifacts.some(item => item.file === 'EVIDENCE.md'), activity: activityOf(flows, artifacts, meta),
+    pullRequest: meta.pullRequest || null, done: meta.done || null
   };
 }
 
@@ -118,7 +126,12 @@ export async function runAction(cwd, main, body) {
     const id = String(body.id || ''), status = String(body.status || '');
     if (!/^\d{2,3}$/.test(id) || !STATUSES.includes(status)) throw Object.assign(new Error('A subtask id and a valid status are required.'), { status: 400 });
     argv = ['subtask', 'set', task, id, status, ...(body.force && status === 'done' ? ['--force'] : [])];
-  } else if (action === 'flow-run') {
+  } else if (action === 'done') {
+    const text = (value, max) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : '');
+    const by = text(body.by, 80), note = text(body.note, 500);
+    argv = ['done', task, ...(by ? ['--by', by] : []), ...(note ? ['--note', note] : []), ...(body.force ? ['--force'] : [])];
+  } else if (action === 'reopen') argv = ['reopen', task];
+  else if (action === 'flow-run') {
     const flow = await findFlow(cwd, String(body.flow || 'ship')), { dir } = await getTask(cwd, task);
     return exclusive(async () => {
       try {

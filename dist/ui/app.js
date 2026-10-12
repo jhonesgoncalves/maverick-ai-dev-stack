@@ -4,6 +4,7 @@ import * as inbox from './views/inbox.js';
 import * as tasks from './views/tasks.js';
 import * as task from './views/task.js';
 import * as runs from './views/runs.js';
+import * as loops from './views/loops.js';
 import * as library from './views/library.js';
 import * as system from './views/system.js';
 import * as codebase from './views/codebase.js';
@@ -11,7 +12,7 @@ import * as agents from './views/agents.js';
 import * as capabilities from './views/capabilities.js';
 import * as settings from './views/settings.js';
 
-export const store = { project: null, runs: null, agentRuns: null, detail: new Map(), version: 0, running: 0 };
+export const store = { project: null, runs: null, agentRuns: null, loops: null, detail: new Map(), version: 0, running: 0 };
 /** Agent events from the server: `agent` for each streamed event, `agent-end` when a run finishes. */
 export const bus = new EventTarget();
 window.d = null; // the codebase views read the project index from this global
@@ -29,13 +30,18 @@ function parse() {
   const [page = 'inbox', id, tab, ...rest] = path.split('/').map(decodeURIComponent);
   return { page: page || 'inbox', id, tab, rest, params: new URLSearchParams(query || '') };
 }
-const VIEWS = { inbox, tasks, runs, codebase, agents, specs: library, docs: library, lab: library, changes: system, capabilities, settings, cli: system };
+const VIEWS = { inbox, tasks, runs, loops, codebase, agents, specs: library, docs: library, lab: library, changes: system, capabilities, settings, cli: system };
 function viewFor(route) { return route.page === 'tasks' && route.id ? task : VIEWS[route.page] || inbox; }
 
+/** Loops waiting on a human are hot; otherwise the number running. */
+const loopBadge = () => {
+  const all = store.loops || [], waiting = all.filter(loop => loops.HUMAN.includes(loop.status)).length, live = all.filter(loop => loop.live).length;
+  return waiting ? `<em class="hot">${waiting}</em>` : live ? `<em>${live}</em>` : '';
+};
 const NAV = () => {
   const p = store.project, attention = (p?.tasks || []).filter(t => taskState(t).state === 'attention').length;
   return [
-    { h: 'Workspace', items: [['#/inbox', 'inbox', 'Inbox', 'inbox', attention ? `<em class="hot">${attention}</em>` : ''], ['#/tasks', 'tasks', 'Tasks', 'tasks', `<em>${p?.tasks?.length ?? ''}</em>`], ['#/runs', 'runs', 'Runs', 'runs', store.running ? `<em class="hot">${store.running}</em>` : '']] },
+    { h: 'Workspace', items: [['#/inbox', 'inbox', 'Inbox', 'inbox', attention ? `<em class="hot">${attention}</em>` : ''], ['#/tasks', 'tasks', 'Tasks', 'tasks', `<em>${p?.tasks?.length ?? ''}</em>`], ['#/runs', 'runs', 'Runs', 'runs', store.running ? `<em class="hot">${store.running}</em>` : ''], ['#/loops', 'loops', 'Loops', 'loop', loopBadge()]] },
     { h: 'Codebase', items: [['#devtools/overview', 'codebase:overview', 'Overview', 'code'], ['#devtools/map', 'codebase:map', 'Architecture', 'map'], ['#devtools/routes', 'codebase:routes', 'Entry points', 'route'], ['#devtools/hotspots', 'codebase:hotspots', 'Hotspots', 'flame'], ['#devtools/findings', 'codebase:findings', 'Findings', 'alert'], ['#/changes', 'changes', 'Changes', 'branch', p?.git?.changes?.length ? `<em>${p.git.changes.length}</em>` : '']] },
     { h: 'Library', items: [['#/specs', 'specs', 'Specs', 'spec', `<em>${p?.specs?.length ?? ''}</em>`], ['#/docs', 'docs', 'Docs', 'book'], ...(p?.lab?.length ? [['#/lab', 'lab', 'Lab', 'bolt']] : [])] },
     { h: 'System', items: [['#/agents', 'agents', 'Agents', 'agent'], ['#/capabilities', 'capabilities', 'Capabilities', 'puzzle'], ['#/settings', 'settings', 'Settings', 'gear'], ['#/cli', 'cli', 'CLI reference', 'terminal']] }
@@ -60,6 +66,7 @@ export async function render({ keepScroll = false } = {}) {
   const scroll = keepScroll ? viewEl.scrollTop : 0;
   $('#app').classList.remove('nav-open');
   if (!store.agentRuns) await loadAgentRuns().catch(() => {});
+  if (!store.loops) await loops.loadLoops().catch(() => {});
   if (!store.project) { try { await loadProject(); } catch (error) { viewEl.innerHTML = `<div class="page"><div class="banner">${icon('alert')}Lens could not load the project index: ${esc(error.message)}</div></div>`; return; } }
   sidebar(route);
   const ctx = { route, store, rerender: opts => render({ keepScroll: true, ...opts }) };
@@ -95,7 +102,8 @@ function connect() {
     }, 250);
   });
   const relay = name => source.addEventListener(name, event => { try { bus.dispatchEvent(new CustomEvent(name, { detail: JSON.parse(event.data) })); } catch { /* malformed event */ } });
-  relay('agent'); relay('agent-end');
+  relay('agent'); relay('agent-end'); relay('loop'); relay('loop-end');
+  bus.addEventListener('loop-end', async () => { await loops.loadLoops(true).catch(() => {}); if (parse().page !== 'loops') render({ keepScroll: true }); });
   bus.addEventListener('agent-end', async () => { store.detail.clear(); await loadAgentRuns(true).catch(() => {}); await loadProject().catch(() => {}); if (!document.querySelector('.overlay, .drawer-wrap')) render({ keepScroll: true }); });
   source.onerror = () => { const dot = $('#live-dot'), text = $('#live-text'); if (dot) dot.style.background = 'var(--warn)'; if (text) text.textContent = 'Reconnecting…'; };
   source.onopen = () => { const dot = $('#live-dot'), text = $('#live-text'); if (dot) dot.style.background = ''; if (text) text.textContent = `Live · v${store.project?.project?.version || ''}`; };
@@ -116,8 +124,10 @@ function paletteItems(query) {
   const actions = [
     { group: 'Actions', label: 'New task', ic: 'plus', hint: 'N', run: () => tasks.openNewTask() },
     { group: 'Actions', label: 'Refresh the project index', ic: 'runs', hint: 'refresh', run: () => refreshAll().then(() => toast('Index refreshed')) },
-    ...p.tasks.filter(t => taskState(t).kind === 'approval').map(t => ({ group: 'Actions', label: `Review and approve ${t.title}`, ic: 'shield', hint: 'approval', run: () => { location.hash = `#/tasks/${t.id}/gates`; } })),
-    ...p.tasks.map(t => ({ group: 'Actions', label: `Run ship flow · ${t.title}`, ic: 'flow', hint: 'flow run', run: () => task.runFlowFor(t.id, 'ship') }))
+    ...p.tasks.filter(t => taskState(t).kind === 'approval').map(t => ({ group: 'Actions', label: `Review and approve ${t.title}`, ic: 'shield', hint: 'approval', run: () => { location.hash = `#/tasks/${t.id}/gates?flow=${encodeURIComponent(taskState(t).flow)}`; } })),
+    ...p.tasks.filter(t => t.stage === 'pr').map(t => ({ group: 'Actions', label: `Open the pull request · ${t.title}`, ic: 'pr', hint: 'pr flow', run: () => task.runFlowFor(t.id, 'pr') })),
+    ...p.tasks.filter(t => t.stage !== 'done').map(t => ({ group: 'Actions', label: `Run ship flow · ${t.title}`, ic: 'flow', hint: 'flow run', run: () => task.runFlowFor(t.id, 'ship') })),
+    ...p.tasks.filter(t => t.stage === 'pr').map(t => ({ group: 'Actions', label: `Finish task · ${t.title}`, ic: 'check', hint: 'done', run: () => task.finishTask(t.id) }))
   ];
   const all = [...actions, ...taskItems, ...nav], q = query.trim().toLowerCase();
   if (!q) return [...actions.slice(0, 4), ...taskItems.slice(0, 6), ...nav];

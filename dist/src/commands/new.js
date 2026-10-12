@@ -22,10 +22,10 @@ import { printer } from './agent.js';
 const str = value => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
 const INTERACTIVE_ORDER = ['claude-code', 'codex', 'cursor', 'gemini', 'antigravity', 'copilot', 'kiro', 'opencode'];
 /** The whole flow as skills, so everything after `maverick new` happens inside the agent. */
-export const FLOW_SKILLS = ['maverick-new', 'maverick-prd', 'maverick-spec', 'maverick-techspec', 'maverick-tasks', 'maverick-build', 'maverick-review', 'maverick-ship', 'maverick-status', 'maverick-sync'];
+export const FLOW_SKILLS = ['maverick-new', 'maverick-prd', 'maverick-spec', 'maverick-techspec', 'maverick-tasks', 'maverick-build', 'maverick-review', 'maverick-ship', 'maverick-status', 'maverick-sync', 'maverick-loop'];
 const FLOW_CAPABILITIES = FLOW_SKILLS.map(name => `skill/${name}`);
 /** The skill that moves a task forward from each stage. */
-export const SKILL_FOR_STAGE = { prd: 'maverick-new', spec: 'maverick-new', techspec: 'maverick-new', tasks: 'maverick-new', build: 'maverick-build', verify: 'maverick-review', security: 'maverick-review', review: 'maverick-review', pr: 'maverick-ship' };
+export const SKILL_FOR_STAGE = { prd: 'maverick-new', spec: 'maverick-new', techspec: 'maverick-new', tasks: 'maverick-new', build: 'maverick-build', verify: 'maverick-review', security: 'maverick-review', review: 'maverick-review', pr: 'maverick-ship', done: 'maverick-status' };
 const artifactFor = artifactForStage;
 const TASK_SECTIONS = ['Goal', 'Acceptance Criteria', 'Files', 'Steps', 'Verification'];
 /** Requirement keywords to write in the docs language. */

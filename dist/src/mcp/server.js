@@ -15,6 +15,9 @@ import { buildGraph, createResolver, impactOf } from '../intel/graph.js';
 import { extractRoutes } from '../intel/routes.js';
 import { churn, rankHotspots } from '../intel/hotspots.js';
 import { loadGraph } from '../subtasks/graph.js';
+import { loopStatus } from '../loop/engine.js';
+import { readLedger, verifyChain } from '../loop/ledger.js';
+import { loopPaths } from '../loop/model.js';
 
 // A read-only Model Context Protocol server over stdio (newline-delimited JSON-RPC 2.0).
 // Every tool only reads the repository; nothing here writes files or runs agents.
@@ -69,6 +72,25 @@ export const TOOLS = [
       const { dir } = await getTask(cwd, stringArg(args, 'task')), graph = await loadGraph(dir);
       const pick = item => ({ id: item.id, title: item.title, status: item.status, type: item.type, complexity: item.complexity, dependsOn: item.dependsOn, instructions: clip(item.body, 4000) });
       return { inProgress: graph.items.filter(item => item.status === 'in-progress').map(pick), ready: graph.items.filter(item => item.ready).map(pick), allDone: graph.items.length > 0 && graph.items.every(item => item.status === 'done'), problems: graph.problems };
+    }
+  },
+  {
+    name: 'loop_status', title: 'Loop status',
+    description: 'Where the autonomous loop of a task stands: outcome, checkpoint score, budget spent and forecast, the last iterations (decision, gates, integrity findings, judge), any escalation, and whether the ledger chain is intact. Read-only: it never starts or stops a loop. The authors\' own summaries are left out, as they are for the judge.',
+    inputSchema: { type: 'object', properties: { task: { type: 'string' }, loop: { type: 'string', description: 'A loop id; the newest when omitted' }, iterations: { type: 'integer', minimum: 1, maximum: 50, description: 'How many recent iterations to include (default 10)' } }, required: ['task'], additionalProperties: false },
+    async run(cwd, args) {
+      const task = stringArg(args, 'task'), { dir } = await getTask(cwd, task);
+      const info = await loopStatus(dir, typeof args.loop === 'string' ? args.loop : undefined);
+      if (!info) return { task, loop: null, next: `No loop has run for ${task}. Start one with: maverick loop run ${task} --dry-run` };
+      const { state } = info, size = Number.isInteger(args.iterations) ? Math.min(50, Math.max(1, args.iterations)) : 10;
+      const chain = verifyChain(await readLedger(loopPaths(dir, state.loopId).ledger), state.loopId);
+      const iteration = item => ({ n: item.n, subtask: item.subtask?.id || null, provider: item.provider, family: item.family, decision: item.decision, reasons: item.reasons.slice(0, 5), progress: item.progress, gates: item.gates.map(gate => ({ id: gate.id, status: gate.status })), integrity: { block: item.findings.filter(finding => finding.severity === 'block').length, warn: item.findings.filter(finding => finding.severity === 'warn').length, top: item.findings.slice(0, 5).map(finding => `${finding.kind}${finding.file ? ` ${finding.file}` : ''}`) }, judge: item.judge ? { status: item.judge.status, verdicts: item.judge.verdicts } : null, disputes: item.agent?.disputes?.length || 0, costUsd: item.costUsd });
+      return {
+        task, loop: { id: state.loopId, status: state.status, reason: state.reason, mode: state.mode, flow: state.flow.name, running: Boolean(info.running), stopPending: info.stopPending, startedAt: state.createdAt, endedAt: state.endedAt },
+        checkpoint: state.checkpoint && { n: state.checkpoint.n, ref: state.checkpoint.ref, score: state.checkpoint.score }, budget: { limits: state.budgets, spent: state.spent, forecast: info.forecast },
+        iterations: state.iterations.slice(-size).map(iteration), escalation: state.escalation?.rung || state.escalation?.diagnosis ? { rung: state.escalation.rung, diagnosis: state.escalation.diagnosis, tried: state.escalation.tried } : null,
+        ledger: { ok: chain.ok, problems: chain.problems.map(item => item.problem) }, next: info.next
+      };
     }
   },
   {
@@ -139,7 +161,7 @@ export const TOOLS = [
   }
 ];
 
-const INSTRUCTIONS = 'Maverick exposes read-only project intelligence: stack and verification commands, task scope contracts (PRD and technical spec), ready subtasks, grounding for a new change request (ground_change), change impact with affected entry points, entry points (list_routes), components and coupling (architecture), and ranked findings (audit). Read the task with get_task before editing, check impact before changing shared code, stay within PRD.md and TECHSPEC.md, run the listed verification commands, and leave commits and merges to humans.';
+const INSTRUCTIONS = 'Maverick exposes read-only project intelligence: stack and verification commands, task scope contracts (PRD and technical spec), ready subtasks, the state of the autonomous loop of a task (loop_status), grounding for a new change request (ground_change), change impact with affected entry points, entry points (list_routes), components and coupling (architecture), and ranked findings (audit). Read the task with get_task before editing, check impact before changing shared code, stay within PRD.md and TECHSPEC.md, run the listed verification commands, and leave commits and merges to humans. Never edit, skip or weaken a test or check to make it pass: if one is wrong, say so (in a loop, report it as a dispute).';
 
 /** Handles one JSON-RPC message. Returns the response object, or undefined for notifications. */
 export async function handleMessage(cwd, message, session = {}) {

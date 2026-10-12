@@ -24,7 +24,7 @@ async function shop() {
 }
 
 test('spec-driven puts SPEC between the PRD and the technical spec; other workflows skip it', () => {
-  assert.deepEqual(stagesForPreset('spec-driven'), ['prd', 'spec', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr']);
+  assert.deepEqual(stagesForPreset('spec-driven'), ['prd', 'spec', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr', 'done']);
   assert.deepEqual(planningStages(requirePreset('spec-driven')), ['prd', 'spec', 'techspec', 'tasks']);
   assert.deepEqual(planningStages(requirePreset('standard')), ['prd', 'techspec', 'tasks']);
   assert.ok(!stagesForPreset('strict').includes('spec'));

@@ -4,7 +4,8 @@
 // here are what the validator requires. The strict workflow adds a security gate and a
 // checkpoint for high-risk work. The spec-driven workflow puts a behavioral specification
 // (SPEC.md) between the PRD and the technical spec: the contract the code and tests are
-// written against, approved before any design starts.
+// written against, approved before any design starts. Every workflow ends with the pull
+// request, then `done`, which a person records (`maverick done`) once the change has landed.
 
 export const PRESET_IDS = ['standard', 'spec-driven', 'strict'];
 
@@ -23,9 +24,9 @@ export const PLANNING_STAGES = ['prd', 'spec', 'techspec', 'tasks'];
 const DEFAULT_ARTIFACTS = [PRD, TECHSPEC];
 
 export const presets = {
-  standard: { id: 'standard', name: 'Standard', description: 'PRD, technical spec and task graph, then build, verify and human review.', bestFor: 'Features, fixes and refactors.', artifacts: DEFAULT_ARTIFACTS, stages: ['prd', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr'] },
-  'spec-driven': { id: 'spec-driven', name: 'Spec Driven', description: 'PRD, then an approved behavioral spec (SPEC.md) that the technical spec, tasks and tests trace to, then build, verify and human review.', bestFor: 'APIs, integrations, shared contracts, complex domain rules or work several people must agree on.', artifacts: ARTIFACTS, stages: ['prd', 'spec', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr'] },
-  strict: { id: 'strict', name: 'Strict', description: 'The standard pipeline plus a security gate and a checkpoint before merge.', bestFor: 'Security, data, payment, migration or shared-infrastructure work.', artifacts: DEFAULT_ARTIFACTS, stages: ['prd', 'techspec', 'tasks', 'build', 'verify', 'security', 'review', 'pr'], strict: true }
+  standard: { id: 'standard', name: 'Standard', description: 'PRD, technical spec and task graph, then build, verify and human review.', bestFor: 'Features, fixes and refactors.', artifacts: DEFAULT_ARTIFACTS, stages: ['prd', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr', 'done'] },
+  'spec-driven': { id: 'spec-driven', name: 'Spec Driven', description: 'PRD, then an approved behavioral spec (SPEC.md) that the technical spec, tasks and tests trace to, then build, verify and human review.', bestFor: 'APIs, integrations, shared contracts, complex domain rules or work several people must agree on.', artifacts: ARTIFACTS, stages: ['prd', 'spec', 'techspec', 'tasks', 'build', 'verify', 'review', 'pr', 'done'] },
+  strict: { id: 'strict', name: 'Strict', description: 'The standard pipeline plus a security gate and a checkpoint before merge.', bestFor: 'Security, data, payment, migration or shared-infrastructure work.', artifacts: DEFAULT_ARTIFACTS, stages: ['prd', 'techspec', 'tasks', 'build', 'verify', 'security', 'review', 'pr', 'done'], strict: true }
 };
 
 export function getPreset(id = 'standard') { return presets[id]; }

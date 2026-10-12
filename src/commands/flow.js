@@ -6,10 +6,10 @@ import { addSubtask, loadGraph, setStatus, STATUSES } from '../subtasks/graph.js
 import { loadConfig } from '../core/config.js';
 import { getTask } from '../core/tasks.js';
 import { runHooks } from '../runtime/hooks.js';
-import { printer, startAgentRun } from './agent.js';
+import { agentVerdict, printer, renderDryRun, selectSubtask, startAgentRun } from './agent.js';
 import { brand, exists, output, pretty, rel } from '../core/util.js';
 
-const ICON = { pass: 'PASS', fail: 'FAIL', pending: 'WAIT' };
+const ICON = { pass: 'PASS', fail: 'FAIL', pending: 'WAIT', skipped: 'SKIP' };
 
 function report(cwd, flow, slug, { run, notes, reportPath, next }, options) {
   if (options.json) return;
@@ -52,6 +52,14 @@ async function autoApprove(cwd, [name, state], options) {
   return output(`${brand()} / FLOW AUTO-APPROVE\n${enabled.length ? enabled.map(flow => `${flow.padEnd(14)}on`).join('\n') : 'No flow approves itself: a human records every approval.'}\n\nChange with: maverick flow auto-approve <flow> on|off, or once with: maverick flow run <flow> <task> --auto-approve`);
 }
 
+/** `--subtask <id|next>` when given, otherwise the one subtask in progress, if there is exactly one. */
+async function fixSubtask(dir, options) {
+  if (typeof options.subtask === 'string') return selectSubtask(dir, options.subtask);
+  const graph = await loadGraph(dir);
+  const active = graph.problems.length ? [] : graph.items.filter(item => item.status === 'in-progress');
+  return active.length === 1 ? active[0] : undefined;
+}
+
 async function flowCommand(cwd, [action, ...args], options = {}) {
   if (!action || action === 'list') {
     const { flows, errors } = await loadFlows(cwd);
@@ -78,24 +86,36 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
     let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset), autoApprove });
     report(cwd, flow, slug, result, options);
     await afterFlowHook(cwd, config, flow, slug, result);
+    // The subtask being worked on, so runtime.routes (by type and complexity) apply to fixes too.
+    const subtask = options.agent ? await fixSubtask(dir, options) : undefined;
     // With --agent, "revise" hands the blocking issues to the agent and re-runs the gates.
     // The flow contract (iteration cap, no-progress window) is what guarantees termination.
     while (options.agent && result.run.outcome === 'revise') {
       const issues = result.run.results.filter(item => item.severity === 'block' && item.status === 'fail').flatMap(item => item.issues.map(issue => `${item.id}: ${issue}`));
-      if (!options.json) output(`\n${brand()} / AGENT FIX (iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
-      const { run: agent } = await startAgentRun(cwd, { slug, dir, config, issues, instruction: `Fix the blocking issues so the "${flow.name}" flow passes. Goal: ${interpolate(flow.contract.goal, { task: slug })}`, options, onEvent: printer(options) });
-      agentRuns.push({ ok: agent.ok, status: agent.result?.status || null, summary: agent.result?.summary || null, transcript: rel(cwd, agent.transcript) });
-      if (!agent.ok) throw new Error(`agent fix run failed: ${agent.problems.join('; ')}`);
-      if (agent.result && agent.result.status !== 'done') {
-        if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, agentRuns, questions: agent.result.questions }, null, 2));
-        else { output(`\nThe agent stopped: ${agent.result.status}. ${agent.result.summary}`); agent.result.questions.forEach(question => output(`? ${question}`)); }
-        throw new Error(`agent needs a human: ${agent.result.status}`);
+      const instruction = `Fix the blocking issues so the "${flow.name}" flow passes. Goal: ${interpolate(flow.contract.goal, { task: slug })}`;
+      if (options.dryRun) {
+        if (!options.json) output(`\n${brand()} / AGENT FIX (dry run, iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
+        renderDryRun(cwd, config, await startAgentRun(cwd, { slug, dir, config, subtask, issues, instruction, options }), options);
+        break;
       }
-      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { autoApprove });
+      if (!options.json) output(`\n${brand()} / AGENT FIX (iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
+      const { plan, run: agent } = await startAgentRun(cwd, { slug, dir, config, subtask, issues, instruction, options, onEvent: printer(options) });
+      const status = agentVerdict(agent);
+      const record = { provider: plan.provider.id, status, costUsd: agent.cost ?? null, durationMs: agent.durationMs, transcript: rel(cwd, agent.transcript) };
+      agentRuns.push({ ok: agent.ok, status: agent.result?.status || null, summary: agent.result?.summary || null, transcript: record.transcript });
+      if (!agent.ok) throw new Error(`agent fix run failed: ${agent.problems.join('; ')}`);
+      if (status === 'blocked' || status === 'needs-input') {
+        if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, agentRuns, questions: agent.result.questions, disputes: agent.result.disputes }, null, 2));
+        else { output(`\nThe agent stopped: ${status}. ${agent.result.summary}`); agent.result.questions.forEach(question => output(`? ${question}`)); agent.result.disputes.forEach(item => output(`DISPUTE ${item.target}: ${item.reason}`)); }
+        throw new Error(`agent needs a human: ${status}`);
+      }
+      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { autoApprove, agent: record });
       report(cwd, flow, slug, result, options);
       await afterFlowHook(cwd, config, flow, slug, result);
+      // The gates decide, not the agent. An agent that did not say how it ended gets no second turn.
+      if (status === 'no-result' && result.run.outcome === 'revise') throw new Error('the agent returned no maverick-result block and the gates still fail; read the transcript before trusting it');
     }
-    if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, iteration: result.run.iteration, iterationCap: flow.contract.iterationCap, next: result.next, notes: result.notes, report: rel(cwd, result.reportPath), gates: result.run.results, agentRuns }, null, 2));
+    if (options.json && !options.dryRun) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, iteration: result.run.iteration, iterationCap: flow.contract.iterationCap, next: result.next, notes: result.notes, report: rel(cwd, result.reportPath), gates: result.run.results, agentRuns }, null, 2));
     // Only "done" exits zero, so scripts and agents can loop on the exit code safely.
     if (result.run.outcome !== 'done') throw new Error(`flow ${flow.name} outcome: ${result.run.outcome}`);
     return;
@@ -111,7 +131,8 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
   if (action === 'approve') {
     const [name, slug, gateId] = args, flow = await findFlow(cwd, name), { dir } = await getTask(cwd, slug);
     if (options.reject && (!options.reason || options.reason === true)) throw new Error('explain the rejection with --reason "..."');
-    const { approval, run, next } = await recordApproval({ cwd, task: slug, taskDir: dir }, flow, gateId, { decision: options.reject ? 'reject' : 'approve', by: typeof options.by === 'string' ? options.by : process.env.USER || 'human', ...(typeof options.reason === 'string' && { reason: options.reason }) });
+    const invoke = async argv => (await import('../cli.js')).main(argv, cwd);
+    const { approval, run, next } = await recordApproval({ cwd, task: slug, taskDir: dir, invoke }, flow, gateId, { decision: options.reject ? 'reject' : 'approve', by: typeof options.by === 'string' ? options.by : process.env.USER || 'human', ...(typeof options.reason === 'string' && { reason: options.reason }) });
     if (options.json) return output(JSON.stringify({ ...approval, outcome: run?.outcome || null }));
     return output(`${brand()} / FLOW APPROVAL\n✓ ${gateId}: ${approval.decision} by ${approval.by}\n${run ? `Outcome: ${run.outcome.toUpperCase()}\n${next}` : `Run maverick flow run ${flow.name} ${slug} to re-evaluate.`}`);
   }

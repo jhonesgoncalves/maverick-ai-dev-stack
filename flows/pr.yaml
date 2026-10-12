@@ -1,0 +1,31 @@
+apiVersion: maverick.flow/v1
+name: pr
+description: Drafts the pull request from the task's evidence, waits for its approval, then opens it on the repository's git provider.
+contract:
+  goal: The pull request for {{task}} is approved and open on the repository's git provider.
+  iterationCap: 3
+  noProgressWindow: 2
+gates:
+  - id: review
+    type: artifact
+    file: REVIEW.md
+    pattern: "- \\[[xX]\\] (?:approve|approve with follow-up)"
+    description: A human approved the change in REVIEW.md (the ship flow's human-review).
+  - id: readiness
+    type: maverick
+    run: readiness
+    description: Every evidence report exists and the review decision is recorded.
+  - id: draft
+    type: maverick
+    run: pr
+    description: PR-DRAFT.md is written from the task's evidence; a draft that exists is kept.
+  - id: approval
+    type: approval
+    prompt: Read PR-DRAFT.md (its heading is the pull request's title, the rest its description) and approve opening the pull request.
+    file: PR-DRAFT.md
+    pattern: "- \\[[xX]\\] Scope, behavior, tests, and security-sensitive decisions reviewed"
+    description: A human approved the draft in PR-DRAFT.md, in Lens or with maverick flow approve.
+  - id: open
+    type: maverick
+    run: pr-open
+    description: The change is committed and pushed, and the pull request is opened on GitHub, GitLab, Azure DevOps or Bitbucket (or its page is given when the provider's CLI is missing).

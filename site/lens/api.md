@@ -50,12 +50,14 @@ A Server-Sent Events stream.
 | `changed` | `{ version }` | After the index was rebuilt |
 | `agent` | `{ version, id, event }` | Each event of a live agent run |
 | `agent-end` | `{ version, id, status }` | A live agent run finished |
+| `loop` | `{ version, task, id, status, iteration, phase }` | A loop wrote its state (debounced) |
+| `loop-end` | `{ version, task, id, status }` | A running loop reached an outcome |
 
 ## Tasks
 
 ### `GET /api/task?task=<id>`
 
-Everything the task page shows: `id`, `title`, `workflow`, `stages`, `stage`, `next`, `created`, `goal`, `goals`, `nonGoals`, `scope`, `criteria[]` (`id`, `text`, `specified`, `tested`, `tasks`), `subtasks[]` (`id`, `file`, `title`, `status`, `ready`, `type`, `complexity`, `dependsOn`, `checklist`, `criteria`, `files`), `subtaskProblems`, `statuses`, `artifacts[]` (`file`, `kind`, `size`, `updated`), `flows[]` (`name`, `description`, `contract`, `gates`, `status`, `approvals`, `lastRun`, `history`), `evidence` and `activity[]`.
+Everything the task page shows: `id`, `title`, `workflow`, `stages`, `stage`, `next`, `created`, `goal`, `goals`, `nonGoals`, `scope`, `criteria[]` (`id`, `text`, `specified`, `tested`, `tasks`), `subtasks[]` (`id`, `file`, `title`, `status`, `ready`, `type`, `complexity`, `dependsOn`, `checklist`, `criteria`, `files`), `subtaskProblems`, `statuses`, `artifacts[]` (`file`, `kind`, `size`, `updated`), `flows[]` (`name`, `description`, `contract`, `gates`, `status`, `approvals`, `lastRun`, `history`; the `pr` flow from the PR stage on), `evidence`, `activity[]`, `pullRequest` (`provider`, `url`, `number`, `branch`, `base`, `opened`, `at`, or `null`) and `done` (`at`, `by`, `note`, or `null`).
 
 ### `GET /api/artifact?task=<id>&file=<name>`
 
@@ -81,6 +83,8 @@ Runs one whitelisted command on a task.
 | `review` | — | `maverick review <task> --diff` |
 | `subtask-set` | `id` (`01`…), `status` (`pending`, `in-progress`, `blocked`, `done`), `force` | `maverick subtask set <task> <id> <status> [--force]` |
 | `flow-run` | `flow` (default `ship`), `reset` | The flow engine, as `maverick flow run` |
+| `done` | `by`, `note`, `force` | `maverick done <task> [--by] [--note] [--force]` |
+| `reopen` | — | `maverick reopen <task>` |
 
 ```json
 { "action": "verify", "task": "add-orders-pagination" }
@@ -100,13 +104,13 @@ The flow definition (`name`, `description`, `contract`, `gates`), its state and 
 
 ### `POST /api/task-flow/approval`
 
-Records a decision on an approval gate.
+Records a decision on an approval gate, or on a `judge` gate the judges could not settle (bound to the exact change they saw).
 
 ```json
 { "task": "add-orders-pagination", "flow": "ship", "gate": "human-review", "decision": "reject", "by": "Ana", "reason": "Missing test for an empty page" }
 ```
 
-`decision` is `approve` or `reject`; a rejection needs a `reason`. `by` is trimmed to 80 characters and `reason` to 500. Answers `{ approval }`.
+`decision` is `approve` or `reject`; a rejection needs a `reason`. `by` is trimmed to 80 characters and `reason` to 500. Answers `{ approval, outcome, next }`. When the last run was only waiting on approvals it is decided at once, and gates that waited on the approval run: approving the `pr` flow's `approval` gate opens the pull request before the answer.
 
 ### `GET /api/runs`
 
@@ -155,6 +159,26 @@ A live run with all its events: `id`, `task`, `subtask`, `provider`, `model`, `e
 ### `GET /api/agents/transcript?task=<id>&file=<name>.jsonl`
 
 `{ task, file, events }`, the last 3,000 events.
+
+## Loops
+
+Lens reads loops from their state files, so loops started in a terminal or in CI appear here too. See [Loops](/lens/loops).
+
+### `GET /api/loops`
+
+`{ loops[] }`, newest activity first, at most 100: `task`, `id`, `status`, `reason`, `live`, `mode`, `flow`, `iteration`, `accepted`, `maxIterations`, `subtask`, `score` (`passed`, `blocking`, `failing`, `subtasksDone`, `subtasksTotal`), `spent`, `budgets`, `providers`, `rung`, `startedAt`, `updatedAt`, `endedAt`.
+
+### `GET /api/loop?task=<id>&id=<loop id>`
+
+One loop: `live`, `stopPending`, `forecast`, `next`, `summary`, and the full `state` with its last 200 iterations (decision, reasons, findings, gates, score, judge, agent status and transcript, cost and time). `400` for a malformed task or loop id, `404` when it does not exist.
+
+### `GET /api/loop/ledger?task=<id>&id=<loop id>`
+
+The result of `maverick loop verify`: `ok`, `entries`, `checkpoints`, `problems[]` and `warnings[]`.
+
+### `POST /api/loops/stop`
+
+Body `{ "task", "id", "reason"? }`. Writes the stop request a running loop polls, wherever it runs: its agent run is aborted and rolled back. `202 { requested: true }`; `409` when the loop is not running.
 
 ## Capabilities and settings
 
