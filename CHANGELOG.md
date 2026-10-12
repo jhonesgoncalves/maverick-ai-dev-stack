@@ -4,6 +4,8 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-12
+
 ### Added: `maverick why`, the reason behind every line
 - `maverick why <file:line>` walks from a line to its commit, its Maverick task (the `Maverick task:` trailer), the loop iteration that wrote it (by blaming the current content against each loop's checkpoint chain, so the match is exact), that iteration's agent, model, effort, gates and integrity audit, the subtask and the `AC`/`SC` criteria it serves, the judges, the sealed suite, the flows' approvals, the human review, the pull request, and the contracts and protected paths that guard the line now. What is missing (no Maverick history, cleaned checkpoints) is listed, never invented. `why <task> --ac AC-02` is the reverse walk. Both take `--json`.
 - A new MCP tool, `why`, gives agents the same chain without author names and without what the loop's feedback policy withholds from a builder.
