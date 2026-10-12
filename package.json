@@ -1,6 +1,6 @@
 {
   "name": "@maverick-ai/cli",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "A vendor-neutral engineering workflow for building with AI using explicit context, scope, verification and human review.",
   "type": "module",
   "bin": {

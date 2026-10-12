@@ -4,6 +4,8 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-12
+
 ### Fixed: the changelog has a section for every version
 - `CHANGELOG.md` listed every change since 1.0.0 under `[Unreleased]`. Each release now has its own section, 1.1.0 to 1.8.0 rebuilt from the release tags.
 - The release pipeline moves the `[Unreleased]` entries under the version it publishes and uses them as the GitHub release notes; when nobody wrote an entry, it lists the `feat:`, `fix:`, `perf:`, `refactor:` and `docs:` commit subjects since the last tag (`scripts/release-changelog.mjs`).
