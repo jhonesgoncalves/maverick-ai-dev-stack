@@ -4,13 +4,15 @@ import { issueKey } from '../flows/engine.js';
 // The ratchet: progress only moves forward. Each accepted iteration becomes the reference the
 // next one is measured against, and a change that makes anything worse (a blocking gate that
 // passed now fails, more tests fail, checked work is unchecked) is rolled back, however much
-// else it improved. Judge gates never enter it: their verdicts are not deterministic.
+// else it improved. Judge gates never enter it: their verdicts are not deterministic. The sealed
+// suite never does either: hill-climbing on a hidden oracle would leak it into the work.
 
 const isNamed = keys => keys.length > 0 && keys.every(key => key.includes(' :: '));
 
 /** The harness's measure of a tree: blocking gate states, failing ids, the task's checklist progress. */
 export function scoreOf({ results, graph }) {
-  const blocking = results.filter(result => result.severity === 'block' && result.type !== 'judge' && result.type !== 'approval');
+  // Defence in depth: judges, approvals and the sealed suite never reach the ratchet, even if a flow put them in the oracle.
+  const blocking = results.filter(result => result.severity === 'block' && !['judge', 'approval', 'sealed'].includes(result.type));
   const gates = Object.fromEntries(blocking.map(result => [result.id, result.status]));
   const failing = Object.fromEntries(blocking.filter(result => result.status === 'fail').map(result => [result.id, (result.keys?.length ? result.keys : result.issues).slice(0, 200)]));
   const items = graph?.items || [];

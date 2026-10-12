@@ -37,7 +37,11 @@ maverick guard <slug>         # diff vs TECHSPEC File References and task Files 
 maverick security <slug>      # high-signal patterns in the diff → SECURITY-REPORT.md
 maverick deps <slug>          # manifests and lockfiles → DEPENDENCY-REVIEW.md
 maverick review <slug> --diff # blast radius and findings → REVIEW-FINDINGS.md, and REVIEW.md
+maverick contract check <slug> # contracts from earlier tasks the change touches: kept or revoked
+maverick attention <slug>     # hunks ranked by risk, a proof tree per criterion → REVIEW-BUDGET.md
 ```
+
+Start your own reading with the hunks `REVIEW-BUDGET.md` lists first. Before deleting or rewriting code whose purpose is unclear, run `maverick why <file>:<line>`: a line guarded by a contract must keep it unless the PRD revokes it.
 
 `REVIEW.md` is written from the PRD's acceptance criteria and the tasks, in the project's language.
 

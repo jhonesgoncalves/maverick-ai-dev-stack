@@ -140,5 +140,7 @@ export const SEVERITY = {
   'test-literal-special-casing': { strict: 'warn', standard: 'warn' },
   'claim-mismatch': { strict: 'warn', standard: 'warn' },
   overclaim: { strict: 'warn', standard: 'warn' },
-  'reviewer-directed-text': { strict: 'warn', standard: 'warn' }
+  'reviewer-directed-text': { strict: 'warn', standard: 'warn' },
+  // From the ablation gate: a new test that passes without the change cannot fail.
+  'vacuous-test': { strict: 'block', standard: 'warn' }
 };

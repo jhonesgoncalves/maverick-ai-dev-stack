@@ -30,10 +30,12 @@ Every major coding agent now ships a loop: a goal mode, a stop hook that sends t
 |---|---|---|
 | Who says "done" | The agent, or a model reading the transcript | The harness runs the oracle gates on the real tree. The agent's account is advisory, and an account that disagrees with the harness counts against it |
 | Test tampering | A rule in the prompt | The **integrity guard** audits every diff for deleted, skipped or focused tests, fewer assertions, looser assertions, silenced lint or types, and edits to check configuration or CI, in twelve languages. Agents get a **dispute** channel instead of a reason to cheat |
-| Regressions | Manual rewind | A **checkpoint** per iteration and a **ratchet**: a gate that passed never fails again, more failing tests is never kept. Anything worse is rolled back automatically, and the reason goes into the next prompt |
+| Regressions | Manual rewind | A **checkpoint** per iteration and a **ratchet**: a gate that passed never fails again, more failing tests is never kept, and the import structure never gets worse. Anything worse is rolled back automatically, and the reason goes into the next prompt, as far as `loop.feedback` allows |
 | Stuck loops | A hard cap | A **diagnosis** (no progress, oscillation, churn, overclaiming, empty iterations, rollback streaks) and a **ladder**: retry with the diagnosis, more reasoning, **another vendor**, then a human with an escalation packet |
 | Judging | Same model family | An optional **judge** from a different model family, read-only, in an export of the change, that sees the criteria, the harness evidence and the diff, never the author's explanation |
-| Budgets | Checked after the spend | Hard limits on iterations, time and cost, plus a **forecast**: an iteration that would cross a limit never starts |
+| Overfitting to visible tests | Not measured | [Sealed tests](/concepts/sealed-tests): acceptance tests another family wrote before the build, which the builder never sees, decide `done`; the **overfitting index** says what the visible checks promised beyond them |
+| Feedback | The reviewer's reasoning goes back to the agent | Criteria, not detections: the agent learns which criterion is unmet, never which integrity rule caught it or how the judge reasoned |
+| Budgets | Checked after the spend | Hard limits on iterations, time, tokens and cost (estimated from `runtime.prices` when a provider reports tokens only), plus a **forecast**: an iteration that would cross a limit never starts |
 | Audit | Transcripts | A **hash-chained ledger** tied to the checkpoint commits; `loop verify` proves nothing was edited, dropped or moved |
 
 Maverick is vendor-neutral, so all of this works the same for Claude Code, Codex, Cursor, Gemini, Copilot, Kiro, OpenCode and any CLI you configure, including agents that have no hook system of their own.
@@ -78,6 +80,22 @@ The **dispute** channel matters as much as the guard. Every headless agent is to
 
 Maverick also protects itself: `.maverick/config.json`, the flows, the task's PRD, spec, technical spec and review, and the loop's own ledger are restored after every agent run, before the gates read them. The current subtask file may change only by ticked boxes.
 
+## Feedback that does not teach evasion
+
+Telling an agent how it was caught teaches it to evade. A September 2026 study measured 40.5% evasion when agents received the reviewer's detailed reasoning, against 20.3% with a generic rejection (arXiv 2609.28614). So a loop separates **criterion feedback**, what the agent needs to do the work, from **detection feedback**, how to get past the guard next time.
+
+| `loop.feedback` | A rolled-back attempt | The judge | The integrity gate in a flow |
+|---|---|---|---|
+| `criteria` (default) | Regressed visible checks in full; integrity findings become one line, "a check was weakened, or a protected file or the repository changed", without rule, file or pattern | Which criteria it does not accept yet, never its reasoning | One generic line |
+| `generic` | One line: the change made a check worse or broke a loop rule | One line | One generic line |
+| `detailed` | Everything, as before 1.9 | Its issues | Its findings |
+
+What a loop writes into the task follows the same policy: `LOOP.md` and `LOOP-ESCALATION.md` say what the next agent may read, and their full copies, with every reason, live in `$MAVERICK_HOME/reports/<project>/<task>/<loop>/`, as do the judges' reports and transcripts. `LOOP-ESCALATION.md` leaves the task once you resume. The read-only `loop_status` MCP tool, which agents call, says as much as the policy allows, and `flow run --agent` fixes follow the same policy. The loop's own record (`loops/<id>/state.json` and the ledger) keeps the detail for `loop log`, `loop verify` and Lens; an agent in place could go and read it, so for the strongest separation run with `--worktree`, where that record is not in the agent's tree.
+
+**Quarantine.** Agents leave notes for the next iteration in `LOOP-NOTES.md`, and a trick spreads through shared memory as easily as a fix does (Meta, arXiv 2610.12822). Notes from an iteration that was kept despite integrity warnings are quarantined outside the work tree, out of every prompt, and its checkpoint is marked **tainted**, as is every checkpoint derived from it. `maverick loop release <task>` shows the notes to a human, releases them and acknowledges the taint, on the record.
+
+**Drift.** A resumed loop compares what its decisions depend on with what it recorded: the loop, runtime, verification, architecture and sealed configuration, the flow, the seal, and the oracle files a human edited while it was stopped. Anything that changed is written to the ledger as `drift` before the loop goes on, and printed.
+
 ## The judge
 
 With `--judge` (or `loop.judge.enabled`), a subtask counts as done only when a judge accepts it, and the loop ends only when a judge accepts the whole change. The judge:
@@ -98,6 +116,7 @@ A judge that is not satisfied keeps the subtask open with its reasons in the nex
 | `stalled-escalated` | The ladder ran out of rungs | Read `LOOP-ESCALATION.md`, then `--resume --note "<guidance>"` |
 | `disputed` | The agent says a check is wrong | Decide, then `--resume --note "<decision>"` |
 | `needs-human` | The agent asked, a judge could not decide, or the subtask graph is blocked | Answer, then `--resume --note` |
+| `holdout-gap` | Every visible check passes, but the [sealed tests](/concepts/sealed-tests) do not | `maverick seal status <task> --reveal`, then `--resume --note "<missing behavior>"`, reseal, or `--resume --sealed off` |
 | `aborted` | Stopped by you, a hook, or a crash | Run again: a half-finished iteration is rolled back first |
 | `integrity-violation` | History, refs or the ledger changed outside the loop | `loop verify`, inspect, then `--new` |
 
@@ -114,7 +133,9 @@ Only `done` exits zero. Tamper-evident is not tamper-proof: an agent with `full`
     "protectedPaths": ["src/payments/**", "**/.env"],
     "blastRadius": { "maxFiles": 25, "maxLines": 1500 },
     "integrity": "standard",
-    "judge": { "enabled": true, "prefer": ["codex"] }
+    "judge": { "enabled": true, "prefer": ["codex"] },
+    "feedback": "criteria",
+    "sealed": "auto"
   },
   "runtime": { "families": { "copilot": "openai" } }
 }
@@ -124,6 +145,7 @@ Every key is described in [Configuration](/reference/config#loops). Follow a loo
 
 ## Next
 
+- [Sealed tests](/concepts/sealed-tests): the holdout that decides `done`, and the overfitting index.
 - [Verification](/concepts/verification): the gates a loop runs as its oracle.
 - [Human in the loop](/concepts/human-in-the-loop): the decisions a loop always hands back.
 - [CLI reference](/reference/cli#loops): every `maverick loop` command and flag.

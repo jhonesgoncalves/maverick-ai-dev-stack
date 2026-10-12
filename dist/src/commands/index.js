@@ -7,21 +7,24 @@ import { flowCommands } from './flow.js';
 import { gateCommands } from './gates.js';
 import { intelCommands } from './intel.js';
 import { loopCommands } from './loop.js';
+import { memoryCommands } from './memory.js';
 import { projectCommands } from './project.js';
+import { proofCommands } from './proof.js';
+import { sealCommands } from './seal.js';
 import { newCommands } from './new.js';
 import { taskCommands } from './task.js';
 
 // Display order for help and the Lens CLI explorer.
-const ORDER = ['lens', 'init', 'language', 'new', 'instructions', 'generate', 'subtask', 'flow', 'loop', 'agent', 'map', 'stack', 'graph', 'hotspots', 'routes', 'coupling', 'audit', 'mcp', 'packet', 'checkpoint', 'impact', 'guard', 'integrity', 'learn', 'handoff', 'readiness', 'policy', 'adapter', 'ci', 'catalog', 'add', 'remove', 'installed', 'sync', 'verify', 'security', 'deps', 'pr', 'done', 'reopen', 'validate', 'review', 'config', 'doctor', 'status', 'info', 'help'];
+const ORDER = ['lens', 'init', 'language', 'new', 'instructions', 'generate', 'subtask', 'flow', 'loop', 'agent', 'map', 'stack', 'graph', 'hotspots', 'routes', 'coupling', 'audit', 'mcp', 'packet', 'checkpoint', 'impact', 'guard', 'integrity', 'ablation', 'structure', 'seal', 'unseal', 'contract', 'attention', 'why', 'proposals', 'learn', 'handoff', 'readiness', 'policy', 'adapter', 'ci', 'catalog', 'add', 'remove', 'installed', 'sync', 'verify', 'security', 'deps', 'pr', 'done', 'reopen', 'validate', 'review', 'config', 'doctor', 'status', 'info', 'help'];
 
 /** Help and the interactive launcher present commands in these groups, in this order. */
 export const GROUPS = [
   { id: 'start', title: 'Get started', commands: ['init', 'language', 'status', 'doctor', 'lens'] },
   { id: 'workflow', title: 'Plan & build', commands: ['new', 'instructions', 'generate', 'validate', 'subtask', 'packet'] },
-  { id: 'gates', title: 'Verify & review', commands: ['verify', 'checkpoint', 'guard', 'integrity', 'security', 'deps', 'review', 'readiness', 'policy'] },
-  { id: 'delivery', title: 'Deliver', commands: ['pr', 'done', 'reopen', 'handoff', 'learn', 'ci'] },
+  { id: 'gates', title: 'Verify & review', commands: ['verify', 'checkpoint', 'guard', 'integrity', 'ablation', 'structure', 'seal', 'unseal', 'contract', 'security', 'deps', 'review', 'attention', 'readiness', 'policy'] },
+  { id: 'delivery', title: 'Deliver', commands: ['pr', 'done', 'reopen', 'handoff', 'learn', 'proposals', 'ci'] },
   { id: 'automation', title: 'Flows & agents', commands: ['flow', 'loop', 'agent', 'adapter', 'mcp'] },
-  { id: 'intel', title: 'Project intelligence', commands: ['map', 'stack', 'graph', 'coupling', 'routes', 'hotspots', 'impact', 'audit'] },
+  { id: 'intel', title: 'Project intelligence', commands: ['why', 'map', 'stack', 'graph', 'coupling', 'routes', 'hotspots', 'impact', 'audit'] },
   { id: 'capabilities', title: 'Capabilities', commands: ['catalog', 'add', 'remove', 'installed', 'sync'] },
   { id: 'meta', title: 'Configuration', commands: ['config', 'info', 'help'] }
 ];
@@ -34,7 +37,7 @@ const helpCommand = { id: 'help', description: 'Show usage, or details for one c
  * command registry are all derived from this list. Each entry is
  * { id, group, description, aliases, usage, run({ cwd, arg, third, rest, options }) }.
  */
-export const commands = [...projectCommands, ...newCommands, ...taskCommands, ...gateCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...loopCommands, ...agentCommands, ...intelCommands, helpCommand]
+export const commands = [...projectCommands, ...newCommands, ...taskCommands, ...gateCommands, ...proofCommands, ...sealCommands, ...memoryCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...loopCommands, ...agentCommands, ...intelCommands, helpCommand]
   .sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id))
   .map(command => ({ ...command, group: groupOf.get(command.id) || 'meta' }));
 

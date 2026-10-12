@@ -24,6 +24,20 @@ gates:
     run: integrity
     severity: warn
     description: No test was deleted, skipped or weakened, and no check configuration changed unannounced.
+  - id: ablation
+    type: maverick
+    run: ablation
+    severity: warn
+    description: Every new or changed test fails without the change; a test that cannot fail is reported.
+  - id: architecture
+    type: maverick
+    run: architecture
+    severity: warn
+    description: The change adds no import cycle or boundary violation, and does not lower architecture health past the limit.
+  - id: contracts
+    type: maverick
+    run: contracts
+    description: Every living contract the change touches is kept (its tests pass) or revoked in the PRD.
   - id: security
     type: maverick
     run: security
@@ -38,6 +52,11 @@ gates:
     run: review
     severity: warn
     description: Automated diff findings are written for the reviewer.
+  - id: review-budget
+    type: maverick
+    run: attention
+    severity: warn
+    description: Hunks ranked by risk and a proof tree per criterion, so the reviewer knows where to look first.
   - id: human-review
     type: approval
     prompt: A human reviews the change and records the decision.

@@ -19,13 +19,14 @@ export const AGENT_STAGES = [
   { id: 'tasks', name: 'Tasks', description: 'Breaks the tech spec into the subtask graph.' },
   { id: 'build', name: 'Build', description: 'Implements a subtask or the whole task.' },
   { id: 'fix', name: 'Fix', description: 'Fixes the blocking issues of a failed flow.' },
-  { id: 'judge', name: 'Judge', description: 'Reviews a change read-only against its criteria, for a judge gate.' }
+  { id: 'judge', name: 'Judge', description: 'Reviews a change read-only against its criteria, for a judge gate.' },
+  { id: 'seal', name: 'Seal', description: 'Writes the sealed acceptance tests the builder never sees, read-only, from the criteria.' }
 ];
 
 export const STAGE_IDS = AGENT_STAGE_IDS;
 
-// A judge reads a whole change and decides it, so it gets the planning model: the strongest.
-const planning = (model, effort) => ({ prd: { model, effort }, spec: { model, effort }, techspec: { model, effort }, judge: { model, effort: effort && 'high' } });
+// A judge reads a whole change and decides it, and a sealer writes the tests that decide it, so both get the planning model: the strongest.
+const planning = (model, effort) => ({ prd: { model, effort }, spec: { model, effort }, techspec: { model, effort }, judge: { model, effort: effort && 'high' }, seal: { model, effort: effort && 'high' } });
 
 export const RECOMMENDED = {
   // Anthropic: plan with Opus at xhigh, execute with Sonnet; Sonnet 5 supports xhigh at the lowest xhigh price.

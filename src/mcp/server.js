@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { loadCatalog, searchCatalog } from '../capabilities/catalog.js';
 import { loadConfig } from '../core/config.js';
 import { buildProjectIndex } from '../core/lens-index.js';
@@ -18,6 +18,8 @@ import { loadGraph } from '../subtasks/graph.js';
 import { loopStatus } from '../loop/engine.js';
 import { readLedger, verifyChain } from '../loop/ledger.js';
 import { loopPaths } from '../loop/model.js';
+import { visibleReasons } from '../loop/feedback.js';
+import { traceLine } from '../memory/why.js';
 
 // A read-only Model Context Protocol server over stdio (newline-delimited JSON-RPC 2.0).
 // Every tool only reads the repository; nothing here writes files or runs agents.
@@ -32,6 +34,8 @@ const clip = (text, size = 12000) => (text.length > size ? `${text.slice(0, size
 const stringArg = (args, name) => { const value = args?.[name]; if (typeof value !== 'string' || !value.trim()) throw new InvalidParams(`"${name}" must be a non-empty string`); return value.trim(); };
 
 class InvalidParams extends Error {}
+// Gates whose status alone tells a builder what the holdout or a judge decided.
+const HIDDEN_GATES = ['sealed', 'judge'];
 
 export const TOOLS = [
   {
@@ -84,11 +88,16 @@ export const TOOLS = [
       if (!info) return { task, loop: null, next: `No loop has run for ${task}. Start one with: maverick loop run ${task} --dry-run` };
       const { state } = info, size = Number.isInteger(args.iterations) ? Math.min(50, Math.max(1, args.iterations)) : 10;
       const chain = verifyChain(await readLedger(loopPaths(dir, state.loopId).ledger), state.loopId);
-      const iteration = item => ({ n: item.n, subtask: item.subtask?.id || null, provider: item.provider, family: item.family, decision: item.decision, reasons: item.reasons.slice(0, 5), progress: item.progress, gates: item.gates.map(gate => ({ id: gate.id, status: gate.status })), integrity: { block: item.findings.filter(finding => finding.severity === 'block').length, warn: item.findings.filter(finding => finding.severity === 'warn').length, top: item.findings.slice(0, 5).map(finding => `${finding.kind}${finding.file ? ` ${finding.file}` : ''}`) }, judge: item.judge ? { status: item.judge.status, verdicts: item.judge.verdicts } : null, disputes: item.agent?.disputes?.length || 0, costUsd: item.costUsd });
+      // Agents read this tool, so it says what loop.feedback lets the next agent learn: no integrity rule, file or pattern beyond it.
+      const policy = state.settings?.feedback || 'criteria', detailed = policy === 'detailed';
+      const iteration = item => ({ n: item.n, subtask: item.subtask?.id || null, provider: item.provider, family: item.family, decision: item.decision, reasons: visibleReasons(item, policy).slice(0, 5), progress: item.progress, gates: item.gates.map(gate => ({ id: gate.id, status: gate.status })), integrity: { block: item.findings.filter(finding => finding.severity === 'block').length, warn: item.findings.filter(finding => finding.severity === 'warn').length, ...(detailed && { top: item.findings.slice(0, 5).map(finding => `${finding.kind}${finding.file ? ` ${finding.file}` : ''}`) }) }, judge: item.judge ? { status: item.judge.status, verdicts: item.judge.verdicts } : null, disputes: item.agent?.disputes?.length || 0, costUsd: item.costUsd, tokens: item.tokens?.totalTokens ?? null });
+      // The holdout's results are for humans; a running loop's are withheld here too.
+      const final = state.status !== 'running' && state.sealed?.final, met = final && final.total > 0 && final.S >= state.sealed.threshold;
+      const holdout = state.sealed && { sealId: state.sealed.sealId, feedback: state.sealed.feedback, queries: state.sealed.queries, final: !final ? null : state.sealed.feedback === 'none' ? { passed: met } : { passed: final.passed, total: final.total, OI: final.OI } };
       return {
         task, loop: { id: state.loopId, status: state.status, reason: state.reason, mode: state.mode, flow: state.flow.name, running: Boolean(info.running), stopPending: info.stopPending, startedAt: state.createdAt, endedAt: state.endedAt },
         checkpoint: state.checkpoint && { n: state.checkpoint.n, ref: state.checkpoint.ref, score: state.checkpoint.score }, budget: { limits: state.budgets, spent: state.spent, forecast: info.forecast },
-        iterations: state.iterations.slice(-size).map(iteration), escalation: state.escalation?.rung || state.escalation?.diagnosis ? { rung: state.escalation.rung, diagnosis: state.escalation.diagnosis, tried: state.escalation.tried } : null,
+        iterations: state.iterations.slice(-size).map(iteration), feedback: policy, holdout: holdout || null, escalation: state.escalation?.rung || state.escalation?.diagnosis ? { rung: state.escalation.rung, diagnosis: state.escalation.diagnosis, tried: state.escalation.tried } : null,
         ledger: { ok: chain.ok, problems: chain.problems.map(item => item.problem) }, next: info.next
       };
     }
@@ -97,7 +106,8 @@ export const TOOLS = [
     name: 'ground_change', title: 'Ground a change request',
     description: `Ranks the files, tests, entry points and shared modules a plain-language change request most likely touches, with the reason for each, plus verification commands and generated files. Call before planning or writing a spec, then read the top files. ${DATA_NOTE}`,
     inputSchema: { type: 'object', properties: { description: { type: 'string', description: 'The change request in plain language, e.g. "add cursor pagination to the orders list"' } }, required: ['description'], additionalProperties: false },
-    async run(cwd, args) { return groundChange(cwd, stringArg(args, 'description')); }
+    // Author names stay on this machine: the owners are for humans, not for what an agent sends to its provider.
+    async run(cwd, args) { const { owners: _owners, ...ground } = await groundChange(cwd, stringArg(args, 'description')); return ground; }
   },
   {
     name: 'impact', title: 'Change impact',
@@ -110,6 +120,21 @@ export const TOOLS = [
       const touched = new Set([path, ...result.dependents.map(item => item.id)]);
       const routes = (await extractRoutes(cwd, { sources: new Map(sources), resolve: await createResolver(cwd, graph.files, sources) })).filter(route => touched.has(route.file)).map(({ kind, method, path: routePath, file, line }) => ({ kind, method, path: routePath, file, line }));
       return { ...result, dependents: result.dependents.slice(0, 200), truncated: result.dependents.length > 200, affectedRoutes: routes.slice(0, 100) };
+    }
+  },
+  {
+    name: 'why', title: 'Why a line exists',
+    description: `The chain behind one line: the Maverick task and acceptance criteria it serves, the loop iteration that wrote it, the checks it passed, the human decisions on it, and the living contracts that guard it now. Call before changing or deleting code whose purpose is unclear: a contract must be kept unless a human revokes it. ${DATA_NOTE}`,
+    inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'Project-relative file path' }, line: { type: 'integer', minimum: 1 } }, required: ['path', 'line'], additionalProperties: false },
+    async run(cwd, args) {
+      const path = stringArg(args, 'path').replace(/^\.\//, ''), line = Number(args?.line);
+      if (path.split(/[\\/]/).includes('..') || isAbsolute(path) || /^[a-zA-Z]:/.test(path)) throw new InvalidParams('path must be project-relative and stay inside the project');
+      if (!Number.isInteger(line) || line < 1) throw new InvalidParams('"line" must be a positive integer');
+      const trace = await traceLine(cwd, { file: path, line });
+      // An agent reads this: author names stay on this machine, and what the loop's feedback policy
+      // withholds from a builder (integrity detections, holdout results, judges' reasoning) stays out.
+      const { commit, proven, decided, ...rest } = trace;
+      return { ...rest, commit: commit && (commit.uncommitted ? commit : { sha: commit.sha, at: commit.at, summary: commit.summary }), proven: proven && { gates: proven.gates, flows: Object.fromEntries(Object.entries(proven.flows || {}).filter(([, gate]) => !HIDDEN_GATES.includes(gate.type)).map(([id, gate]) => [id, gate.status])) }, decided: decided && { review: decided.review || null, pullRequest: decided.pullRequest || null, done: Boolean(decided.done), judged: (decided.judges || []).map(item => item.status) } };
     }
   },
   {
@@ -161,7 +186,7 @@ export const TOOLS = [
   }
 ];
 
-const INSTRUCTIONS = 'Maverick exposes read-only project intelligence: stack and verification commands, task scope contracts (PRD and technical spec), ready subtasks, the state of the autonomous loop of a task (loop_status), grounding for a new change request (ground_change), change impact with affected entry points, entry points (list_routes), components and coupling (architecture), and ranked findings (audit). Read the task with get_task before editing, check impact before changing shared code, stay within PRD.md and TECHSPEC.md, run the listed verification commands, and leave commits and merges to humans. Never edit, skip or weaken a test or check to make it pass: if one is wrong, say so (in a loop, report it as a dispute).';
+const INSTRUCTIONS = 'Maverick exposes read-only project intelligence: stack and verification commands, task scope contracts (PRD and technical spec), ready subtasks, the state of the autonomous loop of a task (loop_status), grounding for a new change request (ground_change), change impact with affected entry points, entry points (list_routes), components and coupling (architecture), ranked findings (audit), and why a line exists with the contracts that guard it (why). Read the task with get_task before editing, ask why before deleting code whose purpose is unclear, check impact before changing shared code, stay within PRD.md and TECHSPEC.md, run the listed verification commands, and leave commits and merges to humans. Never edit, skip or weaken a test or check to make it pass: if one is wrong, say so (in a loop, report it as a dispute).';
 
 /** Handles one JSON-RPC message. Returns the response object, or undefined for notifications. */
 export async function handleMessage(cwd, message, session = {}) {

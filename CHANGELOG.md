@@ -4,6 +4,59 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+### Added: `maverick why`, the reason behind every line
+- `maverick why <file:line>` walks from a line to its commit, its Maverick task (the `Maverick task:` trailer), the loop iteration that wrote it (by blaming the current content against each loop's checkpoint chain, so the match is exact), that iteration's agent, model, effort, gates and integrity audit, the subtask and the `AC`/`SC` criteria it serves, the judges, the sealed suite, the flows' approvals, the human review, the pull request, and the contracts and protected paths that guard the line now. What is missing (no Maverick history, cleaned checkpoints) is listed, never invented. `why <task> --ac AC-02` is the reverse walk. Both take `--json`.
+- A new MCP tool, `why`, gives agents the same chain without author names and without what the loop's feedback policy withholds from a builder.
+
+### Added: living contracts
+- `maverick done` turns a task's SPEC invariants and the criteria its committed sealed tests prove into contracts in `.maverick/contracts/C-NN.md`, anchored to the files that implement them, with an owner and a review date (`--no-contracts` skips it; `maverick contract harvest <task>` does it on demand). `unseal --commit` now records which criteria each committed test proves.
+- An agent whose subtask touches an anchored file gets the contract in its prompt. The new `contracts` gate of the `ship` flow (`maverick contract check <task>`) runs the tests of every contract the change touches: they must pass, or the task's PRD must revoke the contract (`Revokes C-07: <why>`); a deleted contract test always fails. Without a task (`contract check --against <ref>`, for CI), a touched anchor is reported as drift, and `--strict` fails on untested drift.
+- `contract list|show|revoke|review` manage them; overdue reviews are listed by every check. A revocation in a task's PRD takes effect when `maverick done` finishes the task.
+
+### Added: the error ratchet
+- At the end of every `loop run`, rollbacks, judge rejections, escalations and disputes become proposals in `.maverick/proposals/`, one per failure class, with the evidence (ledger entry, rejected diff) and the kind of fix each calls for: an AGENTS.md line, a lint rule, a skill, an integrity rule or a PRD question.
+- `maverick proposals accept <id> [--text] [--paths] [--agents-md]` promotes one; `reject <id> --reason` declines it. Accepted rules reach an agent's prompt only when its subtask touches their paths, and `--agents-md` keeps a managed block in `AGENTS.md`. `maverick proposals stats` compares each rule's failure class per loop before and after it was accepted, and flags rules that have not reduced it for pruning.
+
+### Added: the review budget
+- `maverick attention <task>` (the `review-budget` gate of the `ship` flow, a warning) ranks every hunk of the diff by risk: blast radius, hotspot, integrity warnings, judge uncertainty or rejection of the criterion it serves, the sealed escape set (only after the seal was opened), and whether a nearby test changed. It compares with the commit the task's newest loop started from, else the merge-base with the base branch. It writes `REVIEW-BUDGET.md` with the hunks to read first, a review time range and a proof tree per criterion; unless `loop.feedback` is `detailed`, the task's copy leaves out detection kinds and the judges' evidence, and the full one is in `$MAVERICK_HOME/reports/`. `PR-DRAFT.md` gets a *Where to look* section.
+- `PR-DRAFT.md`'s *Holdout* section shows the last loop's sealed counts only once a reviewer has decided on the seal.
+
+### Changed: grounding remembers
+- Grounding ranks files that earlier, similar tasks planned higher, lists files that usually change together with the chosen ones, and names who knows them best (shown to you, never sent to an agent or through MCP). Spanish stopwords join English and Portuguese.
+- Every `graph`, `coupling` and `audit` run records a snapshot of the graph in `.maverick/cache/graph/`; `maverick graph --trend` shows architecture health over time.
+
+### Added: sealed tests, acceptance tests the builder never sees
+- `maverick seal <task>` has an agent from a model family no builder of the task belongs to (the build agent, `loop.providers`, routes, the fix agent) write acceptance tests from the PRD's `AC-NN` and the SPEC's `SC-NN`, read-only, in an export of the code as it is, through the surface you choose (`--surface spec|techspec|boundary`). `--from-file <dir|bundle.json>` seals a suite you wrote. Every test must fail on the code as it is; one that already passes leaves the holdout.
+- The suite is encrypted (AES-256-GCM, `node:crypto`) in `$MAVERICK_HOME/vault/<project>/<task>/<seal>/` with its results and the sealer's transcript, under a hash-chained ledger of its own. The task keeps `SEALED.json`: digests, counts per criterion and the approval, never a path, a test name or a line of test code. Keys come from a file (default, `0600`), `MAVERICK_SEAL_KEY` (never passed to agents) or a command.
+- The suite is checked against the code before the change: `--base <ref>`, else the tree the task's newest loop started from, else the working tree. A suite in which no test fails there is refused.
+- `maverick seal approve`, `maverick seal status [--reveal]` (the tests, their results and the escape set, only at an interactive terminal) and `maverick unseal --commit [--protect] | --discard` (at review; `--protect` adds the tests to `loop.protectedPaths`). `REVIEW.md` gets a *Sealed acceptance tests* section, merge readiness waits for the decision, and `PR-DRAFT.md` gets a *Holdout* section.
+- Loops query the suite at the baseline, when a subtask is done (`sealed.when`, up to `sealed.maxQueries`) and at done, in exports outside the repository. Below `sealed.threshold` a loop stops as the new outcome **`holdout-gap`** with the **overfitting index** (OI = criteria the visible evidence claims − criteria the sealed tests confirm, in points), never rolling work back. The builder learns nothing from the holdout unless `sealed.feedback` is `count` or `ac`. A loop whose builder shares the sealer's family refuses to start, and the escalation ladder skips that family. `loop.sealed` (`auto`, `required`, `off`, or `--sealed`) says whether the seal decides the loop.
+- A new `sealed` flow gate runs the suite against the working tree; below its threshold with `feedback: none` it is `pending` for a human, never `revise`, and `flow approve` binds the decision to the suite and the exact tree. Sealed results never enter `EVIDENCE.md`, the ratchet or a judge's evidence.
+- Maverick's own tests hold it to the invariant: after a full loop, a random marker in a sealed test is in no project file, no git object, no prompt and no leftover temporary file.
+- Lens: a loop's page has a *Holdout* card (the seal, its queries and, once the loop stopped, the counts and the overfitting index; never a test), tokens in the budget, and the integrity warnings it kept with its quarantined notes. `holdout-gap` loops wait in the Inbox.
+
+### Added: checks of the checks
+- `maverick ablation <task>` (the `ablation` gate) runs each new or changed test file with the change, where it must pass, and on the code before it with only the new tests on top, where it must fail. A test that passes both ways is the new integrity kind `vacuous-test` (warn, block at `strict`); a regression guard named in the TECHSPEC Test Plan is expected to pass. Writes `ABLATION.md`.
+- `maverick structure <task>` (the `architecture` gate) compares the import graphs before and after a change: a new import cycle, a new import that `architecture.rules` forbids, or a health drop beyond `architecture.maxHealthDrop` (default 5) fails it, unless TECHSPEC declares the edge under `## Architecture`. Graphs are cached by tree in `$MAVERICK_HOME/cache/`. Writes `ARCHITECTURE-CHECK.md`.
+- `verification.runners` says how to run chosen test files (`{files}`, `{file}`, `{dir}`, `{name}`, `{report}` for JUnit XML); runners are otherwise inferred for node:test, Vitest, Jest, Mocha, AVA, pytest, unittest, Go, Cargo, RSpec, Minitest, PHPUnit, ExUnit and Dart.
+- The built-in `ship` flow runs `ablation` and `architecture` as warnings; the built-in `loop` flow blocks on `architecture`, so no iteration can add a cycle.
+
+### Changed: loop feedback names criteria, not detections
+- New `loop.feedback` (`--feedback`): with `criteria`, the default, the next agent reads regressed visible checks in full, but integrity findings become one generic line (no rule, file or pattern) and a judge's verdict becomes its unmet criteria, never its reasoning. `generic` says only that the attempt was rejected; `detailed` keeps the 1.8 behavior. Humans always get the detail: `LOOP.md` and `LOOP-ESCALATION.md` in the task follow the policy, and their full copies, the judges' reports and transcripts live in `$MAVERICK_HOME/reports/`. `LOOP-ESCALATION.md` leaves the task once you resume. The MCP `loop_status` tool, which agents call, follows the same policy, and so do `flow run --agent` fixes.
+- Notes from an iteration kept despite integrity warnings are quarantined outside the work tree instead of reaching `LOOP-NOTES.md`, and its checkpoint (and every one derived from it) is marked tainted. `maverick loop release <task>` releases the notes and acknowledges the taint, on the record.
+- A resumed loop records `drift` in its ledger: changed loop, runtime, verification, architecture or sealed configuration, a changed flow, a new or dropped seal, and oracle files you edited while it was stopped. `loop.judge.isolation: "live"`, which never had an effect, is now warned about.
+
+### Added: tokens and costs for every provider
+- Claude Code, Codex, Gemini CLI and OpenCode report token usage (and Cursor, Copilot, Kiro and Antigravity when their stream carries it), normalised to input, cached input, output and reasoning tokens. `runtime.prices` estimates the cost of runs whose provider reports tokens but no cost; estimates are marked as such.
+- `MAVERICK_SEAL_KEY` never reaches an agent or a command a check runs.
+- Loops count tokens across providers, judges included: `loop.budgets.maxTokens` and `--max-tokens` with a forecast, tokens in `LOOP.md`, `loop status`, the ledger and `agent run`.
+
+### Fixed: a loop that stops right after deciding an iteration keeps it
+- A loop killed after an iteration's decision was in the ledger but before its state was saved (for example while marking the subtask done) rolled the accepted work back on resume and used the iteration's number again. Recovery now keeps any iteration the ledger decided, rebuilds its record, and only rolls back an iteration that was never decided.
+
+### Changed: `flow run --agent` fixes get the guarantees of a loop iteration
+- Before each fix the working tree is snapshotted through a private index, the task and check configuration are backed up, and HEAD, the branch, the index and the stash are recorded. After it, protected files are put back, a commit or checkout by the agent stops the flow, and the fix's own diff is audited: a blocking finding rolls the whole fix back.
+
 ## [1.8.1] - 2026-10-12
 
 ### Fixed: the changelog has a section for every version

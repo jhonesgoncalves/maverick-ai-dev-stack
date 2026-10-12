@@ -193,6 +193,11 @@ export function inPlace({ cwd, task, indexFile, inflight }) {
   return self;
 }
 
+/** A commit of `tree` under the loop's identity, with no ref pointing at it: a restore point that lives as long as a run needs it. */
+export async function commitTree(cwd, tree, parent, message) {
+  return (await must(cwd, ['commit-tree', '--no-gpg-sign', ...(parent ? ['-p', parent] : []), tree], { env: IDENTITY, input: message })).trim();
+}
+
 /** Reads a file at a commit, or null when it is not there. */
 export async function showFile(cwd, commit, path) {
   const result = await git(cwd, ['show', `${commit}:./${path}`]);

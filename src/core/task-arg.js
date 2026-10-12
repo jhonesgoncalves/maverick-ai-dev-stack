@@ -11,13 +11,13 @@ import { canPrompt, pick } from '../ui/pick.js';
 // asked; scripts, CI, agents and the MCP server get an error that names the tasks instead.
 
 const PLANNING = [...new Set(Object.values(presets).flatMap(planningStages))];
-const SIMPLE = ['packet', 'validate', 'learn', 'handoff', 'done', 'reopen', 'checkpoint', 'guard', 'integrity', 'readiness', 'verify', 'security', 'deps', 'review', 'instructions', 'generate'];
+const SIMPLE = ['packet', 'validate', 'learn', 'handoff', 'done', 'reopen', 'checkpoint', 'guard', 'integrity', 'ablation', 'structure', 'readiness', 'verify', 'security', 'deps', 'review', 'instructions', 'generate'];
 
 /** The stages a command usually works on, so tasks there are offered first. */
 const PREFERRED = {
-  verify: ['build', 'verify'], guard: ['build', 'verify'], integrity: ['build', 'verify'], deps: ['build', 'verify'], security: ['security', 'verify'],
+  verify: ['build', 'verify'], guard: ['build', 'verify'], integrity: ['build', 'verify'], ablation: ['build', 'verify'], structure: ['build', 'verify'], deps: ['build', 'verify'], security: ['security', 'verify'],
   review: ['review', 'verify', 'security'], readiness: ['review', 'pr'], pr: ['pr', 'review'], done: ['pr'], reopen: ['done'], checkpoint: ['review', 'pr'],
-  subtask: ['tasks', 'build'], agent: ['build'], loop: ['build', 'verify'],
+  subtask: ['tasks', 'build'], agent: ['build'], loop: ['build', 'verify'], seal: ['tasks', 'spec', 'build'], unseal: ['review', 'verify'],
   'flow:spec': ['spec'], 'flow:ship': ['verify', 'security', 'review'], 'flow:pr': ['pr'], 'flow:fix-checks': ['build', 'verify']
 };
 
@@ -31,7 +31,9 @@ function taskIndex(id, positional) {
   if (id === 'subtask') return ['list', 'next', 'validate'].includes(action) ? 2 : -1;
   if (id === 'agent') return ['run', 'runs'].includes(action) ? 2 : -1;
   if (id === 'flow') return action === 'run' ? 3 : action === 'status' ? 2 : -1;
-  if (id === 'loop') return ['run', 'status', 'stop', 'verify', 'log', 'clean'].includes(action) ? 2 : -1;
+  if (id === 'seal') return ['status', 'approve'].includes(action) ? 2 : 1;
+  if (id === 'unseal') return 1;
+  if (id === 'loop') return ['run', 'status', 'stop', 'verify', 'log', 'release', 'clean'].includes(action) ? 2 : -1;
   return -1;
 }
 

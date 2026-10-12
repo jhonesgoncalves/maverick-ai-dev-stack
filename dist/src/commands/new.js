@@ -107,10 +107,10 @@ async function newTask(cwd, idea, options = {}) {
     await writeFile(join(taskPath(cwd, config, slug), 'TASK.json'), pretty({ idea: text, workflow, createdAt: new Date().toISOString().slice(0, 10) }));
   }
   const { dir, meta, preset } = await getTask(cwd, slug), status = await taskStage(dir, preset, slug);
-  const ground = await groundChange(cwd, meta.idea || '');
+  const ground = await groundChange(cwd, meta.idea || '', { exclude: slug });
   if (options.headless) return generate(cwd, slug, undefined, options);
   if (options.json) return output(JSON.stringify({ task: slug, created: !resumed, idea: meta.idea, workflow: preset.id, stage: status.stage, next: status.next, grounding: { relevant: ground.relevant.map(item => item.path), tests: ground.tests, routes: ground.routes.length } }, null, 2));
-  output(`${brand()} / NEW\n${resumed ? '↻ resuming' : '✓ task created'}: ${slug}  (${rel(cwd, dir)})\nIdea: ${meta.idea}\nWorkflow: ${preset.name}${reason ? ` (${reason})` : ''}\nPipeline: ${stageLine(preset, status.stage)}${planningStages(preset).includes(status.stage) ? '' : ` → ${status.stage.toUpperCase()}`}\nGrounded in: ${ground.relevant.slice(0, 3).map(item => item.path).join(', ') || 'no matching files'}${ground.relevant.length > 3 ? ` (+${ground.relevant.length - 3} more)` : ''}`);
+  output(`${brand()} / NEW\n${resumed ? '↻ resuming' : '✓ task created'}: ${slug}  (${rel(cwd, dir)})\nIdea: ${meta.idea}\nWorkflow: ${preset.name}${reason ? ` (${reason})` : ''}\nPipeline: ${stageLine(preset, status.stage)}${planningStages(preset).includes(status.stage) ? '' : ` → ${status.stage.toUpperCase()}`}\nGrounded in: ${ground.relevant.slice(0, 3).map(item => item.path).join(', ') || 'no matching files'}${ground.relevant.length > 3 ? ` (+${ground.relevant.length - 3} more)` : ''}${ground.pastTasks.length ? `\nSimilar earlier tasks: ${ground.pastTasks.slice(0, 3).map(item => item.task).join(', ')}` : ''}${ground.owners.length ? `\nAsk: ${[...new Set(ground.owners.map(item => item.owner))].slice(0, 3).join(', ')} (most commits on these files)` : ''}`);
   if (!interactive) return output(`\nNext: ${status.next}\nIn your agent, use the ${SKILL_FOR_STAGE[status.stage]} skill for ${slug}; for a headless run: maverick generate ${slug} --agent <trusted-provider>`);
   const skill = SKILL_FOR_STAGE[status.stage];
   await launch(cwd, config, str(options.agent), `Use the ${skill} skill for the Maverick task "${slug}": ${meta.idea}\nIt is at the ${status.stage} stage. Start with: maverick instructions ${slug} --json`);
@@ -175,7 +175,7 @@ async function generate(cwd, slug, onlyStage, options = {}) {
   const plan = planFor(onlyStage || status.stage);
   const newAnswer = str(options.answers), answers = [...(meta.answers || []), ...(newAnswer ? [newAnswer] : [])];
   if (newAnswer && !options.dryRun) await writeFile(join(dir, 'TASK.json'), pretty({ ...meta, answers }));
-  const ground = await groundChange(cwd, meta.idea || ''), timeoutMs = Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 60000);
+  const ground = await groundChange(cwd, meta.idea || '', { exclude: slug }), timeoutMs = Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 60000);
   const stages = onlyStage ? [onlyStage] : planning.slice(planning.indexOf(status.stage)), report = [], questions = [];
   if (!options.json && !options.dryRun) output(`${brand()} / GENERATE\nTask: ${slug} · ${plan.provider.name} (read-only)\nStages: ${stages.map(stage => stage.toUpperCase()).join(' → ')}`);
   for (const stage of stages) {
@@ -222,7 +222,7 @@ async function instructions(cwd, slug, onlyStage, options = {}) {
   const stage = onlyStage ? String(onlyStage).toLowerCase() : undefined;
   const planning = planningStages(preset);
   if (stage && !planning.includes(stage)) throw new Error(`stage must be one of ${planning.join(', ')} for the ${preset.id} workflow`);
-  const status = await taskStage(dir, preset, slug), ground = await groundChange(cwd, meta.idea || '');
+  const status = await taskStage(dir, preset, slug), ground = await groundChange(cwd, meta.idea || '', { exclude: slug });
   const focus = stage || (planning.includes(status.stage) ? status.stage : undefined);
   const findings = await lintTask(cwd, dir, { stage: focus, preset });
   const language = projectLanguage(config), graph = await loadGraph(dir);
@@ -235,7 +235,8 @@ async function instructions(cwd, slug, onlyStage, options = {}) {
     language: { ...language, rule: languageRule(language), keywords: stageKeywords(language.docs) },
     focus: focus ? stages.find(item => item.id === focus) : null, stages, upstream: focus ? (await upstreamFor(dir, preset, focus)).map(item => rel(cwd, join(dir, item.file))) : [],
     tasks: { ...status.tasks, ready: graph.items.filter(item => item.ready).map(item => ({ id: item.id, title: item.title, path: rel(cwd, join(dir, 'subtasks', item.file)) })), inProgress: graph.items.filter(item => item.status === 'in-progress').map(item => item.id) },
-    grounding: ground, findings, authoring: config.authoring || {}, validate: `maverick validate ${slug}${focus ? ` --stage ${focus}` : ''}`
+    // Author names stay on this machine: an agent reads this payload and sends it to its provider.
+    grounding: { ...ground, owners: undefined }, findings, authoring: config.authoring || {}, validate: `maverick validate ${slug}${focus ? ` --stage ${focus}` : ''}`
   };
   if (options.json) return output(JSON.stringify(payload, null, 2));
   const lines = [`${brand()} / INSTRUCTIONS — ${slug}`, `Idea: ${payload.idea}`, `Workflow: ${preset.name} · Pipeline: ${stageLine(preset, status.stage)} · Skill now: ${payload.skill}`, `Language: documents ${languageName(language.docs)} · code ${languageName(language.code)}`, ''];

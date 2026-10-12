@@ -9,7 +9,8 @@ import { pretty } from '../core/util.js';
 // record are copied before each agent run and put back right after it, before any gate runs.
 // Otherwise an agent could turn `verification.commands` into `true` and pass every check.
 
-const TASK_FILES = ['PRD.md', 'SPEC.md', 'TECHSPEC.md', 'TASK.json', 'REVIEW.md', 'LOOP-NOTES.md'];
+// SEALED.json names the hidden suite that decides `done`: an agent that edits it is rolled back.
+const TASK_FILES = ['PRD.md', 'SPEC.md', 'TECHSPEC.md', 'TASK.json', 'REVIEW.md', 'LOOP-NOTES.md', 'SEALED.json'];
 
 async function listFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []), files = [];

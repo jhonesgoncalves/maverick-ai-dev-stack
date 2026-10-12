@@ -36,6 +36,7 @@ const HEADINGS = {
   'Risks and Rollback': { 'pt-BR': 'Riscos e Rollback', es: 'Riesgos y Rollback' },
   Commands: { 'pt-BR': 'Comandos', es: 'Comandos' },
   'Do Not Touch': { 'pt-BR': 'Não Alterar', es: 'No Tocar' },
+  Architecture: { 'pt-BR': 'Arquitetura', es: 'Arquitectura' },
   Goal: { 'pt-BR': 'Objetivo', es: 'Objetivo' },
   Files: { 'pt-BR': 'Arquivos', es: 'Archivos' },
   Steps: { 'pt-BR': 'Passos', es: 'Pasos' },
@@ -44,7 +45,8 @@ const HEADINGS = {
   Checks: { 'pt-BR': 'Checagens', es: 'Comprobaciones' },
   Findings: { 'pt-BR': 'Achados', es: 'Hallazgos' },
   Decision: { 'pt-BR': 'Decisão', es: 'Decisión' },
-  'Human Explanation': { 'pt-BR': 'Explicação Humana', es: 'Explicación Humana' }
+  'Human Explanation': { 'pt-BR': 'Explicação Humana', es: 'Explicación Humana' },
+  'Sealed Acceptance Tests': { 'pt-BR': 'Testes de Aceite Selados', es: 'Pruebas de Aceptación Selladas' }
 };
 
 /** Requirement structure keywords. Readers accept every language; writers use the docs language. */

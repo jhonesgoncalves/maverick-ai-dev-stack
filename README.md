@@ -180,7 +180,7 @@ Only `done` exits zero. After `stalled` or `exhausted` the flow refuses to run u
 <details>
 <summary><b>Write your own flow</b></summary>
 
-Add flows to `.maverick/flows/<name>.yaml`. Gates are typed, never free text: `check` (the detected lint, typecheck, test and build), `maverick` (validate, verify, guard, integrity, security, deps, policy, review, readiness), `command`, `artifact` (file, sections, pattern), `approval` and `judge` (an independent agent from another model family that decides the criteria). Gates with `severity: warn` report without blocking.
+Add flows to `.maverick/flows/<name>.yaml`. Gates are typed, never free text: `check` (the detected lint, typecheck, test and build), `maverick` (validate, verify, guard, integrity, ablation, architecture, contracts, attention, security, deps, policy, review, readiness), `command`, `artifact` (file, sections, pattern), `approval`, `judge` (an independent agent from another model family that decides the criteria) and `sealed` (the task's hidden acceptance tests). Gates with `severity: warn` report without blocking.
 
 ```yaml
 apiVersion: maverick.flow/v1
@@ -219,12 +219,52 @@ maverick loop verify my-task                          # the record still matches
 ```
 
 - **Integrity guard.** Every diff is audited for deleted, skipped or focused tests, fewer or looser assertions, silenced lint or types, and edits to check configuration or CI, in twelve languages. An agent that thinks a check is wrong reports a dispute instead of changing it.
-- **Ratchet with rollback.** Each iteration is a checkpoint. A gate that passed never fails again; anything worse is rolled back automatically and the reason goes into the next prompt.
+- **Ratchet with rollback.** Each iteration is a checkpoint. A gate that passed never fails again, and the import structure never gets worse; anything worse is rolled back automatically.
+- **Feedback that does not teach evasion.** The next agent learns which criterion is unmet and which visible check regressed, never which integrity rule caught it or how the judge reasoned (`loop.feedback`). Notes from an iteration kept despite integrity warnings are quarantined until you release them.
 - **Escalation across vendors.** No progress, oscillation, churn or overclaiming climbs a ladder: the diagnosis, more reasoning, another vendor, then you, with an escalation packet.
 - **Cross-family judge.** With `--judge`, a reviewer from a different model family, working read-only on an export of the change, must accept each subtask. It sees the diff and the harness's evidence, never the author's explanation.
-- **Budgets with a forecast, and a ledger.** Iteration, time and cost limits stop the loop *before* an iteration that would cross them. Every decision is in a hash-chained ledger tied to the checkpoint commits.
+- **Budgets with a forecast, and a ledger.** Iteration, time, token and cost limits stop the loop *before* an iteration that would cross them; tokens are counted for every provider that reports them, and `runtime.prices` turns them into a cost. Every decision is in a hash-chained ledger tied to the checkpoint commits, and a resumed loop records whatever changed while it was stopped.
 
 In place, checkpoints are hidden refs: your HEAD, branch and index are never touched. With `--worktree`, the loop works on its own branch outside your checkout. A loop never commits to your branch and never pushes; only the `pr` flow does, after you approve the pull request draft. Read [Loop engineering](https://jhonesgoncalves.github.io/maverick-ai-dev-stack/concepts/loop-engineering).
+
+## Tests the agent never sees
+
+**Agents write. Maverick proves. Engineers decide.** An agent that sees every test learns to pass the tests. Sealed tests are acceptance tests written from your PRD and spec *before* the build, by another model family (or by you), encrypted outside the work tree and run only at milestones. The loop is done only when they pass too; when they do not, you get the **overfitting index**: how much the visible checks promised beyond what the hidden tests confirm.
+
+```bash
+maverick seal my-task                     # an independent sealer writes the suite, read-only
+maverick seal approve my-task             # after reading it: maverick seal status my-task --reveal
+maverick loop run my-task --judge
+# HOLDOUT-GAP — the visible checks pass, the sealed tests do not: 7/10 sealed pass · overfitting index +33 pp
+maverick unseal my-task --commit --protect  # at review: keep them as protected regression tests
+```
+
+- **Independent by construction.** The sealer comes from a model family no builder belongs to; a loop whose builder shares it refuses to start.
+- **Never leaks.** The suite runs only in exports outside the repository. No file, git object, prompt or temporary file holds it, and Maverick's own tests check exactly that. The task keeps digests and counts; the tests are for you, at a terminal.
+- **Never a hidden oracle.** A sealed failure never rolls work back; it goes to a human. Hill-climbing on a holdout leaks it.
+- **Checks of the checks.** `maverick ablation` proves new tests fail without the change (a test that cannot fail is not evidence), and `maverick structure` fails a change that adds an import cycle or breaks an architecture rule.
+
+Sealing keeps tests out of the prompt, out of the tree and out of casual reach; it is not cryptographic secrecy against an agent with a full shell. Read [Sealed tests](https://jhonesgoncalves.github.io/maverick-ai-dev-stack/concepts/sealed-tests).
+
+## Why every line exists
+
+`git blame` says who and when. `maverick why` says why: the task, the acceptance criterion, the loop iteration and agent that wrote the line, the checks it passed, the judges and the human who approved it, and the contracts that guard it now.
+
+```bash
+maverick why src/orders/orders.service.ts:88
+# Task      add-cursor-pagination  (PR #42, done 2026-10-12)
+# Intent    AC-02 The cursor is opaque to the client
+# Built     subtask 02 · loop 20261012-101500-ab12 · iteration 4 · codex gpt-6 (high) · accepted
+# Proven    checks PASS (checks, keep) · integrity clean · sealed 10/10
+# Decided   judge claude (anthropic) 0.91 PASS · human review: approve
+# Guards    contract C-07 "The cursor is opaque to the client"
+```
+
+- **Living contracts.** A finished task leaves its invariants and the criteria its sealed tests proved as contracts. The next change that touches those files sees them, and must keep them or revoke them in its PRD.
+- **The error ratchet.** Every rollback, judge rejection, escalation and dispute becomes a proposed rule. You accept or reject it; accepted rules reach an agent only when it touches their paths, and each one is measured to see whether its mistake stopped recurring.
+- **A review budget.** `maverick attention` ranks the diff's hunks by risk and gives a time range and a proof tree per criterion, so the reviewer knows where to look first.
+
+Read [Memory](https://jhonesgoncalves.github.io/maverick-ai-dev-stack/concepts/memory).
 
 ## Bring every agent you use
 

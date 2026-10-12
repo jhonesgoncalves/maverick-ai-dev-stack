@@ -187,12 +187,16 @@ export function analyzeArchitecture(nodes, edges, { prefixes, rules = [] } = {})
   const position = new Map(order.map((id, index) => [id, index]));
   const matrix = order.map(() => order.map(() => 0));
   for (const link of links) matrix[position.get(link.from)][position.get(link.to)] = link.weight;
-  // Boundary rules from configuration.
+  return { components: list, links, cycles, sdp, dsm: { order, matrix }, violations: boundaryViolations(edges, rules), componentOf };
+}
+
+/** Static imports the boundary rules in configuration forbid: `{ from, to, rule, reason }`. */
+export function boundaryViolations(edges, rules = []) {
   const compiled = rules.map(rule => ({ ...rule, fromRe: globToRegex(rule.from), disallowRe: (rule.disallow || []).map(globToRegex), allowRe: (rule.allow || []).map(globToRegex) }));
   const violations = [];
   if (compiled.length) for (const edge of edges) {
     if (edge.dynamic) continue;
     for (const rule of compiled) if (rule.fromRe.test(edge.from) && rule.disallowRe.some(re => re.test(edge.to)) && !rule.allowRe.some(re => re.test(edge.to))) { violations.push({ from: edge.from, to: edge.to, rule: `${rule.from} ↛ ${rule.disallow.join(', ')}`, reason: rule.reason || '' }); break; }
   }
-  return { components: list, links, cycles, sdp, dsm: { order, matrix }, violations, componentOf };
+  return violations;
 }

@@ -11,6 +11,9 @@ import { detectStack, selectVerificationCommands } from '../core/stack.js';
 import { buildPrompt } from '../runtime/prompt.js';
 import { runAgent } from '../runtime/session.js';
 import { loadGraph, setStatus } from '../subtasks/graph.js';
+import { declaredScope } from '../core/quality.js';
+import { contractSection, contractsTouching, listContracts } from '../memory/contracts.js';
+import { listProposals, rulesFor, rulesSection } from '../memory/proposals.js';
 
 const str = value => (typeof value === 'string' ? value : undefined);
 
@@ -35,6 +38,19 @@ export async function selectSubtask(taskDir, reference) {
   return subtask;
 }
 
+/**
+ * The prompt sections an agent gets from the project's memory: living contracts on the files it is
+ * expected to touch (the subtask's Files, else the task's declared scope) and the accepted rules
+ * scoped to those paths. Nothing is added when nothing applies.
+ */
+export async function memorySections(cwd, taskDir, subtask) {
+  const scope = await declaredScope(taskDir, { subtask: subtask || undefined });
+  const files = subtask && scope.subtask.length ? scope.subtask : scope.all;
+  if (!files.length) return [];
+  const [contracts, proposals] = await Promise.all([listContracts(cwd), listProposals(cwd)]);
+  return [contractSection(contractsTouching(contracts, files)), rulesSection(rulesFor(proposals, files))].filter(Boolean);
+}
+
 /** A key the caller set wins, even when its value is undefined: a loop switching provider drops a flag the new one cannot take. */
 const pick = (overrides, key, value) => (key in overrides ? overrides[key] : value);
 
@@ -48,7 +64,9 @@ export async function startAgentRun(cwd, { slug, dir, config, subtask, instructi
   // The project's checks: listed in the prompt, and the only shell an `edit` run gets where the tool can scope it.
   const commands = selectVerificationCommands(await detectStack(workdir), config);
   const subtaskFile = subtask ? rel(workdir, join(workdir, rel(cwd, dir), 'subtasks', subtask.file)) : undefined;
-  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, subtaskFile, instruction, issues, commands, shell: shellFor(plan.provider, plan.permission), extras });
+  // Memory: contracts and learned rules anchored to the files this run is expected to touch.
+  const remembered = await memorySections(cwd, dir, subtask).catch(() => []);
+  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, subtaskFile, instruction, issues, commands, shell: shellFor(plan.provider, plan.permission), extras: [...extras, ...remembered] });
   const timeoutMs = limit || Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 60000);
   if (options.dryRun) return { dryRun: true, plan, prompt, invocation: plan.provider.invocation({ prompt: '<prompt>', model: plan.model, effort: plan.effort, permission: plan.permission, commands }) };
   const controller = new globalThis.AbortController(), abort = () => controller.abort();
@@ -88,10 +106,10 @@ async function run(cwd, slug, options) {
   const outcome = await startAgentRun(cwd, { slug, dir, config, subtask, instruction: str(options.prompt), options, onEvent: printer(options) });
   if (outcome.dryRun) return renderDryRun(cwd, config, outcome, options);
   const { plan, run: result } = outcome;
-  const payload = { provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], notes: result.result?.notes || [], disputes: result.result?.disputes || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
+  const payload = { provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], notes: result.result?.notes || [], disputes: result.result?.disputes || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, costEstimated: Boolean(result.costEstimated), usage: result.usage || null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
   if (options.json) output(JSON.stringify(payload, null, 2));
   else {
-    output(`\n${brand()} / AGENT ${result.ok ? 'FINISHED' : 'FAILED'} in ${Math.round(result.durationMs / 1000)}s${payload.cost != null ? ` · $${Number(payload.cost).toFixed(4)}` : ''}`);
+    output(`\n${brand()} / AGENT ${result.ok ? 'FINISHED' : 'FAILED'} in ${Math.round(result.durationMs / 1000)}s${payload.cost != null ? ` · ${payload.costEstimated ? '~' : ''}$${Number(payload.cost).toFixed(4)}` : ''}${payload.usage ? ` · ${payload.usage.totalTokens} tokens` : ''}`);
     result.problems.forEach(problem => output(`! ${problem}`));
     result.warnings.forEach(warning => output(`WARN ${warning}`));
     if (result.result) { output(`Status: ${result.result.status}\n${result.result.summary}`); result.result.questions.forEach(question => output(`? ${question}`)); result.result.disputes.forEach(item => output(`DISPUTE ${item.target}: ${item.reason}`)); }

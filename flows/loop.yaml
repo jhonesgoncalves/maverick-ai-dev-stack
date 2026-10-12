@@ -1,6 +1,6 @@
 apiVersion: maverick.flow/v1
 name: loop
-description: The default oracle of maverick loop; every detected check and the security scan block, scope is reported.
+description: The default oracle of maverick loop; every detected check, the security scan and the architecture ratchet block, scope is reported.
 contract:
   goal: The task {{task}} is implemented as its PRD, spec and technical spec describe, and every check passes.
   iterationCap: 20
@@ -13,6 +13,10 @@ gates:
     type: maverick
     run: security
     description: No secrets, private keys or shell execution patterns in the change.
+  - id: architecture
+    type: maverick
+    run: architecture
+    description: No iteration adds an import cycle or boundary violation, or lowers architecture health past the limit.
   - id: scope
     type: maverick
     run: guard

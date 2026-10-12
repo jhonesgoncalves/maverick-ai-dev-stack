@@ -77,6 +77,16 @@ When checks fail, the bounded `fix-checks` flow lets an agent iterate on lint, t
 maverick flow run fix-checks add-cursor-pagination-orders-endpoint --agent claude-code
 ```
 
+## Checks of the checks
+
+Passing checks are necessary, not sufficient. Three checks ask whether the checks themselves can be trusted:
+
+- **Integrity** (`maverick integrity`): did the change make a check weaker? Deleted, skipped or looser tests, silenced lint, edited check configuration.
+- **Ablation** (`maverick ablation`): can the new tests fail at all? Each new or changed test file runs with the change, where it must pass, and on the code before it with only the new tests on top, where it must fail. A test that passes both ways is `vacuous-test`. A regression guard named in the TECHSPEC Test Plan is meant to pass both ways.
+- **Structure** (`maverick structure`, the `architecture` gate): did the change make the import graph worse? A new cycle, a new import the boundary rules forbid, or a health drop beyond `architecture.maxHealthDrop` fails it, unless the TECHSPEC declares the edge under `## Architecture`.
+
+The `ship` flow runs ablation and structure as warnings; the built-in `loop` flow blocks on structure, so no iteration can add a cycle. For the strongest evidence, add [sealed tests](/concepts/sealed-tests): checks the agent never sees.
+
 ## Strict work
 
 The **strict** workflow, chosen for security, data, payments, migrations and shared infrastructure, adds a **SECURITY** stage before review, requires `EVIDENCE.md` before `review --diff` is clean, and requires a `CHECKPOINT.md` (git status and diff, saved with `maverick checkpoint`) before merge readiness.

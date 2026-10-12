@@ -35,7 +35,14 @@ export const configSchema = z.looseObject({
   verification: z.object({
     commands: z.array(verificationCommand).optional(),
     kinds: z.array(z.enum(CHECK_KINDS)).optional(),
-    subprojects: z.enum(['auto', 'always', 'never']).optional()
+    subprojects: z.enum(['auto', 'always', 'never']).optional(),
+    // How to run chosen test files (ablation, sealed tests): the first runner whose glob matches a file runs it.
+    runners: z.array(z.object({
+      name: z.string().min(1).optional(),
+      match: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+      run: z.string().min(1).refine(value => /\{(files?|dir|name)\}/.test(value), 'must name the test with {files}, {file}, {dir} or {name}'),
+      cwd: projectPath.optional()
+    })).optional()
   }).optional(),
   capabilities: z.object({
     targets: z.array(z.string().min(1)).optional(),
@@ -59,6 +66,8 @@ export const configSchema = z.looseObject({
     bins: z.record(z.string(), z.string().min(1)).optional(),
     // The model family of a provider whose CLI can run several vendors' models (judges and loops need it).
     families: z.record(z.string(), z.string().regex(/^[a-z0-9-]+$/)).optional(),
+    // USD per million tokens, by model or provider id: the cost of runs whose provider reports tokens but no cost.
+    prices: z.record(z.string(), z.object({ input: z.number().min(0), output: z.number().min(0), cachedInput: z.number().min(0).optional() })).optional(),
     custom: z.array(z.object({
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/), name: z.string().optional(),
       command: z.string().min(1), permissions: z.array(z.enum(PERMISSIONS)).optional()
@@ -87,6 +96,7 @@ export const configSchema = z.looseObject({
       maxIterations: z.number().int().min(1).max(500).optional(),
       maxMinutes: z.number().positive().max(7 * 24 * 60).optional(),
       maxCostUsd: z.number().positive().optional(),
+      maxTokens: z.number().int().positive().optional(),
       forecast: z.enum(['p90', 'mean', 'off']).optional()
     }).optional(),
     stall: z.object({
@@ -110,8 +120,25 @@ export const configSchema = z.looseObject({
     judge: z.object({
       enabled: z.boolean().optional(),
       prefer: z.array(z.string().min(1)).optional(),
+      // Judges always work in an export; `live` is accepted for older configurations and warned about.
       isolation: z.enum(['export', 'live']).optional()
-    }).optional()
+    }).optional(),
+    // What the next agent learns from a rejection or a verdict (also for flow run --agent fixes).
+    feedback: z.enum(['detailed', 'criteria', 'generic']).optional(),
+    // Whether a task's sealed tests decide its loop: when ready (auto), always (required), or never (off).
+    sealed: z.enum(['auto', 'required', 'off']).optional()
+  }).optional(),
+  // Sealed tests: acceptance tests the builder never sees (maverick seal). Defaults live in src/sealed/model.js.
+  sealed: z.object({
+    surface: z.enum(['spec', 'techspec', 'boundary']).optional(),
+    feedback: z.enum(['none', 'count', 'ac']).optional(),
+    threshold: z.number().min(0).max(1).optional(),
+    when: z.enum(['milestones', 'done']).optional(),
+    maxQueries: z.number().int().min(1).max(50).optional(),
+    timeoutMinutes: z.number().positive().max(240).optional(),
+    requireApproval: z.boolean().optional(),
+    encryption: z.object({ key: z.enum(['file', 'env', 'command']).optional(), command: z.string().min(1).optional() }).optional(),
+    sealer: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional(), effort: z.enum(EFFORTS).optional(), prefer: z.array(z.string().min(1)).optional() }).optional()
   }).optional(),
   // Languages: `docs` for what the flow writes and says, `code` for what lands in the codebase.
   language: z.object({ docs: z.string().regex(/^[a-z]{2,3}(-[A-Z]{2,4})?$/, 'use a language code such as en or pt-BR').optional(), code: z.string().regex(/^[a-z]{2,3}(-[A-Z]{2,4})?$/, 'use a language code such as en or pt-BR').optional() }).optional(),
@@ -125,7 +152,9 @@ export const configSchema = z.looseObject({
     components: z.array(z.string().min(1)).optional(),
     depth: z.number().int().positive().max(12).optional(),
     maxComponents: z.number().int().min(2).max(200).optional(),
-    rules: z.array(z.object({ from: z.string().min(1), disallow: z.array(z.string().min(1)).min(1), allow: z.array(z.string().min(1)).optional(), reason: z.string().optional() })).optional()
+    rules: z.array(z.object({ from: z.string().min(1), disallow: z.array(z.string().min(1)).min(1), allow: z.array(z.string().min(1)).optional(), reason: z.string().optional() })).optional(),
+    // The architecture gate fails a change that lowers health by more than this many points.
+    maxHealthDrop: z.number().min(0).max(100).optional()
   }).optional(),
   hooks: z.array(z.object({ event: z.enum(HOOK_EVENTS), run: z.string().min(1), cwd: projectPath.optional(), timeoutMs: z.number().int().positive().optional(), description: z.string().optional() })).optional()
 });

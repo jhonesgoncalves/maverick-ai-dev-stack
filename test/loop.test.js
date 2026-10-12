@@ -1,102 +1,17 @@
 /* global fetch */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { main } from '../src/cli.js';
-import { captureOutput } from '../src/core/util.js';
 
 process.env.MAVERICK_HOME = await mkdtemp(join(tmpdir(), 'maverick-home-'));
 
-const node = process.execPath;
-const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
-
-// A fake agent CLI that runs a per-test behavior and answers in the provider's stream format.
-// It lives outside the repository, so snapshots and rollbacks never see it.
-async function fakeAgent(binDir, id, behavior) {
-  await writeFile(join(binDir, `behavior-${id}.mjs`), `import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, appendFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-const tick = file => writeFileSync(file, readFileSync(file, 'utf8').replaceAll('- [ ]', '- [x]'));
-const write = (file, text) => { mkdirSync(file.split('/').slice(0, -1).join('/') || '.', { recursive: true }); writeFileSync(file, text); };
-export default async function ({ prompt, iteration, subtask, cwd, call }) { ${behavior} }
-`);
-  const path = join(binDir, `fake-${id}.mjs`);
-  const emit = id === 'codex'
-    ? `out({ type: 'thread.started', thread_id: 't' }); out({ type: 'item.completed', item: { type: 'agent_message', text } }); out({ type: 'turn.completed' });`
-    : `out({ type: 'system', subtype: 'init', session_id: 's' }); out({ type: 'assistant', message: { content: [{ type: 'text', text }] } }); out({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: r.cost ?? 0.01 });`;
-  await writeFile(path, `#!/usr/bin/env node
-import { readFileSync, appendFileSync, existsSync } from 'node:fs';
-import behave from './behavior-${id}.mjs';
-const prompt = readFileSync(0, 'utf8');
-const log = new URL('./calls-${id}.jsonl', import.meta.url);
-const call = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\\n').length + 1 : 1;
-const iteration = Number(prompt.match(/You are iteration (\\d+)/)?.[1] || 0);
-const subtask = prompt.match(/## Current subtask (\\d+)/)?.[1] || null;
-appendFileSync(log, JSON.stringify({ argv: process.argv.slice(2), prompt, iteration, subtask, cwd: process.cwd() }) + '\\n');
-const out = event => console.log(JSON.stringify(event));
-const r = (await behave({ prompt, iteration, subtask, cwd: process.cwd(), call })) || {};
-const block = { status: r.status || 'done', summary: r.summary || 'did it', questions: r.questions || [], filesChanged: r.filesChanged || [], notes: r.notes || [], disputes: r.disputes || [] };
-const text = r.text ?? 'Done.\\n\\x60\\x60\\x60maverick-result\\n' + JSON.stringify(block) + '\\n\\x60\\x60\\x60';
-${emit}
-`);
-  await chmod(path, 0o755);
-  return path;
-}
-
-const CHECK = `import { readFileSync, existsSync } from 'node:fs';
-const files = JSON.parse(readFileSync('checks.json', 'utf8'));
-let failed = 0;
-files.forEach((file, index) => { const ok = existsSync(file); if (!ok) failed += 1; console.log((ok ? 'ok ' : 'not ok ') + (index + 1) + ' - has ' + file); });
-process.exit(failed ? 1 : 0);
-`;
-
-const SUBTASK = (title, file) => `---\ntitle: ${title}\nstatus: pending\n---\n\n# ${title}\n\n## Goal\nCreate ${file}.\n\n## Acceptance Criteria\n- [ ] AC-01: ${file} exists\n\n## Files\n- \`${file}\` (new)\n\n## Steps\n- [ ] Write ${file}\n`;
-
-/**
- * A git repository with a planned task, a project oracle (`checks`: every file in checks.json
- * exists; `keep`: src/keep.txt still says ok) and fake claude and codex CLIs.
- */
-async function loopProject({ agents = {}, config = {}, subtasks = [['Create a', 'src/a.txt'], ['Create b', 'src/b.txt']], checks = ['src/a.txt', 'src/b.txt'], files = {} } = {}) {
-  const cwd = await mkdtemp(join(tmpdir(), 'maverick-loop-')), binDir = await mkdtemp(join(tmpdir(), 'maverick-bin-'));
-  const bins = {};
-  for (const [id, behavior] of Object.entries({ claude: '', codex: '', ...agents })) bins[id] = await fakeAgent(binDir, id, behavior);
-  await writeFile(join(cwd, 'check.mjs'), CHECK);
-  await writeFile(join(cwd, 'keep.mjs'), `import { readFileSync } from 'node:fs'; process.exit(readFileSync('src/keep.txt', 'utf8').trim() === 'ok' ? 0 : 1);\n`);
-  await writeFile(join(cwd, 'checks.json'), JSON.stringify(checks));
-  await mkdir(join(cwd, 'src'), { recursive: true });
-  await writeFile(join(cwd, 'src/keep.txt'), 'ok\n');
-  for (const [path, content] of Object.entries(files)) { await mkdir(join(cwd, path, '..'), { recursive: true }); await writeFile(join(cwd, path), content); }
-  await mkdir(join(cwd, '.maverick/flows'), { recursive: true });
-  await writeFile(join(cwd, '.maverick/flows/loop.yaml'), `apiVersion: maverick.flow/v1\nname: loop\ndescription: Test oracle for the loop engine.\ncontract:\n  goal: Every file the task needs exists.\n  noProgressWindow: 2\ngates:\n  - { id: checks, type: check }\n  - { id: keep, type: command, run: '"${node}" keep.mjs' }\n`);
-  const { loop, runtime, ...rest } = config;
-  await writeFile(join(cwd, '.maverick/config.json'), JSON.stringify({
-    version: 1, verification: { commands: [`"${node}" check.mjs`] },
-    runtime: { trusted: ['claude-code', 'codex'], default: { provider: 'claude-code' }, bins: { 'claude-code': bins.claude, codex: bins.codex }, ...runtime },
-    loop: { budgets: { maxIterations: 8 }, ...loop }, ...rest
-  }, null, 2));
-  await captureOutput(() => main(['new', 'Demo idea', '--slug', 'demo', '--no-launch'], cwd));
-  for (const [index, [title, file]] of subtasks.entries()) {
-    await captureOutput(() => main(['subtask', 'add', 'demo', title, ...(index ? ['--after', String(index).padStart(2, '0')] : [])], cwd));
-    await writeFile(join(cwd, `.maverick/tasks/demo/subtasks/task_${String(index + 1).padStart(2, '0')}.md`), SUBTASK(title, file));
-  }
-  sh(cwd, 'init', '-q', '-b', 'main'); sh(cwd, 'config', 'user.email', 't@example.com'); sh(cwd, 'config', 'user.name', 'T');
-  sh(cwd, 'add', '-A'); sh(cwd, 'commit', '-qm', 'init');
-  return { cwd, binDir };
-}
-
-const calls = async (binDir, id) => { try { return (await readFile(join(binDir, `calls-${id}.jsonl`), 'utf8')).trim().split('\n').map(line => JSON.parse(line)); } catch { return []; } };
-const run = (cwd, ...args) => captureOutput(() => main(['loop', ...args], cwd));
-const fails = async (cwd, args, pattern) => { const error = await run(cwd, ...args).then(() => null, err => err); assert.ok(error, `expected loop ${args.join(' ')} to fail`); assert.match(error.message, pattern); return error; };
-const state = async cwd => { const dir = join(cwd, '.maverick/tasks/demo/loops'); const [id] = (await readdir(dir)).filter(name => /^\d{8}-/.test(name)).sort().reverse(); return JSON.parse(await readFile(join(dir, id, 'state.json'), 'utf8')); };
-const status = async (cwd, id) => (await readFile(join(cwd, `.maverick/tasks/demo/subtasks/task_${id}.md`), 'utf8')).match(/status: (\S+)/)[1];
-
-// The well-behaved agent: writes the subtask's file and ticks its boxes.
-const BUILD = `const file = { '01': 'src/a.txt', '02': 'src/b.txt' }[subtask]; if (file) { write(file, 'x'); tick('.maverick/tasks/demo/subtasks/task_' + subtask + '.md'); }`;
+const { BUILD, calls, fails, loopProject, node, run, sh, state, status } = await import('./loop-fixtures.js');
 
 test('a loop builds subtask by subtask, checkpoints each, and leaves HEAD and the index alone', async () => {
   const { cwd, binDir } = await loopProject({ agents: { claude: BUILD } });
@@ -156,7 +71,11 @@ test('the integrity guard rolls back an iteration that skips a test to get throu
   assert.equal(loop.iterations[0].decision, 'rejected');
   assert.ok(loop.iterations[0].findings.some(item => item.kind === 'skip-or-only-added' && item.severity === 'block'));
   assert.match(await readFile(join(cwd, 'test/keep.test.js'), 'utf8'), /test\('keeps the file'/);
-  assert.match((await calls(binDir, 'claude'))[1].prompt, /skip-or-only-added: test\/keep\.test\.js/);
+  // The next agent learns that a check was weakened, not which rule caught it, where or how (loop.feedback criteria).
+  const retry = (await calls(binDir, 'claude'))[1].prompt;
+  assert.match(retry, /## The last attempt was rolled back[\s\S]*a check was weakened, or a protected file or the repository changed/);
+  assert.doesNotMatch(retry, /skip-or-only-added|test\.skip|It changed:/);
+  assert.match(loop.iterations[0].reasons.join('\n'), /skip-or-only-added: test\/keep\.test\.js/, 'humans keep the detail');
   assert.equal(await status(cwd, '01'), 'done', 'the unticked boxes of the rejected attempt were restored, then ticked honestly');
   assert.equal(loop.status, 'done');
 });
@@ -307,7 +226,11 @@ console.log('\\x60\\x60\\x60maverick-verdict\\n' + JSON.stringify({ verdict: pas
   const loop = await state(cwd);
   assert.deepEqual(loop.iterations.map(item => [item.subtask.id, item.decision, item.subtaskDone]), [['01', 'accepted', null], ['01', 'accepted', '01'], ['02', 'accepted', '02']]);
   const prompts = await calls(binDir, 'claude');
-  assert.match(prompts[1].prompt, /## The independent judge has not accepted this yet[\s\S]*src\/a\.txt has no content worth keeping/);
+  // The builder learns which criterion is not accepted, never the judge's reasoning, which stays outside the work tree.
+  assert.match(prompts[1].prompt, /## The independent judge has not accepted this yet[\s\S]*AC-01: the change does not demonstrate this criterion yet/);
+  assert.doesNotMatch(prompts[1].prompt, /no content worth keeping|placeholder content/);
+  assert.match(await readFile(join(cwd, '.maverick/tasks/demo/JUDGE-JUDGE.md'), 'utf8'), /kept outside the work tree/);
+  assert.ok(prompts.every(call => !call.prompt.includes(process.env.MAVERICK_HOME)), 'the prompt never points at the private reports');
   const judged = (await readFile(join(judgeBin, 'calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(judged.length, 4, 'subtask 01 twice, subtask 02, then the whole change');
   assert.ok(judged.every(call => !call.prompt.includes('SENTINEL-SUMMARY') && !call.cwd.startsWith(cwd)), 'judges never see the author\'s account and never work in the project');

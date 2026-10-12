@@ -21,6 +21,8 @@ function summary(task, state, live) {
     subtask: state.inFlight?.scope && state.inFlight.scope !== 'goal' ? state.inFlight.scope : last?.subtask?.id || null,
     score: state.checkpoint?.score ? { passed: state.checkpoint.score.passed, blocking: state.checkpoint.score.blocking, failing: state.checkpoint.score.failingCount, subtasksDone: state.checkpoint.score.subtasksDone, subtasksTotal: state.checkpoint.score.subtasksTotal } : null,
     spent: state.spent, budgets: state.budgets, providers: [...new Set(state.iterations.map(item => item.provider))], rung: state.escalation?.rung || null,
+    holdout: state.sealed ? { sealId: state.sealed.sealId, feedback: state.sealed.feedback, queries: state.sealed.queries, final: state.status === 'running' ? null : state.sealed.final && { passed: state.sealed.final.passed, total: state.sealed.final.total, OI: state.sealed.final.OI } } : null,
+    tainted: state.checkpoint?.tainted || null, quarantined: (state.quarantine || []).reduce((sum, item) => sum + (item.count ?? item.notes?.length ?? 0), 0),
     startedAt: state.createdAt, updatedAt: state.updatedAt, endedAt: state.endedAt
   };
 }

@@ -12,11 +12,11 @@ import { sha256 } from '../capabilities/model.js';
  * Maverick gates a flow can call. Each maps to a CLI command run in-process with --json: `pr` keeps
  * or writes PR-DRAFT.md, and `pr-open` (`pr open`) pushes the branch and opens the pull request.
  */
-export const MAVERICK_GATES = ['validate', 'verify', 'guard', 'integrity', 'security', 'deps', 'policy', 'review', 'readiness', 'pr', 'pr-open'];
+export const MAVERICK_GATES = ['validate', 'verify', 'guard', 'integrity', 'ablation', 'architecture', 'contracts', 'attention', 'security', 'deps', 'policy', 'review', 'readiness', 'pr', 'pr-open'];
 
 /** Outcomes of one flow run. Only `revise` asks the agent to iterate; the others hand control to a human. */
 export const OUTCOMES = ['done', 'revise', 'awaiting-approval', 'stalled', 'exhausted'];
-/** A gate result's status. `skipped` is a judge that did not run because a blocking gate before it failed. */
+/** A gate result's status. `skipped` is a judge that did not run because a blocking gate before it failed, or a sealed suite already opened at review. */
 export const GATE_STATUSES = ['pass', 'fail', 'pending', 'skipped'];
 export const TERMINAL = ['stalled', 'exhausted'];
 
@@ -42,6 +42,14 @@ const judge = z.object({
 /** A judge gate with every default filled in, for loops that add one when `--judge` is on. */
 export const judgeGate = (overrides = {}) => judge.parse({ id: 'judge', type: 'judge', description: 'An independent model from another family judges the change against its criteria.', ...overrides });
 
+// The task's sealed acceptance tests; see src/sealed/gate.js. Decided separately from a loop's oracle, like a judge.
+const sealed = z.object({
+  ...base, type: z.literal('sealed'),
+  threshold: z.number().min(0).max(1).optional(),
+  feedback: z.enum(['none', 'count', 'ac']).optional(),
+  timeoutMinutes: z.number().positive().max(240).optional()
+});
+
 const gate = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('check'), kinds: z.array(z.enum(CHECK_KINDS)).optional() }),
   // `stage` limits `validate` to the planning stages up to it, e.g. a spec gate before the technical spec exists.
@@ -51,8 +59,12 @@ const gate = z.discriminatedUnion('type', [
   // An approval is recorded with `maverick flow approve`, or found in a task file (e.g. a checked box in REVIEW.md).
   z.object({ ...base, type: z.literal('approval'), prompt: z.string().min(1), file: z.string().optional(), pattern: z.string().optional() }),
   // An independent agent from another model family decides the criteria; see src/flows/judge.js.
-  judge
+  judge,
+  sealed
 ]);
+
+/** Gates a loop never puts in its oracle: humans, judges and the sealed suite decide apart from the ratchet. */
+export const DECIDED_APART = ['approval', 'judge', 'sealed'];
 
 export const flowSchema = z.object({
   apiVersion: z.literal('maverick.flow/v1'),

@@ -1,10 +1,13 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { autoApproves, readState, recordApproval, runFlow } from '../flows/engine.js';
+import { guardAgentRun } from '../flows/guard.js';
 import { findFlow, interpolate, loadFlows } from '../flows/model.js';
 import { addSubtask, loadGraph, setStatus, STATUSES } from '../subtasks/graph.js';
 import { loadConfig } from '../core/config.js';
+import { homePath } from '../core/home.js';
 import { getTask } from '../core/tasks.js';
+import { gateIssues } from '../loop/feedback.js';
 import { runHooks } from '../runtime/hooks.js';
 import { agentVerdict, printer, renderDryRun, selectSubtask, startAgentRun } from './agent.js';
 import { brand, exists, output, pretty, rel } from '../core/util.js';
@@ -83,15 +86,19 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
     const invoke = async argv => (await import('../cli.js')).main(argv, cwd);
     const agentRuns = [];
     const autoApprove = Boolean(options.autoApprove);
-    let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { reset: Boolean(options.reset), autoApprove });
+    // While an agent fixes this flow, the judges' reasoning stays outside the work tree unless the feedback is detailed.
+    const reportDir = options.agent && (config.loop?.feedback || 'criteria') !== 'detailed' ? homePath(cwd, 'reports', slug, 'flows') : undefined;
+    let result = await runFlow({ cwd, task: slug, taskDir: dir, invoke, reportDir }, flow, { reset: Boolean(options.reset), autoApprove });
     report(cwd, flow, slug, result, options);
     await afterFlowHook(cwd, config, flow, slug, result);
     // The subtask being worked on, so runtime.routes (by type and complexity) apply to fixes too.
     const subtask = options.agent ? await fixSubtask(dir, options) : undefined;
     // With --agent, "revise" hands the blocking issues to the agent and re-runs the gates.
     // The flow contract (iteration cap, no-progress window) is what guarantees termination.
+    // The agent reads the issues as loop.feedback allows: criteria, not how a check caught it.
+    const policy = config.loop?.feedback || 'criteria', gateOf = new Map(flow.gates.map(gate => [gate.id, gate]));
     while (options.agent && result.run.outcome === 'revise') {
-      const issues = result.run.results.filter(item => item.severity === 'block' && item.status === 'fail').flatMap(item => item.issues.map(issue => `${item.id}: ${issue}`));
+      const issues = result.run.results.filter(item => item.severity === 'block' && item.status === 'fail').flatMap(item => gateIssues(item, gateOf.get(item.id), policy).map(issue => `${item.id}: ${issue}`));
       const instruction = `Fix the blocking issues so the "${flow.name}" flow passes. Goal: ${interpolate(flow.contract.goal, { task: slug })}`;
       if (options.dryRun) {
         if (!options.json) output(`\n${brand()} / AGENT FIX (dry run, iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
@@ -99,17 +106,30 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
         break;
       }
       if (!options.json) output(`\n${brand()} / AGENT FIX (iteration ${result.run.iteration}/${flow.contract.iterationCap})`);
-      const { plan, run: agent } = await startAgentRun(cwd, { slug, dir, config, subtask, issues, instruction, options, onEvent: printer(options) });
+      // The guarantees of a loop iteration: protected files restored, git state checked, the fix's own diff audited and rolled back on a blocking finding.
+      const guard = await guardAgentRun({ cwd, taskDir: dir, task: slug, config, subtask, gates: flow.gates });
+      let outcome, checked;
+      try { outcome = await startAgentRun(cwd, { slug, dir, config, subtask, issues, instruction, options, onEvent: printer(options) }); }
+      finally { checked = await guard.check({ claim: { filesChanged: outcome?.run.result?.filesChanged || [], disputes: outcome?.run.result?.disputes || [] } }).finally(() => guard.close()); }
+      const { plan, run: agent } = outcome;
       const status = agentVerdict(agent);
-      const record = { provider: plan.provider.id, status, costUsd: agent.cost ?? null, durationMs: agent.durationMs, transcript: rel(cwd, agent.transcript) };
-      agentRuns.push({ ok: agent.ok, status: agent.result?.status || null, summary: agent.result?.summary || null, transcript: record.transcript });
+      const findings = checked.findings.map(item => ({ severity: item.severity, kind: item.kind, ...(item.file && { file: item.file }) }));
+      const record = { provider: plan.provider.id, status, costUsd: agent.cost ?? null, tokens: agent.usage?.totalTokens ?? null, durationMs: agent.durationMs, transcript: rel(cwd, agent.transcript), ...(findings.length && { guard: { findings, rolledBack: Boolean(checked.rolledBack) } }) };
+      agentRuns.push({ ok: agent.ok, status: agent.result?.status || null, summary: agent.result?.summary || null, transcript: record.transcript, ...(record.guard && { guard: record.guard }) });
+      if (!options.json) checked.findings.forEach(item => output(`${item.severity === 'block' ? 'FAIL' : 'WARN'} ${item.kind}${item.file ? ` ${item.file}` : ''}: ${item.message}`));
+      if (checked.fatal.length) throw new Error(`integrity violation: ${checked.fatal[0]}`);
+      if (checked.blocking.length) {
+        if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, rolledBack: true, findings, agentRuns }, null, 2));
+        else output(checked.rolledBack ? `\nThe fix was rolled back: ${checked.rolledBack.restored.length + checked.rolledBack.deleted.length} file(s) put back as they were before the agent ran.` : '\nMaverick put the protected files back; without git, the rest of the fix stays for you to review.');
+        throw new Error(checked.rolledBack ? `the agent's fix was rolled back: ${checked.blocking.length} blocking integrity finding(s); a human decides next` : `the agent changed ${checked.blocking.length} protected file(s); Maverick restored them and a human decides next`);
+      }
       if (!agent.ok) throw new Error(`agent fix run failed: ${agent.problems.join('; ')}`);
       if (status === 'blocked' || status === 'needs-input') {
         if (options.json) output(JSON.stringify({ flow: flow.name, task: slug, outcome: result.run.outcome, agentRuns, questions: agent.result.questions, disputes: agent.result.disputes }, null, 2));
         else { output(`\nThe agent stopped: ${status}. ${agent.result.summary}`); agent.result.questions.forEach(question => output(`? ${question}`)); agent.result.disputes.forEach(item => output(`DISPUTE ${item.target}: ${item.reason}`)); }
         throw new Error(`agent needs a human: ${status}`);
       }
-      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke }, flow, { autoApprove, agent: record });
+      result = await runFlow({ cwd, task: slug, taskDir: dir, invoke, reportDir }, flow, { autoApprove, agent: record });
       report(cwd, flow, slug, result, options);
       await afterFlowHook(cwd, config, flow, slug, result);
       // The gates decide, not the agent. An agent that did not say how it ended gets no second turn.
