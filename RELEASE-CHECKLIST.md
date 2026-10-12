@@ -21,4 +21,5 @@ Releases are automated by `.github/workflows/pipeline.yml`: every push to `main`
 
 ## Release
 - [ ] Commit messages follow Conventional Commits (`feat:` minor, `!`/`BREAKING CHANGE:` major, anything else patch)
+- [ ] User-facing changes are written under `## [Unreleased]` in `CHANGELOG.md`; the release moves them under `## [x.y.z] - date` and uses them as the GitHub release notes (without entries, it lists the `feat:`, `fix:`, `perf:`, `refactor:` and `docs:` commit subjects)
 - [ ] Tag, GitHub release, npm version, changelog, and installation test checked after the pipeline finishes
