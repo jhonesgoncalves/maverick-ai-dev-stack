@@ -1,7 +1,7 @@
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { sha256 } from '../capabilities/model.js';
+import { maverickHome } from '../core/home.js';
 import { executeCommand } from '../core/project-tools.js';
 import { exists, rel } from '../core/util.js';
 import { checkboxOnlyChange } from '../subtasks/graph.js';
@@ -14,7 +14,7 @@ import { git, IntegrityError, resolveRef, treeDiff } from './git.js';
 
 const EXCLUDE = ['--', '.', ':(exclude).maverick'];
 const IDENTITY = { GIT_AUTHOR_NAME: 'Maverick Loop', GIT_AUTHOR_EMAIL: 'loop@maverick.invalid', GIT_COMMITTER_NAME: 'Maverick Loop', GIT_COMMITTER_EMAIL: 'loop@maverick.invalid' };
-const REPORTS = ['EVIDENCE.md', 'SECURITY-REPORT.md', 'SCOPE-GUARD.md', 'INTEGRITY.md', 'REVIEW-FINDINGS.md', 'DEPENDENCY-REVIEW.md', 'POLICY-CHECK.md'];
+const REPORTS = ['EVIDENCE.md', 'SECURITY-REPORT.md', 'SCOPE-GUARD.md', 'INTEGRITY.md', 'ABLATION.md', 'ARCHITECTURE-CHECK.md', 'REVIEW-FINDINGS.md', 'REVIEW-BUDGET.md', 'DEPENDENCY-REVIEW.md', 'POLICY-CHECK.md'];
 
 async function must(cwd, args, options) {
   const result = await git(cwd, args, options);
@@ -33,7 +33,7 @@ async function files(dir) {
 
 /** Where a task's worktree lives: outside the repository, so tools that scan the project never see it twice. */
 export function worktreeLocation(root, task, settings = {}) {
-  const base = settings.worktreeDir || join(process.env.MAVERICK_HOME || join(homedir(), '.maverick'), 'worktrees', `${basename(root)}-${sha256(root).slice(0, 8)}`);
+  const base = settings.worktreeDir || join(maverickHome(), 'worktrees', `${basename(root)}-${sha256(root).slice(0, 8)}`);
   return join(base, task);
 }
 

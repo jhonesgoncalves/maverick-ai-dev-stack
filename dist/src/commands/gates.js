@@ -15,6 +15,8 @@ import { detectStack } from '../core/stack.js';
 import { inPlace, resolveRef, treeOf } from '../loop/git.js';
 import { auditIntegrity, detectOracleSet, renderIntegrityReport } from '../loop/integrity.js';
 import { loopSettings } from '../loop/model.js';
+import { readSealed } from '../sealed/model.js';
+import { reviewSection } from '../sealed/seal.js';
 
 async function verifyTask(cwd, slug, options = {}) {
   const { config, dir } = await getTask(cwd, slug);
@@ -89,7 +91,7 @@ ${text.decision.map(option => `- [ ] ${option}`).join('\n')}
 
 ## ${h('Human Explanation')}
 ${text.explain}
-`);
+${(await readSealed(dir))?.status === 'sealed' ? `\n${reviewSection(slug)}` : ''}`);
   return true;
 }
 
@@ -139,6 +141,8 @@ async function readiness(cwd, slug, options = {}) {
   for (const file of required) (await exists(join(dir, file)) ? available : missing).push(file);
   const review = await exists(join(dir, 'REVIEW.md')) ? await readFile(join(dir, 'REVIEW.md'), 'utf8') : '';
   if (!/- \[[xX]\] (?:approve|approve with follow-up|request changes)/.test(review)) missing.push('Human decision in REVIEW.md');
+  // Hidden tests are decided at review: committed as regression tests, or discarded.
+  if ((await readSealed(dir))?.status === 'sealed') missing.push(`Decision on the sealed tests (maverick unseal ${slug} --commit --protect, or --discard)`);
   const ready = missing.length === 0, path = join(dir, 'MERGE-READINESS.md');
   await writeFile(path, `# Merge Readiness — ${slug}\n\nWorkflow: ${preset.name}\nStatus: ${ready ? 'READY FOR HUMAN MERGE DECISION' : 'NOT READY'}\n\n## Available gates\n${available.map(file => `- ✓ \`${file}\``).join('\n') || '- none'}\n\n## Outstanding gates\n${missing.map(file => `- ! ${file}`).join('\n') || '- none'}\n\nMaverick does not merge code. A human remains accountable for the final decision.\n`);
   const payload = { ready, available, missing, path: rel(cwd, path) };

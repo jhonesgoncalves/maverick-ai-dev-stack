@@ -47,6 +47,7 @@ Context feeds every stage. The brief and the plan are written **before** code, s
 
 <div class="mv-cards">
   <a href="./loop-engineering"><b>Loop engineering</b><span>Leave an agent running on a planned task: the harness decides every iteration, keeps what makes nothing worse and rolls back the rest.</span></a>
+  <a href="./memory"><b>Memory</b><span>Why every line exists, the contracts finished tasks leave, rules learned from mistakes, and where a reviewer should look first.</span></a>
 </div>
 
 New to Maverick? Start with [The Maverick Method](/guide/method) for the stage-by-stage view, then come back here for the reasoning behind each stage.

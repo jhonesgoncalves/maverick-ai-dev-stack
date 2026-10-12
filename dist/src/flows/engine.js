@@ -6,6 +6,7 @@ import { selectVerificationCommands } from '../core/stack.js';
 import { captureOutput, exists, hasMeaningfulContent, pretty, sectionPresent } from '../core/util.js';
 import { fingerprintsFor } from './fingerprint.js';
 import { runJudgeGate } from './judge.js';
+import { runSealedGate } from '../sealed/gate.js';
 import { interpolate, TERMINAL } from './model.js';
 
 function parseJson(text) {
@@ -27,6 +28,19 @@ const MAVERICK_RESULTS = {
     const blocking = json.findings.filter(item => item.severity === 'block');
     return { pass: json.ok, issues: blocking.map(item => `${item.kind}: ${item.file ? `${item.file} — ` : ''}${item.message}`), keys: blocking.map(item => item.key), summary: `${blocking.length} blocking, ${json.findings.length - blocking.length} warning(s); see INTEGRITY.md` };
   },
+  ablation: json => {
+    const blocking = json.findings.filter(item => item.severity === 'block'), s = json.stats;
+    return { pass: json.ok, issues: blocking.map(item => `${item.kind}: ${item.file} — ${item.message}`), keys: blocking.map(item => item.key), summary: s.tests ? `${s.discriminating}/${s.tests} new test file(s) fail without the change, ${s.vacuous} vacuous, ${s.unmeasured} not measured; see ABLATION.md` : json.note || 'no new test' };
+  },
+  architecture: json => {
+    const blocking = json.findings.filter(item => item.severity === 'block');
+    return { pass: json.ok, issues: blocking.map(item => `${item.kind}: ${item.message}`), keys: blocking.map(item => item.key), summary: json.note || (json.base ? `health ${json.base.health} → ${json.head.health}, cycles ${json.base.cycles} → ${json.head.cycles}; see ARCHITECTURE-CHECK.md` : undefined) };
+  },
+  contracts: json => {
+    const blocking = json.findings.filter(item => item.severity === 'block');
+    return { pass: json.ok, issues: blocking.map(item => `${item.kind}: ${item.message}`), keys: blocking.map(item => `${item.kind}:${item.id}`), summary: json.touched.length ? `${json.touched.length} contract(s) touched: ${json.touched.map(item => `${item.id} ${item.status}`).join(', ')}` : `${json.active} active contract(s), none touched` };
+  },
+  attention: json => ({ pass: true, issues: [], summary: `review budget ~${json.minutes.low}–${json.minutes.high} min, ${json.focus.length} hunk(s) to read first; see REVIEW-BUDGET.md` }),
   security: json => ({ pass: !json.findings.length, issues: json.findings }),
   deps: json => ({ pass: true, issues: [], summary: `${json.manifests.length} manifest(s), ${json.lockfiles.length} lockfile(s) changed` }),
   policy: json => ({ pass: json.ok, issues: json.findings }),
@@ -40,7 +54,7 @@ const MAVERICK_RESULTS = {
 
 // The CLI command behind a Maverick gate, when it is not the gate's name, and the flags it adds.
 // The pr flow's `pr` gate keeps an existing draft, so a run never discards edits or an approval.
-const COMMAND = { policy: ['policy', 'check'], 'pr-open': ['pr', 'open'] };
+const COMMAND = { policy: ['policy', 'check'], 'pr-open': ['pr', 'open'], architecture: ['structure'], contracts: ['contract', 'check'] };
 const FLAGS = { review: ['--diff'], pr: ['--keep'] };
 
 // Gates that change shared state (push a branch, open a pull request) run only once every blocking
@@ -93,7 +107,7 @@ async function runArtifact(context, gate) {
 }
 
 // Gates that read the diff: a loop compares against its own baseline instead of HEAD.
-const DIFF_GATES = new Set(['guard', 'security', 'deps', 'review', 'policy', 'integrity']);
+const DIFF_GATES = new Set(['guard', 'security', 'deps', 'review', 'policy', 'integrity', 'ablation', 'architecture', 'contracts', 'attention']);
 
 /**
  * Evaluates one gate. Gate failures are results, not exceptions: the flow always completes a run.
@@ -108,6 +122,7 @@ async function evaluate(context, gate, state, prior) {
   const base = { id: gate.id, type: gate.type, severity: gate.severity, description: gate.description };
   try {
     if (gate.type === 'judge') return await runJudgeGate({ ...context, config: context.config || await loadConfig(context.cwd) }, gate, prior, state);
+    if (gate.type === 'sealed') return await runSealedGate({ ...context, config: context.config || await loadConfig(context.cwd) }, gate, prior, state);
     if (acts(gate)) {
       const waiting = prior.filter(item => item.severity === 'block' && item.status !== 'pass');
       if (waiting.length) return { ...base, status: 'skipped', issues: [], summary: `waits for ${waiting.map(item => item.id).join(', ')}` };
@@ -234,12 +249,12 @@ async function mirrorDecision(context, gate, approval) {
 async function settle(context, flow, state) {
   const last = state.runs.at(-1), gates = new Map(flow.gates.map(gate => [gate.id, gate]));
   if (!last || (state.integrity && state.integrity !== flow.integrity)) return null;
-  if (last.results.some(result => result.severity === 'block' && result.status === 'fail' && !['approval', 'judge'].includes(gates.get(result.id)?.type))) return null;
+  if (last.results.some(result => result.severity === 'block' && result.status === 'fail' && !['approval', 'judge', 'sealed'].includes(gates.get(result.id)?.type))) return null;
   const results = [];
   for (const result of last.results) {
     const gate = gates.get(result.id), human = state.approvals?.[result.id];
     // A human decision on a judge counts only for the exact change the judges saw.
-    if (gate?.type === 'judge') results.push(human && human.evidence && human.evidence === result.judge?.digest ? { ...result, status: human.decision === 'approve' ? 'pass' : 'fail', issues: human.decision === 'approve' ? [] : [`rejected by ${human.by}: ${human.reason || 'no reason given'}`], summary: `${human.decision} by ${human.by} for this exact change` } : result);
+    if (gate?.type === 'judge' || gate?.type === 'sealed') results.push(human && human.evidence && human.evidence === (result.judge?.digest || result.sealed?.evidence) ? { ...result, status: human.decision === 'approve' ? 'pass' : 'fail', issues: human.decision === 'approve' ? [] : [`rejected by ${human.by}: ${human.reason || 'no reason given'}`], summary: `${human.decision} by ${human.by} for this exact change` } : result);
     else if (gate?.type === 'approval') results.push(await evaluateGate(context, gate, state));
     // A gate that waited on this decision runs now, after every result before it.
     else if (result.status === 'skipped' && acts(gate)) results.push(await evaluateGate(context, gate, state, results));
@@ -256,14 +271,15 @@ async function settle(context, flow, state) {
  */
 export async function recordApproval(context, flow, gateId, { decision = 'approve', by = 'human', reason, auto = false } = {}) {
   const gate = flow.gates.find(item => item.id === gateId);
-  if (!gate || !['approval', 'judge'].includes(gate.type)) throw new Error(`${flow.name} has no approval gate "${gateId || ''}"; gates a human decides (approval and judge): ${flow.gates.filter(item => ['approval', 'judge'].includes(item.type)).map(item => item.id).join(', ') || 'none'}`);
+  if (!gate || !['approval', 'judge', 'sealed'].includes(gate.type)) throw new Error(`${flow.name} has no approval gate "${gateId || ''}"; gates a human decides (approval, judge and sealed): ${flow.gates.filter(item => ['approval', 'judge', 'sealed'].includes(item.type)).map(item => item.id).join(', ') || 'none'}`);
   if (decision === 'reject' && !reason) throw new Error('a rejection needs a reason');
-  if (gate.type === 'judge' && auto) throw new Error('a judge is never approved automatically');
+  if (['judge', 'sealed'].includes(gate.type) && auto) throw new Error(`a ${gate.type} gate is never approved automatically`);
   const ctx = { ...context, flow: flow.name };
   let state = await readState(context.taskDir, flow.name);
-  // A decision on a judge is bound to the evidence the judges saw: a later change needs a new one.
-  const evidence = gate.type === 'judge' ? state.runs.at(-1)?.results.find(result => result.id === gate.id)?.judge?.digest : undefined;
-  if (gate.type === 'judge' && !evidence) throw new Error(`run the flow first, so ${gate.id} has a change to decide on`);
+  // A decision on a judge (or a sealed suite) is bound to the evidence it saw: a later change needs a new one.
+  const latest = state.runs.at(-1)?.results.find(result => result.id === gate.id);
+  const evidence = gate.type === 'judge' ? latest?.judge?.digest : gate.type === 'sealed' ? latest?.sealed?.evidence : undefined;
+  if (['judge', 'sealed'].includes(gate.type) && !evidence) throw new Error(`run the flow first, so ${gate.id} has a change to decide on`);
   const approval = { decision, by, at: new Date().toISOString(), ...(reason && { reason }), ...(auto && { auto: true }), ...(evidence && { evidence }) };
   state = { ...state, flow: flow.name, approvals: { ...state.approvals, [gate.id]: approval } };
   await mirrorDecision(ctx, gate, approval);

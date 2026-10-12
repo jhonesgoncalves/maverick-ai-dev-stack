@@ -20,7 +20,8 @@ export function canonical(value) {
   return `{${keys.map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
 }
 
-export const genesis = loopId => sha256(`${LOOP_SCHEMA}\0${loopId}`);
+/** The hash every chain starts from: a loop's (or, with another schema, a seal's) id under its schema. */
+export const genesis = (id, schema = LOOP_SCHEMA) => sha256(`${schema}\0${id}`);
 export const entryHash = (prev, body) => sha256(`${prev}${canonical(body)}`);
 
 /** Reads every entry; a line that is not JSON is reported with its number. */
@@ -35,11 +36,11 @@ export async function readLedger(path) {
  * An append-only ledger for one loop. Each append is one line written and synced to disk
  * before the call returns, so a crash never leaves a decision half-recorded.
  */
-export async function openLedger(path, loopId) {
+export async function openLedger(path, loopId, { schema } = {}) {
   const entries = await readLedger(path);
   return {
     entries,
-    get head() { return entries.at(-1)?.hash || genesis(loopId); },
+    get head() { return entries.at(-1)?.hash || genesis(loopId, schema); },
     async append(type, data = {}) {
       const body = { v: 1, seq: entries.length, at: new Date().toISOString(), type, data };
       const entry = { ...body, prev: this.head, hash: entryHash(this.head, body) };
@@ -52,9 +53,9 @@ export async function openLedger(path, loopId) {
 }
 
 /** Checks sequence numbers, links and hashes from the genesis of `loopId`. */
-export function verifyChain(entries, loopId) {
+export function verifyChain(entries, loopId, { schema } = {}) {
   const problems = [];
-  let prev = genesis(loopId);
+  let prev = genesis(loopId, schema);
   entries.forEach((entry, index) => {
     const { v, seq, at, type, data } = entry;
     if (seq !== index) problems.push({ seq: index, problem: `entry ${index} has sequence number ${seq}` });
@@ -62,5 +63,5 @@ export function verifyChain(entries, loopId) {
     if (entryHash(entry.prev, { v, seq, at, type, data }) !== entry.hash) problems.push({ seq: index, problem: `hash mismatch at entry ${index} (${type}): its content was changed` });
     prev = entry.hash;
   });
-  return { ok: !problems.length, head: entries.at(-1)?.hash || genesis(loopId), problems };
+  return { ok: !problems.length, head: entries.at(-1)?.hash || genesis(loopId, schema), problems };
 }

@@ -51,6 +51,8 @@ function groundingSummary(ground) {
     ...(ground.tests.length ? ['Tests near them:', ...ground.tests.map(path => `- ${path}`)] : []),
     ...(ground.routes.length ? ['Matching entry points:', ...ground.routes.map(route => `- ${route.method || route.kind} ${route.path} → ${route.file}:${route.line}`)] : []),
     ...(ground.shared.length ? ['Widely shared (changes ripple):', ...ground.shared.map(item => `- ${item.path} (imported by ${item.importers})`)] : []),
+    ...(ground.pastTasks?.length ? ['Earlier similar tasks (their plans are a hint, not a scope):', ...ground.pastTasks.map(item => `- ${item.task} (${Math.round(item.overlap * 100)}% of the terms${item.done ? ', done' : ''}): ${item.files.join(', ')}`)] : []),
+    ...(ground.coChange?.length ? ['Usually changed together (git history):', ...ground.coChange.map(item => `- ${item.path} with ${item.with} (${item.shared} commits)`)] : []),
     ...(ground.doNotTouch.length ? [`Generated or lock files: ${ground.doNotTouch.join(', ')}`] : [])
   ].join('\n');
 }

@@ -2,11 +2,30 @@ import { buildGraph, directoryGraph, toMermaid } from '../intel/graph.js';
 import { churn, rankHotspots } from '../intel/hotspots.js';
 import { brand, output } from '../core/util.js';
 import { buildDevtools } from '../intel/devtools.js';
+import { healthTrend, readSnapshots, recordSnapshot, sparkline } from '../intel/snapshots.js';
 
 const since = options => (typeof options.since === 'string' ? options.since : '6 months ago');
 
+/** `graph --trend`: health over the snapshots Maverick took each time it analyzed the graph. */
+async function trendCommand(cwd, options = {}) {
+  const trend = healthTrend(await readSnapshots(cwd), { limit: Number(options.limit) || 30 });
+  if (options.json) return output(JSON.stringify(trend, null, 2));
+  if (!trend.points) return output(`${brand()} / HEALTH TREND
+No snapshot yet. Each maverick graph, coupling or audit run records one.`);
+  output([
+    `${brand()} / HEALTH TREND`, '',
+    `Health ${trend.first.health} → ${trend.last.health} (${trend.delta >= 0 ? '+' : ''}${trend.delta}) over ${trend.points} snapshot(s), ${trend.first.at.slice(0, 10)} → ${trend.last.at.slice(0, 10)}`,
+    `Cycles ${trend.first.cycles} → ${trend.last.cycles} · lowest health ${trend.worst.health} at ${trend.worst.head || 'no commit'}${trend.worst.dirty ? ' (uncommitted)' : ''}`,
+    `${sparkline(trend.series.map(item => item.health))}`, '',
+    ...trend.series.map(item => `${item.at.slice(0, 16).replace('T', ' ')}  ${String(item.health).padStart(3)}  cycles ${item.cycles}  hubs ${item.hubs}  ${item.head || '—'}${item.dirty ? '*' : ''}`),
+    '', '* uncommitted changes'
+  ].join('\n'));
+}
+
 async function graphCommand(cwd, options = {}) {
+  if (options.trend) return trendCommand(cwd, options);
   const graph = await buildGraph(cwd);
+  await recordSnapshot(cwd, { graph });
   const depth = Number(options.depth) || 2;
   if (options.format === 'mermaid') return output(toMermaid(graph, depth));
   if (options.format === 'dot') return output(`digraph maverick {\n  rankdir=LR;\n${directoryGraph(graph, depth).map(link => `  "${link.from}" -> "${link.to}" [label=${link.weight}];`).join('\n')}\n}`);
@@ -54,6 +73,7 @@ async function routesCommand(cwd, options = {}) {
 
 async function couplingCommand(cwd, options = {}) {
   const report = await buildDevtools(cwd), arch = report.architecture;
+  await recordSnapshot(cwd, { report });
   if (options.json) return output(JSON.stringify({ health: report.health, components: arch.components, links: arch.links, cycles: arch.cycles, sdp: arch.sdp, violations: arch.violations, dsm: arch.dsm }, null, 2));
   const lines = [`${brand()} / COUPLING`, '', `Components: ${arch.components.length}${arch.inferred ? ' (inferred from the folder layout; set architecture.components to choose them)' : ''}`, '', `${pad('component', 38)} ${lpad('files', 5)} ${lpad('Ca', 4)} ${lpad('Ce', 4)} ${lpad('I', 5)} ${lpad('A', 5)} ${lpad('D', 5)}  zone`];
   for (const c of arch.components) lines.push(`${pad(c.id.length > 38 ? `…${c.id.slice(-37)}` : c.id, 38)} ${lpad(c.files, 5)} ${lpad(c.ca, 4)} ${lpad(c.ce, 4)} ${lpad(c.instability, 5)} ${lpad(c.abstractness, 5)} ${lpad(c.distance, 5)}  ${c.zone ? `zone of ${c.zone}` : ''}`);
@@ -67,6 +87,7 @@ async function couplingCommand(cwd, options = {}) {
 
 async function auditCommand(cwd, options = {}) {
   const report = await buildDevtools(cwd);
+  await recordSnapshot(cwd, { report });
   const rank = { high: 0, medium: 1, low: 2 }, floor = rank[options.severity] ?? 2;
   const findings = report.findings.filter(item => rank[item.severity] <= floor && (!options.category || item.category === options.category));
   if (options.json) return output(JSON.stringify({ health: report.health, findings }, null, 2));
@@ -85,7 +106,7 @@ async function mcpCommand(cwd) {
 
 export const intelCommands = [
   { id: 'mcp', description: 'Serve read-only project intelligence to AI agents over MCP (stdio).', aliases: [], usage: 'mcp', run: ({ cwd }) => mcpCommand(cwd) },
-  { id: 'graph', description: 'Analyze the import graph: cycles, hubs, coupling, and health.', aliases: [], usage: 'graph [--json] [--format mermaid|dot]', run: ({ cwd, options }) => graphCommand(cwd, options) },
+  { id: 'graph', description: 'Analyze the import graph: cycles, hubs, coupling, and health; --trend shows health over time.', aliases: [], usage: 'graph [--json] [--format mermaid|dot] [--trend]', run: ({ cwd, options }) => graphCommand(cwd, options) },
   { id: 'hotspots', description: 'Rank files by change frequency and dependents.', aliases: [], usage: 'hotspots [--since "6 months ago"]', run: ({ cwd, options }) => hotspotsCommand(cwd, options) },
   { id: 'routes', description: 'List entry points in any stack: HTTP routes, pages, GraphQL, gRPC, events and jobs.', aliases: ['endpoints'], usage: 'routes [--kind http] [--method GET] [--grep users] [--json]', run: ({ cwd, options }) => routesCommand(cwd, options) },
   { id: 'coupling', description: 'Component coupling: Ca, Ce, instability, abstractness, distance, cycles and boundary rules.', aliases: ['architecture'], usage: 'coupling [--json]', run: ({ cwd, options }) => couplingCommand(cwd, options) },

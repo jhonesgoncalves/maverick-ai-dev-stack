@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -6,7 +6,8 @@ import { sha256 } from '../capabilities/model.js';
 import { acIds, declaredScope } from '../core/quality.js';
 import { commandAvailable, sectionBody } from '../core/util.js';
 import { loadConfig } from '../core/config.js';
-import { git, inPlace, resolveRef, treeOf } from '../loop/git.js';
+import { inPlace, resolveRef, treeOf } from '../loop/git.js';
+import { withExport } from '../proof/export.js';
 import { familyOf } from '../runtime/families.js';
 import { resolveRun } from '../runtime/policy.js';
 import { providersFor, resolveBin } from '../runtime/providers.js';
@@ -84,27 +85,28 @@ const installed = (provider, config, cwd) => commandAvailable(resolveBin(provide
  * Picks a judge: trusted, installed, able to run read-only, and from a model family none of the
  * makers belongs to (or, with `cross-provider`, a different provider). It never falls back to
  * a judge it cannot prove independent; it returns the reason instead, for a human to decide.
+ * With `stage: 'seal'` it picks the sealer the same way, independent of the builders.
  */
-export function selectJudge({ config, cwd, makers = [], gate = {}, exclude = [], prefer = [], isInstalled = installed }) {
+export function selectJudge({ config, cwd, makers = [], gate = {}, exclude = [], prefer = [], isInstalled = installed, stage = 'judge' }) {
   const providers = providersFor(config), trusted = config.runtime?.trusted || [];
   const independence = gate.independence || 'cross-family';
   const makerFamilies = makers.map(maker => familyOf(maker, config).family);
   if (independence === 'cross-family' && makerFamilies.includes('unknown')) return { reason: `cannot prove a judge is independent: the model family of ${makers.filter((_, index) => makerFamilies[index] === 'unknown').map(maker => maker.provider).join(', ')} is unknown; set runtime.families.<provider> in .maverick/config.json` };
   const excluded = new Set([...makerFamilies, ...exclude]);
   // A gate that names its judge gets that judge or a reason, never a silent substitute.
-  const order = gate.provider ? [gate.provider] : [...new Set([...prefer, config.runtime?.stages?.judge?.provider, ...JUDGE_ORDER, ...providers.filter(item => item.custom).map(item => item.id)].filter(Boolean))];
+  const order = gate.provider ? [gate.provider] : [...new Set([...prefer, config.runtime?.stages?.[stage]?.provider, ...JUDGE_ORDER, ...providers.filter(item => item.custom).map(item => item.id)].filter(Boolean))];
   const refused = [];
   for (const id of order) {
     const provider = providers.find(item => item.id === id);
     if (!provider || !trusted.includes(id) || provider.permissions['read-only'] !== true || !isInstalled(provider, config, cwd)) { if (id === gate.provider) refused.push(`${id} is not trusted, not installed or cannot run read-only`); continue; }
     let plan;
-    try { plan = resolveRun(config, { provider: id, ...(id === gate.provider && { model: gate.model, effort: gate.effort }), permission: 'read-only', stage: 'judge' }, providers); } catch (error) { refused.push(error.message); continue; }
+    try { plan = resolveRun(config, { provider: id, ...(id === gate.provider && { model: gate.model, effort: gate.effort }), permission: 'read-only', stage }, providers); } catch (error) { refused.push(error.message); continue; }
     const family = familyOf({ provider: id, model: plan.model }, config).family;
     const independent = independence === 'cross-family' ? family !== 'unknown' && !excluded.has(family) : !makers.some(maker => maker.provider === id) && !exclude.includes(id);
     if (!independent) { if (id === gate.provider) refused.push(`${id} (${family}) is not independent of the makers (${[...excluded].join(', ')})`); continue; }
     return { plan, family };
   }
-  return { reason: `no trusted, installed provider can judge independently of ${[...excluded].join(', ') || 'the makers'}${refused.length ? ` (${refused.join('; ')})` : ''}; trust a provider from another model family` };
+  return { reason: `no trusted, installed provider can ${stage === 'seal' ? 'seal' : 'judge'} independently of ${[...excluded].join(', ') || 'the makers'}${refused.length ? ` (${refused.join('; ')})` : ''}; trust a provider from another model family` };
 }
 
 const clip = (text, size) => (text.length > size ? `${text.slice(0, size)}\n… (clipped)` : text);
@@ -133,7 +135,8 @@ export async function buildEvidencePacket({ task, taskDir, subtask, criteria, re
   if (behavior) sections.push(`## Behavior and contracts\n\n${clip(behavior, 12000)}`);
   const scope = await declaredScope(taskDir, { subtask });
   if (scope.all.length || scope.doNotTouch.length) sections.push(`## Declared scope\n\n${clip(`Files: ${[...new Set([...scope.subtask, ...scope.all])].join(', ') || 'not declared'}${scope.doNotTouch.length ? `\nDo not touch: ${scope.doNotTouch.join(', ')}` : ''}`, 2000)}`);
-  const gates = results.filter(item => item.type !== 'judge').map(item => `- ${item.id} (${item.type}): ${item.status}${item.issues?.length ? ` — ${item.issues.slice(0, 3).join('; ')}` : ''}`).join('\n');
+  // The sealed suite is the holdout: no judge (and so no report the builder could read) carries its result.
+  const gates = results.filter(item => item.type !== 'judge' && item.type !== 'sealed').map(item => `- ${item.id} (${item.type}): ${item.status}${item.issues?.length ? ` — ${item.issues.slice(0, 3).join('; ')}` : ''}`).join('\n');
   const evidence = await readFile(join(taskDir, 'EVIDENCE.md'), 'utf8').catch(() => '');
   const findings = integrity?.findings?.map(item => `- ${item.severity} ${item.kind}${item.file ? ` ${item.file}` : ''}: ${item.message}`).join('\n');
   sections.push(`## Harness evidence (run by Maverick, not by the author)\n\n### Gates\n${clip(gates || '- none ran', 3000)}\n\n### Verification output\n${clip(evidence.replace(/^# .*\n/, '').trim() || 'none recorded', 8000)}\n\n### Integrity findings\n${clip(findings || '- none', 4000)}`);
@@ -155,27 +158,15 @@ export async function buildEvidencePacket({ task, taskDir, subtask, criteria, re
 }
 
 /** Exports a tree to a temporary directory outside the project, without .maverick, and runs `fn` in it. */
-export async function withJudgeWorkspace(cwd, tree, fn) {
-  const dir = await mkdtemp(join(tmpdir(), 'maverick-judge-')), index = join(dir, '.index'), root = join(dir, 'tree');
-  try {
-    const env = { GIT_INDEX_FILE: index };
-    const read = await git(cwd, ['read-tree', tree], { env });
-    if (!read.ok) throw new Error(`could not export the change for the judge: ${read.stderr.trim()}`);
-    const out = await git(cwd, ['checkout-index', '-a', `--prefix=${root}/`], { env });
-    if (!out.ok) throw new Error(`could not export the change for the judge: ${out.stderr.trim()}`);
-    const prefix = (await git(cwd, ['rev-parse', '--show-prefix'])).stdout.trim();
-    const workdir = join(root, prefix);
-    await rm(join(workdir, '.maverick'), { recursive: true, force: true });
-    return await fn(workdir);
-  } finally { await rm(dir, { recursive: true, force: true }); }
-}
+export function withJudgeWorkspace(cwd, tree, fn) { return withExport(cwd, tree, workdir => fn(workdir), { prefix: 'maverick-judge-' }); }
 
 /** One judge run: the verdict, normalised, or null when the block is missing or invalid. */
-async function judgeOnce({ cwd, config, taskDir, task, plan, family, packet, criteria, gate, workdir, signal, meta }) {
-  const run = await runAgent({ cwd, workdir, config, taskDir, task, provider: plan.provider, model: plan.model, effort: plan.effort, permission: 'read-only', commands: [], prompt: packet.text, timeoutMs: (gate.timeoutMinutes || 15) * 60000, signal, meta: { role: 'judge', gate: gate.id, ...meta } });
+async function judgeOnce({ cwd, config, taskDir, task, plan, family, packet, criteria, gate, workdir, signal, meta, reportDir }) {
+  // With a private report directory, the judge's transcript (its reasoning) goes there too, not to the task's runs/.
+  const run = await runAgent({ cwd, workdir, config, taskDir, task, provider: plan.provider, model: plan.model, effort: plan.effort, permission: 'read-only', commands: [], prompt: packet.text, timeoutMs: (gate.timeoutMinutes || 15) * 60000, signal, meta: { role: 'judge', gate: gate.id, ...meta }, ...(reportDir && { transcriptDir: join(reportDir, 'runs') }) });
   const parsed = run.ok ? parseVerdictBlock(run.text) : null;
   const verdict = parsed && normalizeVerdict(parsed, criteria, gate.threshold ?? 0.7);
-  return { provider: plan.provider.id, model: plan.model || null, family, ok: run.ok, problems: run.problems, verdict: verdict?.verdict || null, confidence: verdict?.confidence ?? null, criteria: verdict?.criteria || [], issues: verdict?.issues || [], unmet: verdict?.unmet || [], parse: parsed ? 'ok' : 'invalid', costUsd: run.cost ?? null, durationMs: run.durationMs, transcript: run.transcript };
+  return { provider: plan.provider.id, model: plan.model || null, family, ok: run.ok, problems: run.problems, verdict: verdict?.verdict || null, confidence: verdict?.confidence ?? null, criteria: verdict?.criteria || [], issues: verdict?.issues || [], unmet: verdict?.unmet || [], parse: parsed ? 'ok' : 'invalid', costUsd: run.cost ?? null, tokens: run.usage?.totalTokens ?? null, durationMs: run.durationMs, transcript: run.transcript };
 }
 
 const confident = (judge, threshold) => judge.verdict && judge.confidence >= threshold;
@@ -219,7 +210,7 @@ export async function runJudgeGate(context, gate, prior = [], state = {}, extra 
     const first = selectJudge({ config, cwd: context.cwd, makers, gate, prefer });
     if (first.reason) return { ...base, status: 'pending', issues: [first.reason], summary: `a human decides: maverick flow approve <flow> ${context.task} ${gate.id}`, judge: { digest: packet.digest, final: null, reason: first.reason, verdicts: [] } };
     const verdicts = [];
-    const ask = selected => withJudgeWorkspace(context.cwd, head, workdir => judgeOnce({ cwd: context.cwd, config, taskDir: context.taskDir, task: context.task, plan: selected.plan, family: selected.family, packet, criteria, gate, workdir, signal: loop.signal || context.signal, meta: { loop: loop.loopId, iteration: loop.iteration } }));
+    const ask = selected => withJudgeWorkspace(context.cwd, head, workdir => judgeOnce({ cwd: context.cwd, config, taskDir: context.taskDir, task: context.task, plan: selected.plan, family: selected.family, packet, criteria, gate, workdir, signal: loop.signal || context.signal, meta: { loop: loop.loopId, iteration: loop.iteration }, reportDir: context.reportDir }));
     verdicts.push(await ask(first));
     const exclude = [first.family];
     const second = () => { const selected = selectJudge({ config, cwd: context.cwd, makers, gate: { ...gate, provider: undefined, model: undefined, effort: undefined }, exclude, prefer }); return selected.reason ? null : selected; };
@@ -239,8 +230,14 @@ export async function runJudgeGate(context, gate, prior = [], state = {}, extra 
     const decided = final === 'fail' ? verdicts.find(item => item.verdict === 'fail') || j1 : null;
     const status = final || 'pending';
     const issues = status === 'fail' ? (decided.parse === 'invalid' ? [`judge: ${decided.provider} returned no valid maverick-verdict block`] : issuesOf(decided)) : status === 'pending' ? [`${reason}; a human decides with maverick flow approve <flow> ${context.task} ${gate.id}`] : [];
-    const result = { ...base, status, issues, keys: status === 'fail' ? (decided.parse === 'invalid' ? ['judge:invalid'] : decided.unmet.length ? decided.unmet : ['judge:fail']) : undefined, summary: `${verdicts.map(item => `${item.provider} (${item.family}) ${item.verdict || 'no verdict'}${item.confidence != null ? ` ${Math.round(item.confidence * 100)}%` : ''}`).join(', ')}`, judge: { digest: packet.digest, final, reason, makers, criteria, verdicts: verdicts.map(({ transcript, ...item }) => ({ ...item, transcript: transcript && transcript.replace(`${context.cwd}/`, '') })), costUsd: verdicts.reduce((sum, item) => sum + (item.costUsd || 0), 0) } };
-    await writeFile(join(context.taskDir, `JUDGE-${gate.id.toUpperCase()}.md`), renderJudgeReport(context.task, result));
+    const result = { ...base, status, issues, keys: status === 'fail' ? (decided.parse === 'invalid' ? ['judge:invalid'] : decided.unmet.length ? decided.unmet : ['judge:fail']) : undefined, summary: `${verdicts.map(item => `${item.provider} (${item.family}) ${item.verdict || 'no verdict'}${item.confidence != null ? ` ${Math.round(item.confidence * 100)}%` : ''}`).join(', ')}`, judge: { digest: packet.digest, final, reason, makers, criteria, verdicts: verdicts.map(({ transcript, ...item }) => ({ ...item, transcript: transcript && transcript.replace(`${context.cwd}/`, '') })), costUsd: verdicts.reduce((sum, item) => sum + (item.costUsd || 0), 0), tokens: verdicts.reduce((sum, item) => sum + (item.tokens || 0), 0) } };
+    // A loop keeps the judges' reasoning out of the work tree (context.reportDir); the task keeps a pointer to it.
+    const name = `JUDGE-${gate.id.toUpperCase()}.md`;
+    if (context.reportDir) {
+      await mkdir(context.reportDir, { recursive: true });
+      await writeFile(join(context.reportDir, name), renderJudgeReport(context.task, result));
+      await writeFile(join(context.taskDir, name), `# Judge ${gate.id} — ${context.task}\n\nResult: **${result.status.toUpperCase()}**\n\nThe judges' reasoning is kept outside the work tree while a loop runs, so the agent being judged does not learn how it was judged (\`loop.feedback\`). Read it in \`${join(context.reportDir, name)}\` or with \`maverick loop status ${context.task}\`.\n`);
+    } else await writeFile(join(context.taskDir, name), renderJudgeReport(context.task, result));
     return result;
   } finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
 }

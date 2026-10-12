@@ -177,8 +177,9 @@ maverick audit --fail-on high  # ranked findings; non-zero exit when a high one 
 | Tool | Returns |
 |---|---|
 | `project_overview` | Languages, frameworks, package managers, verification commands and instruction files — call first |
-| `list_tasks` · `get_task` · `next_subtasks` | Tasks with stage, evidence, subtask progress and flow outcomes; one task in full; the subtasks in progress or ready to start |
-| `ground_change` | The files, tests, entry points and shared modules a plain-language change request most likely touches, with reasons |
+| `list_tasks` · `get_task` · `next_subtasks` · `loop_status` | Tasks with stage, evidence, subtask progress and flow outcomes; one task in full; the subtasks in progress or ready to start |
+| `ground_change` | The files, tests, entry points and shared modules a plain-language change request most likely touches, with reasons, plus similar earlier tasks and files that usually change together |
+| `why` | Why a line exists: its task, criteria, loop iteration, checks, decisions and the contracts that guard it (no author names) |
 | `impact` | Files that import a file directly or transitively, the tests among them, and the entry points affected |
 | `graph_summary` | Import-graph health: cycles, hubs, most depended-on files and Git hotspots |
 | `list_routes` | Entry points, filterable |

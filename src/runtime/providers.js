@@ -5,7 +5,8 @@ import { commandAvailable, splitCommand } from '../core/util.js';
 // portable permission levels to its own flags (or explains why a level cannot be expressed),
 // builds argv (never a shell string), and normalises its JSON stream into events:
 //   { type: 'session', id } · { type: 'text', text } · { type: 'tool', name, detail }
-//   { type: 'result', ok, text, cost, error } · { type: 'error', message }
+//   { type: 'result', ok, text, cost, usage, error } · { type: 'error', message }
+// `usage` is token counts in one shape (normalizeUsage); `reportsUsage` marks providers that send them.
 
 const json = line => { try { return JSON.parse(line); } catch { return null; } };
 const short = (value, size = 80) => { const text = typeof value === 'string' ? value : JSON.stringify(value ?? ''); return text.length > size ? `${text.slice(0, size - 1)}…` : text; };
@@ -16,10 +17,38 @@ const editCommands = commands => [...new Set([...commands.map(item => item.comma
 
 const toolDetail = input => short(input?.file_path || input?.path || input?.command || input?.pattern || input?.url || input?.description || '');
 
+const count = (raw, ...keys) => { for (const key of keys) { const value = Number(raw?.[key]); if (Number.isFinite(value) && value >= 0) return value; } return 0; };
+
+/**
+ * Token counts from any provider's usage object, in one shape: `inputTokens` (every prompt token,
+ * cached ones included), `cachedInputTokens`, `outputTokens`, `reasoningTokens` and their total.
+ * Anthropic counts cache reads and writes apart from `input_tokens`; OpenAI counts cached tokens
+ * inside them. Null when the object holds no count.
+ */
+export function normalizeUsage(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const anthropic = 'cache_read_input_tokens' in raw || 'cache_creation_input_tokens' in raw;
+  const cachedInputTokens = count(raw, 'cache_read_input_tokens', 'cached_input_tokens', 'cachedInputTokens', 'cacheReadTokens', 'cached', 'cachedTokens') || count(raw.cache, 'read');
+  let inputTokens = count(raw, 'input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokens', 'input', 'prompt');
+  if (anthropic) inputTokens += cachedInputTokens + count(raw, 'cache_creation_input_tokens');
+  else if (raw.cache && typeof raw.cache === 'object') inputTokens += cachedInputTokens + count(raw.cache, 'write');
+  const outputTokens = count(raw, 'output_tokens', 'outputTokens', 'completion_tokens', 'completionTokens', 'output', 'candidates', 'candidatesTokens');
+  const reasoningTokens = count(raw, 'reasoning_output_tokens', 'reasoningTokens', 'reasoning_tokens', 'reasoning', 'thoughts', 'thoughtsTokens');
+  const totalTokens = inputTokens + outputTokens || count(raw, 'total_tokens', 'totalTokens', 'total');
+  return totalTokens ? { inputTokens, cachedInputTokens, outputTokens, reasoningTokens, totalTokens } : null;
+}
+
+/** `{ usage }` for a result event when the provider sent counts, so events without them keep their shape. */
+const usageOf = raw => { const usage = normalizeUsage(raw); return usage ? { usage } : {}; };
+
+/** Two usage records added together (OpenCode reports one per step). */
+export const addUsage = (a, b) => (!a ? b : !b ? a : Object.fromEntries(Object.keys(a).map(key => [key, (a[key] || 0) + (b[key] || 0)])));
+
 const claude = {
   id: 'claude-code', name: 'Claude Code', bin: 'claude',
   permissions: { 'read-only': true, edit: true, full: true },
   reportsCost: true, // total_cost_usd on the result event
+  reportsUsage: true,
   efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   editShell: 'verification',
   models: { suggested: ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5', 'claude-haiku-4-5'] },
@@ -41,7 +70,7 @@ const claude = {
     if (event.type === 'assistant') return (event.message?.content || []).flatMap(part => (part.type === 'text' ? [{ type: 'text', text: part.text }] : part.type === 'tool_use' ? [{ type: 'tool', name: part.name, detail: toolDetail(part.input) }] : []));
     if (event.type === 'result') {
       const denials = (event.permission_denials || []).map(denial => ({ type: 'error', message: `permission denied: ${denial.tool_name || short(denial)}` }));
-      return [...denials, { type: 'result', ok: !event.is_error && event.subtype === 'success', text: event.result ?? '', cost: event.total_cost_usd, error: event.is_error ? (event.result || event.subtype) : undefined }];
+      return [...denials, { type: 'result', ok: !event.is_error && event.subtype === 'success', text: event.result ?? '', cost: event.total_cost_usd, ...usageOf(event.usage), error: event.is_error ? (event.result || event.subtype) : undefined }];
     }
     return [];
   }
@@ -55,6 +84,7 @@ const codex = {
   id: 'codex', name: 'OpenAI Codex', bin: 'codex',
   permissions: { 'read-only': true, edit: true, full: true },
   efforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  reportsUsage: true, // usage on turn.completed
   editShell: 'all', // workspace-write runs any command inside the sandbox
   // `codex debug models` prints the catalog with the reasoning levels each model accepts.
   models: { list: ['debug', 'models'], parse: text => (JSON.parse(text).models || []).filter(model => model.visibility !== 'hide').map(model => ({ id: model.slug, name: model.display_name, description: model.description, efforts: (model.supported_reasoning_levels || []).map(level => level.effort) })) },
@@ -75,7 +105,7 @@ const codex = {
       if (item.type === 'mcp_tool_call') return [{ type: 'tool', name: `${item.server}:${item.tool}` }];
       return [];
     }
-    if (event.type === 'turn.completed') return [{ type: 'result', ok: true, text: state.last ?? '' }];
+    if (event.type === 'turn.completed') return [{ type: 'result', ok: true, text: state.last ?? '', ...usageOf(event.usage) }];
     if (event.type === 'turn.failed') return [{ type: 'result', ok: false, text: state.last ?? '', error: event.error?.message || 'turn failed' }];
     if (event.type === 'error') return [{ type: 'error', message: event.message }];
     return [];
@@ -85,6 +115,7 @@ const codex = {
 const gemini = {
   id: 'gemini', name: 'Gemini CLI', bin: 'gemini',
   permissions: { 'read-only': true, edit: true, full: true },
+  reportsUsage: true, // stats on the result event
   editShell: 'verification',
   models: { suggested: ['auto', 'pro', 'flash', 'flash-lite'] },
   interactive: ({ prompt, model }) => [...(model ? ['-m', model] : []), '-i', prompt],
@@ -102,7 +133,7 @@ const gemini = {
     if (event.type === 'message' && event.role === 'assistant') { state.text = `${state.text || ''}${event.content || ''}`; return event.delta ? [] : [{ type: 'text', text: event.content || '' }]; }
     if (event.type === 'tool_use') return [{ type: 'tool', name: event.tool_name, detail: toolDetail(event.parameters) }];
     if (event.type === 'error') return [{ type: 'error', message: event.message || short(event) }];
-    if (event.type === 'result') return [...(state.text ? [{ type: 'text', text: state.text }] : []), { type: 'result', ok: event.status === 'success', text: state.text || '', error: event.status === 'success' ? undefined : (event.error?.message || event.status) }];
+    if (event.type === 'result') return [...(state.text ? [{ type: 'text', text: state.text }] : []), { type: 'result', ok: event.status === 'success', text: state.text || '', ...usageOf(event.stats || event.usage), error: event.status === 'success' ? undefined : (event.error?.message || event.status) }];
     return [];
   }
 };
@@ -122,7 +153,7 @@ const cursor = {
     if (event.type === 'system' && event.subtype === 'init') return [{ type: 'session', id: event.session_id }];
     if (event.type === 'assistant') return (event.message?.content || []).filter(part => part.type === 'text').map(part => ({ type: 'text', text: part.text }));
     if (event.type === 'tool_call' && event.subtype === 'started') { const [name, call] = Object.entries(event.tool_call || {})[0] || []; return name ? [{ type: 'tool', name: name.replace(/ToolCall$/, ''), detail: toolDetail(call?.args) }] : []; }
-    if (event.type === 'result') return [{ type: 'result', ok: !event.is_error, text: event.result ?? '', error: event.is_error ? event.result : undefined }];
+    if (event.type === 'result') return [{ type: 'result', ok: !event.is_error, text: event.result ?? '', ...usageOf(event.usage), error: event.is_error ? event.result : undefined }];
     return [];
   }
 };
@@ -154,7 +185,7 @@ const antigravity = {
     }
     if (event.event === 'result') {
       const result = event.result || {}, failed = Boolean(result.error) || /error|fail|cancel|timeout/i.test(result.status || '');
-      return [{ type: 'result', ok: !failed, text: result.response || state.last || '', error: failed ? (result.error || result.status) : undefined }];
+      return [{ type: 'result', ok: !failed, text: result.response || state.last || '', ...usageOf(result.usage || event.usage), error: failed ? (result.error || result.status) : undefined }];
     }
     return [];
   }
@@ -180,7 +211,7 @@ const copilot = {
     if (event.type === 'abort') return [{ type: 'error', message: data.reason || 'aborted' }];
     if (event.type === 'result') {
       const ok = (event.exitCode ?? 0) === 0;
-      return [...(event.sessionId || event.session_id ? [{ type: 'session', id: event.sessionId || event.session_id }] : []), { type: 'result', ok, text: state.last ?? '', error: ok ? undefined : `exit code ${event.exitCode}` }];
+      return [...(event.sessionId || event.session_id ? [{ type: 'session', id: event.sessionId || event.session_id }] : []), { type: 'result', ok, text: state.last ?? '', ...usageOf(event.usage || data.usage), error: ok ? undefined : `exit code ${event.exitCode}` }];
     }
     return [];
   }
@@ -211,7 +242,7 @@ const kiro = {
     if (event.type === 'runError') return [{ type: 'result', ok: false, text: state.text || '', error: data.message || 'run failed' }];
     if (event.type === 'runFinished') {
       const text = !data.finalTextTruncated && data.finalText ? data.finalText : state.text || '';
-      return [...(text ? [{ type: 'text', text }] : []), { type: 'result', ok: true, text }];
+      return [...(text ? [{ type: 'text', text }] : []), { type: 'result', ok: true, text, ...usageOf(data.usage || data.tokenUsage) }];
     }
     return [];
   }
@@ -222,6 +253,7 @@ const kiro = {
 const opencode = {
   id: 'opencode', name: 'OpenCode', bin: 'opencode',
   reportsCost: true, // summed from step_finish events
+  reportsUsage: true,
   permissions: { 'read-only': 'opencode run may approve shell commands even with the plan agent; use full or another provider', edit: 'opencode run may approve shell commands on its own; use full or another provider', full: true },
   interactive: ({ prompt, model }) => [...(model ? ['--model', model] : []), '--prompt', prompt],
   invocation({ prompt, model }) {
@@ -235,10 +267,11 @@ const opencode = {
     if (event.type === 'text' && part.text) { state.last = part.text; out.push({ type: 'text', text: part.text }); }
     if (event.type === 'tool_use') out.push({ type: 'tool', name: part.tool || 'tool', detail: toolDetail(part.state?.input) });
     if (event.type === 'step_finish' && typeof part.cost === 'number') state.cost = (state.cost || 0) + part.cost;
+    if (event.type === 'step_finish' && part.tokens) state.usage = addUsage(state.usage, normalizeUsage(part.tokens));
     if (event.type === 'error') { state.error = event.error?.data?.message || event.error?.message || event.error?.name || 'error'; out.push({ type: 'error', message: state.error }); }
     return out;
   },
-  finish(state) { return [{ type: 'result', ok: !state.error, text: state.last ?? '', cost: state.cost, error: state.error }]; }
+  finish(state) { return [{ type: 'result', ok: !state.error, text: state.last ?? '', cost: state.cost, ...(state.usage && { usage: state.usage }), error: state.error }]; }
 };
 
 /**

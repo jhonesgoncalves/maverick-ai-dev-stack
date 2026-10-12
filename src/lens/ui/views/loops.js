@@ -8,11 +8,13 @@ import { bus, store } from '../app.js';
 
 const ui = { filter: 'all' };
 let unsubscribe = null;
-export const STATUS = { running: ['accent', 'Running'], done: ['ok', 'Done'], 'budget-exceeded': ['warn', 'Budget reached'], 'stalled-escalated': ['bad', 'Stalled'], disputed: ['warn', 'Disputed'], 'needs-human': ['warn', 'Needs you'], aborted: ['', 'Stopped'], 'integrity-violation': ['bad', 'Integrity violation'] };
-export const HUMAN = ['stalled-escalated', 'disputed', 'needs-human', 'integrity-violation'];
+export const STATUS = { running: ['accent', 'Running'], done: ['ok', 'Done'], 'budget-exceeded': ['warn', 'Budget reached'], 'stalled-escalated': ['bad', 'Stalled'], disputed: ['warn', 'Disputed'], 'needs-human': ['warn', 'Needs you'], 'holdout-gap': ['bad', 'Holdout gap'], aborted: ['', 'Stopped'], 'integrity-violation': ['bad', 'Integrity violation'] };
+export const HUMAN = ['stalled-escalated', 'disputed', 'needs-human', 'holdout-gap', 'integrity-violation'];
 const DECISION = { accepted: ['ok', 'kept'], rejected: ['bad', 'rolled back'], aborted: ['warn', 'aborted'] };
 const money = value => (typeof value === 'number' ? `$${value.toFixed(value < 1 ? 4 : 2)}` : '—');
 const minutes = ms => `${Math.round((ms || 0) / 60000)} min`;
+const tokens = value => { const n = Math.round(value || 0); return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n); };
+const pct = value => (value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`);
 const duration = ms => (ms == null ? '' : ms < 60000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`);
 
 export async function loadLoops(force = false) { if (!store.loops || force) store.loops = (await api('/api/loops')).loops; return store.loops; }
@@ -124,20 +126,41 @@ async function detail(task, id) {
           ${burn('Iterations', spent.iterations, budgets.maxIterations, items.length ? 1 : null, value => String(value))}
           ${burn('Time', Math.round(spent.activeMs / 60000), budgets.maxMinutes, data.forecast?.time != null ? data.forecast.time / 60000 : null, value => `${Math.round(value)} min`)}
           ${burn('Cost', spent.costUsd, budgets.maxCostUsd, data.forecast?.cost ?? null, money)}
+          ${spent.tokens || budgets.maxTokens ? burn('Tokens', spent.tokens || 0, budgets.maxTokens, data.forecast?.tokens ?? null, tokens) : ''}
+          ${spent.costEstimated ? `<p class="faint">${plural(spent.costEstimated, 'run')} priced from tokens (runtime.prices)</p>` : ''}
           ${data.forecast?.stop ? `<p class="warn-text">${esc(data.forecast.detail)}</p>` : ''}
         </div></section>
         ${escalation.rung || escalation.diagnosis || human ? `<section class="card"><div class="card-head"><h3>Escalation</h3>${escalation.rung ? pill(escalation.rung, 'accent') : ''}</div><div class="kv">
           ${escalation.diagnosis ? `<dt>Diagnosis</dt><dd>${esc(escalation.diagnosis)}</dd>` : ''}<dt>Agents tried</dt><dd>${esc((escalation.tried || []).join(', ') || '—')}</dd><dt>Ladder</dt><dd>${esc((state.settings?.escalation || []).join(' → '))}</dd>
+        </div></section>` : ''}
+        ${holdout(state, task)}
+        ${state.checkpoint?.tainted || state.quarantine?.length ? `<section class="card"><div class="card-head"><h3>Integrity warnings kept</h3></div><div class="kv">
+          ${state.checkpoint?.tainted ? `<dt>Tainted</dt><dd>since #${esc(state.checkpoint.tainted.since)} · ${esc(state.checkpoint.tainted.kinds.join(', '))}${state.checkpoint.tainted.acknowledged ? ` · acknowledged by ${esc(state.checkpoint.tainted.acknowledged.by)}` : ''}</dd>` : ''}
+          ${state.quarantine?.length ? `<dt>Quarantined notes</dt><dd>${plural(state.quarantine.reduce((sum, item) => sum + (item.count ?? item.notes?.length ?? 0), 0), 'note')} from ${state.quarantine.map(item => `#${esc(item.n)}`).join(', ')}, kept from the next agent · <code>maverick loop release ${esc(task)}</code></dd>` : ''}
         </div></section>` : ''}
         <section class="card"><div class="card-head"><h3>Next commands</h3></div><div class="card-body cmds">${commands.map(command => `<button class="cmd" data-act="copy" data-text="${esc(command)}">${icon('copy')}<code>${esc(command)}</code></button>`).join('')}</div></section>
         <section class="card"><div class="card-head"><h3>Ledger</h3><div class="right"><button class="btn sm" data-act="verify" data-task="${esc(task)}" data-id="${esc(id)}">${icon('shield')}Verify again</button></div></div><div class="card-body" id="ledger-status"><span class="spin"></span> Checking the hash chain and checkpoints…</div></section>
         <section class="card"><div class="card-head"><h3>Guardrails</h3></div><div class="kv">
           <dt>Integrity</dt><dd>${esc(state.settings?.integrity || 'standard')}</dd><dt>Blast radius</dt><dd>${esc(state.settings?.blastRadius ? `${state.settings.blastRadius.maxFiles} files · ${state.settings.blastRadius.maxLines} lines per iteration` : '—')}</dd>
           <dt>Protected</dt><dd class="chip-row">${(state.settings?.protectedPaths || []).map(path => `<code class="pill">${esc(path)}</code>`).join('') || '—'}</dd><dt>Judge</dt><dd>${state.settings?.judge ? 'another model family accepts each subtask' : 'off'}</dd>
+          <dt>Feedback</dt><dd>${esc(state.settings?.feedback || 'detailed')} <span class="faint">what the next agent learns from a rejection</span></dd>
           ${state.worktree ? `<dt>Branch</dt><dd class="mono">${esc(state.worktree.branch)}</dd>` : ''}<dt>Oracle</dt><dd class="mono faint">${esc(state.oracle?.digest?.slice(0, 16) || '—')}</dd>
         </div></section>
       </div>
     </div></div>`;
+}
+
+/** The holdout card: the seal, every query, and once the loop stopped the counts and the overfitting index. Never a test. */
+function holdout(state, task) {
+  const s = state.sealed;
+  if (!s) return '';
+  const final = state.status !== 'running' ? s.final : null;
+  return `<section class="card"><div class="card-head"><h3>Holdout</h3><span class="count">sealed tests · feedback ${esc(s.feedback)}</span></div><div class="kv">
+    <dt>Seal</dt><dd class="mono">${esc(s.sealId)} · ${esc(s.sealer?.human ? `${s.sealer.human} (human)` : `${s.sealer?.provider} (${s.sealer?.family})`)}</dd>
+    <dt>Queries</dt><dd>${esc(s.queries)} / ${esc(s.maxQueries)} · threshold ${pct(s.threshold)}</dd>
+    ${final ? `<dt>At done</dt><dd>${esc(final.passed)}/${esc(final.total)} sealed pass · criteria delivered ${pct(final.Sac)} · claimed ${pct(final.Vac)}</dd><dt>Overfitting index</dt><dd><b>${final.OI === null ? '—' : `${final.OI >= 0 ? '+' : ''}${esc(final.OI)} pp`}</b> <span class="faint">claimed minus delivered</span></dd>` : '<dt>Results</dt><dd class="faint">withheld while the loop runs</dd>'}
+    <dt>Details</dt><dd><code>maverick seal status ${esc(task)} --reveal</code> <span class="faint">in your terminal</span></dd>
+  </div></section>`;
 }
 
 export async function render({ route }) {

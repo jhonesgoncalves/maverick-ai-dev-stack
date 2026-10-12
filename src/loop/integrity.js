@@ -189,6 +189,9 @@ function finalize(raw, { level = 'standard', severity = {}, allow = [] }, stats)
   return { ok: !findings.some(item => item.severity === 'block'), level, findings, stats: { ...stats, allowed: skipped } };
 }
 
+/** Severities for findings another check raised (ablation, the sealed suite), with the same levels, overrides and allow list. */
+export const applySeverity = (raw, settings = {}) => finalize(raw, { level: settings.level, severity: settings.severity || {}, allow: settings.allow || [] }, {});
+
 /** Sections of a TOML or INI file by header, for comparing only the oracle's tables. */
 function sectionsOf(text) {
   const sections = new Map();

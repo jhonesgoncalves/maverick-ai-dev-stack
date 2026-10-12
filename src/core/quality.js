@@ -11,9 +11,28 @@ import { exists, hasMeaningfulContent, sectionBody, sectionPresent } from './uti
 // criteria. Each finding is { file, status: 'FAIL' | 'WARN', message }. Levels: `fail`
 // always fails, `warn` fails under `strict`, `advice` never fails.
 
-const AC = /\bAC-(\d{2,3})\b/g;
+const AC = /\bAC-(\d{2,3})\b/g, SC = /\bSC-(\d{2,3})\b/g;
 const normal = match => `AC-${match[1].padStart(2, '0')}`;
 export const acIds = text => [...new Set([...String(text).matchAll(AC)].map(normal))];
+/** SPEC scenario ids (`SC-01`), the behavioral counterpart of acceptance criteria. */
+export const scIds = text => [...new Set([...String(text).matchAll(SC)].map(match => `SC-${match[1].padStart(2, '0')}`))];
+
+/**
+ * The criteria a task can be held to: the PRD's acceptance criteria and the SPEC's scenarios,
+ * each with its text. Sealed tests and their metrics are counted against these ids.
+ */
+export function criteriaOf(prd = '', spec = '') {
+  const criteria = [];
+  for (const line of sectionBody(prd, 'Acceptance Criteria').split('\n')) {
+    const id = acIds(line)[0];
+    if (id && !criteria.some(item => item.id === id)) criteria.push({ id, text: line.replace(/^\s*[-*]\s*(\[[ xX]\]\s*)?/, '').replace(/^AC-\d{2,3}:?\s*/, '').trim(), source: 'PRD.md' });
+  }
+  for (const line of sectionBody(spec, 'Behavior').split('\n')) {
+    const id = /^#{2,5}\s/.test(line) ? scIds(line)[0] : null;
+    if (id && !criteria.some(item => item.id === id)) criteria.push({ id, text: line.replace(/^#{2,5}\s+[^:]*:\s*/, '').replace(/^SC-\d{2,3}\s*/, '').trim(), source: 'SPEC.md' });
+  }
+  return criteria;
+}
 
 /** Backticked, path-looking references in a block of Markdown, without line suffixes. Lines marked new are skipped unless `includeNew`. */
 export function pathReferences(text, { includeNew = false } = {}) {

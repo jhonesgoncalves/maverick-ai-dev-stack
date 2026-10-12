@@ -57,11 +57,14 @@ export function nextRung(escalation, settings, { providers, current, config }) {
     }
     if (rung === 'switch-provider') {
       const tried = new Set(escalation.tried || []), families = new Set([...tried].map(id => familyOf({ provider: id }, config).family));
-      const candidates = settings.providers.filter(id => !tried.has(id) && id !== current.provider && providers.some(item => item.id === id));
+      // The sealer's family never builds: it wrote the hidden tests.
+      const excluded = new Set(settings.excludeFamilies || []);
+      const untried = settings.providers.filter(id => !tried.has(id) && id !== current.provider && providers.some(item => item.id === id));
+      const candidates = untried.filter(id => !excluded.has(familyOf({ provider: id }, config).family));
       // A different model family first: a vendor that has not seen this failure mode yet.
       const pick = candidates.find(id => !families.has(familyOf({ provider: id }, config).family)) || candidates[0];
       if (pick) return { index, rung, change: { provider: pick, model: undefined, effort: undefined }, skipped };
-      skipped.push(`${rung}: no untried provider in loop.providers`);
+      skipped.push(`${rung}: ${untried.length ? 'every untried provider is in the family that wrote the sealed tests' : 'no untried provider in loop.providers'}`);
     }
   }
   return { index: settings.escalation.length - 1, rung: 'human', change: {}, skipped, human: true };

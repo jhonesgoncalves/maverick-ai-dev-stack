@@ -40,9 +40,10 @@ maverick integrity <slug> --oracle
 Ask, one question at a time, only what the configuration does not already answer:
 
 - **Isolation:** in place (default; your checkout, hidden checkpoint refs, do not edit files while it runs) or `--worktree` (its own branch outside your checkout; needs `loop.setup`, for example `npm ci`).
-- **Budget:** `--max-iterations`, `--max-minutes`, `--max-cost`. Recommend a small first budget, such as 6 iterations.
+- **Budget:** `--max-iterations`, `--max-minutes`, `--max-cost`, `--max-tokens`. Recommend a small first budget, such as 6 iterations.
 - **Judge:** `--judge` asks a reviewer from another model family to accept each subtask and the whole change. It costs more and catches work that passes the checks without meeting the criteria.
 - **Integrity level:** `standard` unless the user wants `strict`.
+- **Sealed tests:** if `.maverick/tasks/<slug>/SEALED.json` exists, the loop is done only when the hidden suite passes too. For a spec-driven or strict task without one, suggest `maverick seal <slug>` first: an agent from a model family no builder belongs to writes acceptance tests the builder never sees. The user reads them with `maverick seal status <slug> --reveal` in their own terminal and approves with `maverick seal approve <slug>`.
 
 ## 3. Start it and watch it
 
@@ -65,11 +66,15 @@ Read `.maverick/tasks/<slug>/LOOP.md` and, for anything but done, `LOOP-ESCALATI
 - **stalled-escalated / needs-human:** summarize the diagnosis and what was tried, ask the user for guidance, then `maverick loop run <slug> --resume --note "<their guidance>"`.
 - **disputed:** the agent says a check is wrong. Show the dispute and let the user decide: fix the check themselves, or resume with a note that the check stands.
 - **judge undecided:** the judges disagreed. Show `JUDGE-*.md` and let the user decide; a human decision is recorded with `maverick flow approve`.
+- **holdout-gap:** every visible check passes, the sealed tests do not. Show the overfitting index from `LOOP-ESCALATION.md` and ask the user to read the tests in their own terminal (`maverick seal status <slug> --reveal`). Then they choose: resume with a note that describes the missing behavior (`--resume --note "..."`), reseal if a test is wrong, or finish without the holdout (`--resume --sealed off --note "<why>"`).
 - **integrity-violation:** something rewrote history, refs or the ledger. Run `maverick loop verify <slug>`, show the result, and only then suggest `--new`.
+
+If `LOOP.md` lists quarantined notes or a tainted checkpoint, tell the user: an iteration was kept despite integrity warnings. Releasing the notes (`maverick loop release <slug>`) is their decision.
 
 ## Rules for you
 
 - Never edit, skip or weaken a test, a check, the flow or the configuration to unblock a loop.
 - Never lower the integrity level, raise a budget, trust a provider or resume after an integrity finding without the user's explicit decision.
 - Disputes and judge disagreements are decided by the user, not by you.
+- Never read sealed tests: do not run `maverick seal status --reveal` or `maverick unseal`, and do not look in `$MAVERICK_HOME/vault`. They exist so that no agent sees them. Never put what a sealed test checks into a `--note`; describe the behavior the user asks for. `--sealed off` only on the user's explicit decision.
 - Never commit, push, merge or delete the loop's branch or refs on your own; `maverick loop clean` only on request.
