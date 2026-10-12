@@ -90,6 +90,12 @@ jobs:
             VERSION="$(node -p "require('./package.json').version")"
           done
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Move the changelog entries under the new version
+        shell: bash
+        run: |
+          # [Unreleased] becomes "## [x.y.z] - date"; without entries, the commit subjects since the last tag are listed.
+          LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          node scripts/release-changelog.mjs "${{ steps.package.outputs.version }}" --range "${LAST_TAG:+$LAST_TAG..}HEAD" --notes "$RUNNER_TEMP/release-notes.md"
       - name: Publish public package to npm
         # Publishing comes before the push, so a failed publish leaves no commit or tag behind and the job can be re-run.
         # Trusted publishing (OIDC) is used when configured on npmjs.com; NPM_TOKEN is only a fallback.
@@ -101,13 +107,14 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package.json package-lock.json
+          git add package.json package-lock.json CHANGELOG.md
           git commit -m "chore(release): v${{ steps.package.outputs.version }}"
           git tag -a "v${{ steps.package.outputs.version }}" -m "Release v${{ steps.package.outputs.version }}"
           git push origin HEAD:main "v${{ steps.package.outputs.version }}"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Create GitHub release
-        run: gh release create "v${{ steps.package.outputs.version }}" --title "v${{ steps.package.outputs.version }}" --generate-notes --verify-tag
+        # The changelog section is the release body; the generated notes add the full-changelog link.
+        run: gh release create "v${{ steps.package.outputs.version }}" --title "v${{ steps.package.outputs.version }}" --notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}
 

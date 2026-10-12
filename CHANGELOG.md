@@ -1,8 +1,14 @@
 # Changelog
 
-All notable changes follow Semantic Versioning.
+All notable changes follow Semantic Versioning. Write user-facing changes under `[Unreleased]`; the release pipeline moves them under the version it publishes.
 
 ## [Unreleased]
+
+### Fixed: the changelog has a section for every version
+- `CHANGELOG.md` listed every change since 1.0.0 under `[Unreleased]`. Each release now has its own section, 1.1.0 to 1.8.0 rebuilt from the release tags.
+- The release pipeline moves the `[Unreleased]` entries under the version it publishes and uses them as the GitHub release notes; when nobody wrote an entry, it lists the `feat:`, `fix:`, `perf:`, `refactor:` and `docs:` commit subjects since the last tag (`scripts/release-changelog.mjs`).
+
+## [1.8.0] - 2026-10-12
 
 ### Added: the `pr` flow opens the pull request on your git provider
 - A new built-in `pr` flow runs the PR stage: it checks the review decision (`- [x] approve` in `REVIEW.md`) and merge readiness, writes `PR-DRAFT.md` (or keeps the one you edited), waits for the draft's `approval` gate, then opens the pull request. Approve the draft in Lens, with `maverick flow approve pr <task> approval`, or by checking its box; `flow run pr <task> --auto-approve` and `flow auto-approve pr on` approve it once the other gates pass.
@@ -43,6 +49,13 @@ All notable changes follow Semantic Versioning.
 - The `policy` gate in flows ran `policy <task>` and always failed; it runs `policy check <task>`.
 - The diff gates (`guard`, `security`, `deps`, `review`, `policy`) used `git diff` with your git settings, so `diff.noprefix` or `color.ui=always` hid every change from them; the diff flags are now fixed.
 - Check and command gates name the failing tests, so going from ten failures to three counts as progress instead of a stall. Commands that gates run inherit a flow's or loop's timeout and stop signal, and are stopped with every process they started.
+
+## [1.7.1] - 2026-10-11
+
+### Documentation
+- Troubleshooting for `npx @maverick-ai/cli` failing with "could not determine executable" behind company registry mirrors (Azure Artifacts, Artifactory, Nexus) that cached the `0.0.0-stage` placeholder: how to check the resolved version and route the `@maverick-ai` scope to the public registry.
+
+## [1.7.0] - 2026-10-09
 
 ### Changed: the npm package is now `@maverick-ai/cli`
 - Install with `npm install -g @maverick-ai/cli` or run `npx @maverick-ai/cli`; the `maverick` command, its configuration and the repository are unchanged. `maverick-ai-dev-stack` no longer receives releases; if it is installed globally, uninstall it first (`npm uninstall -g maverick-ai-dev-stack`), since both packages provide the `maverick` command.
@@ -141,6 +154,53 @@ All notable changes follow Semantic Versioning.
 ### Fixed
 - Headless custom agents keep blank lines in their output.
 - Placeholder detection is upper-case only, so the Portuguese word "todo" no longer counts as a TODO.
+
+## [1.6.0] - 2026-09-17
+
+### Added
+- Lens **Devtools Hub**: an application map with a static relative-import coupling ledger, Markdown previews of docs and specs, improvement proposals derived from unresolved specs and missing evidence, and **Create spec + task**, which creates a local spec-driven task (`POST /api/improvements`).
+
+## [1.5.0] - 2026-09-17
+
+### Added
+- A redesigned Lens dashboard: evidence health, delivery lanes, attention signals and workflow composition, clickable metrics and task details (goal, verification, scope, artifacts and reports).
+- `npm run dash:example` serves a fictional project (Northstar Orders) for screenshots and demos.
+- `npm run ci:local` runs the same checks as CI locally.
+
+### Fixed
+- The interactive CLI works on Ink 6 and React 19.
+- Lint of the dashboard's browser interactions.
+
+### Documentation
+- A Maverick Lens guide.
+
+## [1.4.1] - 2026-09-17
+
+### Fixed
+- npm repository metadata, so the package links back to GitHub. First version published to npm (as `maverick-ai-dev-stack`).
+
+## [1.4.0] - 2026-09-17
+
+### Added
+- Maverick Lens, a local, loopback-only project-intelligence dashboard (`maverick dashboard`, aliases `dash` and `lens`; `--open`, `--port`, `--host`, `--no-watch`, `--json`): tasks, specs, docs, Git state, CLI commands, capabilities, adapters, agents and Lab assets, with search and a live index.
+
+## [1.3.0] - 2026-09-17
+
+### Fixed
+- The release workflow checks the npm credentials before publishing and pushes the release tag.
+
+## [1.2.0] - 2026-09-17
+
+### Fixed
+- The npm package is published with public access.
+
+## [1.1.0] - 2026-09-17
+
+### Added
+- Automatic releases: every push to `main` is versioned from its Conventional Commits (`feat:` minor, `!` or `BREAKING CHANGE:` major, anything else patch), tagged and published to npm with provenance.
+
+### Fixed
+- The release workflow reads the version it generated.
 
 ## [1.0.0] - 2026-09-16
 

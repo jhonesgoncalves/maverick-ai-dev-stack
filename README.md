@@ -471,7 +471,7 @@ npm run lens:example       # a screen-safe Lens demo on 127.0.0.1:4175
 
 Read the [contribution guide](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md), start your change with `maverick new`, and put the verification evidence in your pull request. The [roadmap](ROADMAP.md) shows where the project is going.
 
-**Releases are automatic.** The pipeline (`.github/workflows/pipeline.yml`) runs the documentation checks, lint, type checks, CLI and demo tests, the package build and a package dry-run on Node 20 and 24 for every pull request and push to `main`. Every push to `main` that passes is versioned from its Conventional Commits (`feat:` minor, `!` or `BREAKING CHANGE:` major, anything else patch), tagged, released on GitHub and published to npm with trusted publishing and provenance, and then the documentation is deployed from the release commit. Do not bump `package.json` or push tags by hand; the [release checklist](RELEASE-CHECKLIST.md) has the details.
+**Releases are automatic.** The pipeline (`.github/workflows/pipeline.yml`) runs the documentation checks, lint, type checks, CLI and demo tests, the package build and a package dry-run on Node 20 and 24 for every pull request and push to `main`. Every push to `main` that passes is versioned from its Conventional Commits (`feat:` minor, `!` or `BREAKING CHANGE:` major, anything else patch), tagged, released on GitHub with its `CHANGELOG.md` section as the notes (the entries under `[Unreleased]` move under the new version) and published to npm with trusted publishing and provenance, and then the documentation is deployed from the release commit. Do not bump `package.json` or push tags by hand; the [release checklist](RELEASE-CHECKLIST.md) has the details.
 
 ## Security
 
