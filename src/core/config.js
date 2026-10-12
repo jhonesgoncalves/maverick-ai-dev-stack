@@ -4,7 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { PRESET_IDS } from './presets.js';
 import { CHECK_KINDS } from './stack.js';
-import { AGENT_STAGE_IDS, EFFORTS, HOOK_EVENTS, PERMISSIONS } from './enums.js';
+import { AGENT_STAGE_IDS, EFFORTS, FINDING_KINDS, GIT_PROVIDERS, HOOK_EVENTS, INTEGRITY_LEVELS, LOOP_ISOLATION, LOOP_LADDER_STEPS, PERMISSIONS } from './enums.js';
 import { exists, rel } from './util.js';
 
 export const defaultConfig = {
@@ -57,6 +57,8 @@ export const configSchema = z.looseObject({
     stages: z.partialRecord(z.enum(AGENT_STAGE_IDS), z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional(), effort: z.enum(EFFORTS).optional(), permission: z.enum(PERMISSIONS).optional() })).optional(),
     timeoutMinutes: z.number().positive().max(24 * 60).optional(),
     bins: z.record(z.string(), z.string().min(1)).optional(),
+    // The model family of a provider whose CLI can run several vendors' models (judges and loops need it).
+    families: z.record(z.string(), z.string().regex(/^[a-z0-9-]+$/)).optional(),
     custom: z.array(z.object({
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/), name: z.string().optional(),
       command: z.string().min(1), permissions: z.array(z.enum(PERMISSIONS)).optional()
@@ -64,6 +66,53 @@ export const configSchema = z.looseObject({
   }).optional(),
   // Flows that approve their own pending approval gates once every blocking check passes.
   flows: z.object({ autoApprove: z.array(z.string().min(1)).optional() }).optional(),
+  // Pull requests the `pr` flow opens: the provider when the remote's host does not say, the remote
+  // and base branch when they cannot be inferred, draft pull requests, and whether to commit the change.
+  pr: z.object({
+    provider: z.enum(GIT_PROVIDERS).optional(),
+    remote: z.string().min(1).optional(),
+    base: z.string().min(1).optional(),
+    draft: z.boolean().optional(),
+    commit: z.boolean().optional()
+  }).optional(),
+  // Loops: budgets, escalation and guardrails for `maverick loop run`. Defaults live in src/loop/model.js.
+  loop: z.object({
+    flow: z.string().min(1).optional(),
+    providers: z.array(z.string().min(1)).optional(),
+    isolation: z.enum(LOOP_ISOLATION).optional(),
+    worktreeDir: z.string().min(1).optional(),
+    setup: z.array(z.string().min(1)).optional(),
+    setupTimeoutMinutes: z.number().positive().max(240).optional(),
+    budgets: z.object({
+      maxIterations: z.number().int().min(1).max(500).optional(),
+      maxMinutes: z.number().positive().max(7 * 24 * 60).optional(),
+      maxCostUsd: z.number().positive().optional(),
+      forecast: z.enum(['p90', 'mean', 'off']).optional()
+    }).optional(),
+    stall: z.object({
+      window: z.number().int().min(2).max(10).optional(),
+      churnLines: z.number().int().positive().optional(),
+      rollbackStreak: z.number().int().min(2).max(10).optional(),
+      overclaims: z.number().int().min(1).max(10).optional()
+    }).optional(),
+    escalation: z.array(z.enum(LOOP_LADDER_STEPS)).min(1).optional(),
+    maxEffort: z.enum(EFFORTS).optional(),
+    protectedPaths: z.array(z.string().min(1)).optional(),
+    blastRadius: z.object({ maxFiles: z.number().int().positive().optional(), maxLines: z.number().int().positive().optional() }).optional(),
+    integrity: z.union([z.enum(INTEGRITY_LEVELS), z.object({
+      level: z.enum(INTEGRITY_LEVELS).optional(),
+      severity: z.partialRecord(z.enum(FINDING_KINDS), z.enum(['block', 'warn', 'off'])).optional(),
+      allow: z.array(z.object({ kind: z.enum(FINDING_KINDS), path: z.string().min(1), reason: z.string().min(1) })).optional()
+    })]).optional(),
+    ratchet: z.object({ newFailures: z.enum(['count', 'strict']).optional(), recheck: z.number().int().min(0).max(3).optional() }).optional(),
+    gateTimeoutMinutes: z.number().positive().max(24 * 60).optional(),
+    stopPollMs: z.number().int().min(50).max(10000).optional(),
+    judge: z.object({
+      enabled: z.boolean().optional(),
+      prefer: z.array(z.string().min(1)).optional(),
+      isolation: z.enum(['export', 'live']).optional()
+    }).optional()
+  }).optional(),
   // Languages: `docs` for what the flow writes and says, `code` for what lands in the codebase.
   language: z.object({ docs: z.string().regex(/^[a-z]{2,3}(-[A-Z]{2,4})?$/, 'use a language code such as en or pt-BR').optional(), code: z.string().regex(/^[a-z]{2,3}(-[A-Z]{2,4})?$/, 'use a language code such as en or pt-BR').optional() }).optional(),
   // Authoring: project context and per-artifact rules given to every agent that writes task artifacts.

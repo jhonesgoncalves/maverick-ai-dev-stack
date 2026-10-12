@@ -96,7 +96,7 @@ The **strict** workflow, chosen for security, data, payments, migrations and sha
 - [ ] `maverick guard` findings are explained or fixed
 - [ ] `maverick security` signals were read by a person
 - [ ] New dependencies in `DEPENDENCY-REVIEW.md` are necessary and maintained
-- [ ] No test was weakened, skipped or deleted to pass
+- [ ] No test was weakened, skipped or deleted to pass (`maverick integrity <task>` checks this from the diff)
 
 ## Commands
 
@@ -104,6 +104,7 @@ The **strict** workflow, chosen for security, data, payments, migrations and sha
 |---|---|---|
 | `maverick verify <task>` | Runs the detected checks, writes `EVIDENCE.md` | Any check fails, or none is detected |
 | `maverick guard <task>` | Compares the diff with the declared scope | A file is outside scope, or the budget (default 8) is exceeded |
+| `maverick integrity <task>` | Audits the diff for weakened checks: deleted, skipped or focused tests, fewer or looser assertions, silenced lint or types, edited check configuration or CI | A blocking finding is found (see [Loop engineering](/concepts/loop-engineering#the-integrity-guard)) |
 | `maverick security <task>` | Scans the diff for high-signal patterns | Any signal is found |
 | `maverick deps <task>` | Lists changed manifests and lockfiles | Never: it is a report for the reviewer |
 | `maverick policy check <task>` | Applies `.maverick/policy.json` (max files, sensitive paths) | A rule is broken |

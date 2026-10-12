@@ -50,5 +50,10 @@
         "effort": "low"
       }
     }
+  },
+  "flows": {
+    "autoApprove": [
+      "ship"
+    ]
   }
 }

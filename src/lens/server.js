@@ -12,6 +12,7 @@ import { getTask } from '../core/tasks.js';
 import { main } from '../cli.js';
 import { allRuns, exclusive, requireSlug, runAction, setAutoApprove, taskArtifact, taskDetail } from './api.js';
 import { createAgentHub } from './agents.js';
+import { createLoopHub } from './loops.js';
 import { capabilities, capability, changeCapabilities, changeSettings, settings } from './system.js';
 
 const ui = new URL('./ui/', import.meta.url);
@@ -42,6 +43,7 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
   };
   const refresh = async () => { index = await buildProjectIndex(cwd); await cacheProjectIndex(cwd, index); devtools = null; version++; broadcast('changed'); };
   const agents = createAgentHub({ cwd, main, broadcast, onFinish: () => refresh().catch(() => {}) });
+  const loops = createLoopHub({ cwd, broadcast, onEnd: () => refresh().catch(() => {}) });
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     if (!LOOPBACK.has(hostOf(req.headers.host))) { res.writeHead(421); return res.end('Misdirected request'); }
@@ -69,6 +71,10 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
       if (url.pathname === '/api/agents/models') return json(res, 200, await agents.models(url.searchParams.get('provider')));
       if (url.pathname === '/api/agents/stage' && req.method === 'POST') { const result = await agents.setStage(await requestBody(req)); await refresh(); return json(res, 200, result); }
       if (url.pathname === '/api/agents/trust' && req.method === 'POST') { const result = await agents.trust(await requestBody(req)); await refresh(); return json(res, 200, result); }
+      if (url.pathname === '/api/loops' && req.method === 'GET') return json(res, 200, await loops.list());
+      if (url.pathname === '/api/loop' && req.method === 'GET') return json(res, 200, await loops.detail(url.searchParams.get('task'), url.searchParams.get('id')));
+      if (url.pathname === '/api/loop/ledger' && req.method === 'GET') return json(res, 200, await loops.ledger(url.searchParams.get('task'), url.searchParams.get('id')));
+      if (url.pathname === '/api/loops/stop' && req.method === 'POST') { const body = await requestBody(req); return json(res, 202, await loops.stop(body.task, body.id, body.reason)); }
       if (url.pathname === '/api/capabilities' && req.method === 'GET') return json(res, 200, await capabilities(main, cwd));
       if (url.pathname === '/api/capability') return json(res, 200, await capability(main, cwd, url.searchParams.get('ref')));
       if (url.pathname === '/api/capabilities' && req.method === 'POST') { const result = await changeCapabilities(main, cwd, await requestBody(req)); if (result.ok && result.data?.applied !== false) await refresh(); return json(res, 200, result); }
@@ -114,9 +120,10 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
         if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(task)) return json(res, 400, { error: 'A valid task id is required.' });
         if (decision === 'reject' && (typeof body.reason !== 'string' || !body.reason.trim())) return json(res, 400, { error: 'A rejection needs a reason.' });
         const [flow, item] = await Promise.all([findFlow(cwd, name), getTask(cwd, task)]);
-        if (!flow.gates.some(candidate => candidate.id === gateId && candidate.type === 'approval')) return json(res, 404, { error: 'Approval gate not found.' });
+        if (!flow.gates.some(candidate => candidate.id === gateId && ['approval', 'judge'].includes(candidate.type))) return json(res, 404, { error: 'Approval gate not found.' });
         const by = typeof body.by === 'string' && body.by.trim().slice(0, 80) || 'human', reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : undefined;
-        const { approval, run, next } = await exclusive(() => recordApproval({ cwd, task, taskDir: item.dir }, flow, gateId, { decision, by, reason }));
+        const invoke = async argv => main(argv, cwd);
+        const { approval, run, next } = await exclusive(() => recordApproval({ cwd, task, taskDir: item.dir, invoke }, flow, gateId, { decision, by, reason }));
         await refresh();
         return json(res, 200, { approval, outcome: run?.outcome || null, next });
       }
@@ -137,10 +144,12 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
     const watcher = fsWatch(cwd, { recursive: true }, (_event, name) => {
       // Ignore Maverick's own cache and Git internals, or every refresh would trigger another.
       if (name && /(^|[\\/])(\.git|node_modules|\.maverick[\\/]cache)([\\/]|$)/.test(String(name))) return;
+      // A running loop writes its state often: the Loops view follows it without rebuilding the index.
+      if (name && /[\\/]loops[\\/]/.test(String(name))) { loops.onFileChange(name); return; }
       clearTimeout(timer); timer = setTimeout(() => refresh().catch(() => {}), 300);
     });
     server.once('close', () => { watcher.close(); for (const client of clients) client.end(); });
   }
-  server.once('close', () => agents.close());
+  server.once('close', () => { agents.close(); loops.close(); });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(Number(port), host, resolve); }); return server;
 }

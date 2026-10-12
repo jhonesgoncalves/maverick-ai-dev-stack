@@ -35,23 +35,50 @@ export async function selectSubtask(taskDir, reference) {
   return subtask;
 }
 
-/** Shared by `agent run` and `flow run --agent`. */
-export async function startAgentRun(cwd, { slug, dir, config, subtask, instruction, issues, options, onEvent, signal }) {
-  const plan = resolveRun(config, { provider: str(options.provider) || str(options.agent), model: str(options.model), effort: str(options.effort), permission: str(options.permission), subtask, stage: stageOf({ issues }) }, providersFor(config));
+/** A key the caller set wins, even when its value is undefined: a loop switching provider drops a flag the new one cannot take. */
+const pick = (overrides, key, value) => (key in overrides ? overrides[key] : value);
+
+/**
+ * Shared by `agent run`, `flow run --agent`, `loop run` and Lens. `overrides` (provider, model,
+ * effort, permission) beat the command-line options; `extras` are prompt sections; `workdir` is
+ * where the agent works when it is not the project itself (a loop worktree).
+ */
+export async function startAgentRun(cwd, { slug, dir, config, subtask, instruction, issues, options = {}, onEvent, signal, overrides = {}, extras = [], workdir = cwd, stage, timeoutMs: limit, meta }) {
+  const plan = resolveRun(config, { provider: pick(overrides, 'provider', str(options.provider) || str(options.agent)), model: pick(overrides, 'model', str(options.model)), effort: pick(overrides, 'effort', str(options.effort)), permission: pick(overrides, 'permission', str(options.permission)), subtask, stage: stageOf({ stage, issues }) }, providersFor(config));
   // The project's checks: listed in the prompt, and the only shell an `edit` run gets where the tool can scope it.
-  const commands = selectVerificationCommands(await detectStack(cwd), config);
-  const subtaskFile = subtask ? rel(cwd, join(dir, 'subtasks', subtask.file)) : undefined;
-  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, subtaskFile, instruction, issues, commands, shell: shellFor(plan.provider, plan.permission) });
-  const timeoutMs = Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 60000);
+  const commands = selectVerificationCommands(await detectStack(workdir), config);
+  const subtaskFile = subtask ? rel(workdir, join(workdir, rel(cwd, dir), 'subtasks', subtask.file)) : undefined;
+  const prompt = await buildPrompt({ taskDir: dir, task: slug, subtask, subtaskFile, instruction, issues, commands, shell: shellFor(plan.provider, plan.permission), extras });
+  const timeoutMs = limit || Math.round((Number(options.timeout) || config.runtime?.timeoutMinutes || 30) * 60000);
   if (options.dryRun) return { dryRun: true, plan, prompt, invocation: plan.provider.invocation({ prompt: '<prompt>', model: plan.model, effort: plan.effort, permission: plan.permission, commands }) };
   const controller = new globalThis.AbortController(), abort = () => controller.abort();
   process.once('SIGINT', abort);
   // Lens stops a run through its own signal; the terminal still stops it with Ctrl+C.
   if (signal) { if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true }); }
   try {
-    const run = await runAgent({ cwd, config, taskDir: dir, task: slug, provider: plan.provider, model: plan.model, effort: plan.effort, permission: plan.permission, commands, prompt, timeoutMs, signal: controller.signal, onEvent });
+    const run = await runAgent({ cwd, workdir, config, taskDir: dir, task: slug, provider: plan.provider, model: plan.model, effort: plan.effort, permission: plan.permission, commands, prompt, timeoutMs, signal: controller.signal, meta, onEvent });
     return { plan, run };
   } finally { process.removeListener('SIGINT', abort); signal?.removeEventListener('abort', abort); }
+}
+
+/** What a dry run would do: provider, model, permission, the exact argv and the full prompt. */
+export function dryRunPayload(cwd, config, { plan, prompt, invocation }) {
+  return { provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, stage: plan.stage, permission: plan.permission, route: plan.route, argv: [resolveBin(plan.provider, config, cwd), ...invocation.args], stdin: invocation.input !== undefined, prompt };
+}
+
+export function renderDryRun(cwd, config, outcome, options = {}) {
+  const payload = dryRunPayload(cwd, config, outcome), { plan } = outcome;
+  if (options.json) return output(JSON.stringify(payload, null, 2));
+  return output(`${brand()} / AGENT (dry run)\nProvider: ${plan.provider.name} (${plan.route})\nModel: ${plan.model || 'provider default'}\nReasoning: ${plan.effort || 'provider default'}\nStage: ${plan.stage}\nPermission: ${plan.permission}\nCommand: ${payload.argv.join(' ')}${payload.stdin ? ' < prompt' : ''}\n\n----- prompt -----\n${payload.prompt}`);
+}
+
+/**
+ * How an agent run ended, as one word: its own result status when it ran and returned a
+ * valid result block; `no-result` when it ran but did not say; `failed` when the run itself
+ * failed (timeout, crash, provider error). A missing result block is never read as "done".
+ */
+export function agentVerdict(run) {
+  return run.ok ? (run.result?.status || 'no-result') : 'failed';
 }
 
 async function run(cwd, slug, options) {
@@ -59,20 +86,15 @@ async function run(cwd, slug, options) {
   const subtask = await selectSubtask(dir, str(options.subtask) || (options.subtask === true ? 'next' : undefined));
   if (subtask && subtask.status === 'pending' && !options.dryRun) await setStatus(dir, slug, subtask.id, 'in-progress');
   const outcome = await startAgentRun(cwd, { slug, dir, config, subtask, instruction: str(options.prompt), options, onEvent: printer(options) });
-  if (outcome.dryRun) {
-    const { plan, prompt, invocation } = outcome;
-    const argv = [resolveBin(plan.provider, config, cwd), ...invocation.args];
-    if (options.json) return output(JSON.stringify({ provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, stage: plan.stage, permission: plan.permission, route: plan.route, argv, stdin: invocation.input !== undefined, prompt }, null, 2));
-    return output(`${brand()} / AGENT (dry run)\nProvider: ${plan.provider.name} (${plan.route})\nModel: ${plan.model || 'provider default'}\nReasoning: ${plan.effort || 'provider default'}\nStage: ${plan.stage}\nPermission: ${plan.permission}\nCommand: ${argv.join(' ')}${invocation.input !== undefined ? ' < prompt' : ''}\n\n----- prompt -----\n${prompt}`);
-  }
+  if (outcome.dryRun) return renderDryRun(cwd, config, outcome, options);
   const { plan, run: result } = outcome;
-  const payload = { provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
+  const payload = { provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, permission: plan.permission, ok: result.ok, problems: result.problems, status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], notes: result.result?.notes || [], disputes: result.result?.disputes || [], sessionId: result.sessionId || null, durationMs: result.durationMs, cost: result.cost ?? null, subtask: subtask?.id || null, transcript: rel(cwd, result.transcript), warnings: result.warnings };
   if (options.json) output(JSON.stringify(payload, null, 2));
   else {
     output(`\n${brand()} / AGENT ${result.ok ? 'FINISHED' : 'FAILED'} in ${Math.round(result.durationMs / 1000)}s${payload.cost != null ? ` · $${Number(payload.cost).toFixed(4)}` : ''}`);
     result.problems.forEach(problem => output(`! ${problem}`));
     result.warnings.forEach(warning => output(`WARN ${warning}`));
-    if (result.result) { output(`Status: ${result.result.status}\n${result.result.summary}`); result.result.questions.forEach(question => output(`? ${question}`)); }
+    if (result.result) { output(`Status: ${result.result.status}\n${result.result.summary}`); result.result.questions.forEach(question => output(`? ${question}`)); result.result.disputes.forEach(item => output(`DISPUTE ${item.target}: ${item.reason}`)); }
     else if (result.ok) output('The agent did not return a maverick-result block; review its output before trusting it.');
     output(`Transcript: ${payload.transcript}${subtask ? `\nWhen verified: maverick subtask set ${slug} ${subtask.id} done` : ''}\nNext: maverick flow run ship ${slug}`);
   }

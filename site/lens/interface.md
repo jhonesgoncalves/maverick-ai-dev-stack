@@ -29,6 +29,7 @@ Every view has its own URL fragment, so the browser's back and forward buttons w
 | `#/runs/agent/<id>` | A live agent run started by this Lens process |
 | `#/runs/transcript/<task>/<file>` | A recorded agent transcript |
 | `#/runs/flow/<n>` | A flow run, newest first |
+| `#/loops` · `#/loops/<task>/<loop id>` | Loops, and one loop's ratchet, iterations and ledger |
 | `#devtools/<view>` | A Devtools view: `overview`, `map`, `routes`, `coupling`, `cycles`, `hotspots`, `impact`, `integrations`, `team`, `debt`, `findings` |
 | `#devtools/map?component=<id>` · `#devtools/impact?file=<a>,<b>` | Devtools with a component opened or files selected |
 | `#/changes` | Working tree and recent commits |

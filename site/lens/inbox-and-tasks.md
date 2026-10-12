@@ -11,11 +11,12 @@ Lens sorts every task into one of four states, derived from its files and flow r
 | **Needs you** | A flow ended in `revise`, `stalled` or `exhausted` (blocking gates failed) | *Fix* |
 | **Needs you** | A flow is `awaiting-approval`: every automated gate passed and the human gate is left | *Approve* |
 | **Needs you** | The subtask graph has problems, such as a missing dependency or a cycle | *Fix* |
-| **Ready to ship** | The task is at the PR stage | *Ready to ship* |
+| **Ready to ship** | The task is at the PR stage, before or after its pull request is open | *Ready to ship* |
+| **Done** | Someone finished the task (`maverick done`, or **Finish task** in Lens) | *Done* |
 | **Not started** | The task is at the PRD stage and `PRD.md` does not exist yet | *Not started* |
 | **In progress** | Anything else, including a Build stage with a ready subtask | *In progress* |
 
-The task's **stage** — PRD, Spec, Tech spec, Tasks, Build, Verify, Security, Review, PR — comes from its workflow (`standard`, `spec-driven` or `strict`) and the artifacts present, exactly as `maverick status` computes it.
+The task's **stage** — PRD, Spec, Tech spec, Tasks, Build, Verify, Security, Review, PR, Done — comes from its workflow (`standard`, `spec-driven` or `strict`) and the artifacts present, exactly as `maverick status` computes it.
 
 ## Inbox
 
@@ -42,13 +43,14 @@ One item per task that needs a decision or can move now, most urgent first, each
 | 2 | ***flow* flow needs fixes** — blocking gates failed | **Fix with agent**, **Gates** |
 | 2 | **Subtask graph is broken** | **Open subtasks** |
 | 3 | **Subtask *n* is ready to build** | **Start agent**, **Open** (the subtasks tab) |
-| 4 | ***task* is ready to ship** | **Open** |
+| 4 | ***task* is ready to ship** | **Open pull request** (runs the `pr` flow), **Open** |
+| 4 | ***task* has an open pull request** — finish it once it merges | **Pull request** (opens it), **Finish** |
 
 When the queue is empty, Lens says so: no approvals, failures or ready subtasks right now.
 
 ### The rest of the page
 
-- **Delivery pipeline** counts tasks per lane — *Plan* (PRD, Spec, Tech spec, Tasks), *Build*, *Verify* (Verify, Security), *Review* and *Ship* (PR) — and links to the board.
+- **Delivery pipeline** counts tasks per lane — *Plan* (PRD, Spec, Tech spec, Tasks), *Build*, *Verify* (Verify, Security), *Review*, *Ship* (PR) and *Done* — and links to the board.
 - **Up next** lists up to five tasks that are not started or in progress and are not already in the queue.
 - **Agents working** appears while agent runs are live, each linking to its stream.
 - **Recent runs** shows the last five flow runs with their outcome.
@@ -63,7 +65,7 @@ A project without tasks shows a single call to action: **New task**.
 ### Filtering and sorting
 
 - **Filter** (`/`) matches the title, the id and the workflow.
-- **State** narrows to *All*, *Needs you*, *In progress*, *Ready to ship* or *Not started*, with a count for each.
+- **State** narrows to *All*, *Needs you*, *In progress*, *Ready to ship*, *Not started* or *Done*, with a count for each.
 - **Sort** by *Most recent* (last change to the task folder) or *Name*.
 - The state filter and the layout are kept in the address (`#/tasks?filter=attention&view=board`), so a filtered board can be bookmarked.
 
@@ -71,7 +73,7 @@ A project without tasks shows a single call to action: **New task**.
 
 **List** groups tasks by state. Each row shows a progress ring (how far through its workflow the task is), the title, id, workflow and subtasks done, a strip of stage dots, the state and when it last changed.
 
-**Board** shows one column per lane — Plan, Build, Verify, Review, Ship. Cards show the precise stage for lanes that hold several, an *approve* or *fix* tag when the task needs you, the workflow, the subtask count and the last change.
+**Board** shows one column per lane — Plan, Build, Verify, Review, Ship, Done. Cards show the precise stage for lanes that hold several, an *approve* or *fix* tag when the task needs you, the workflow, the subtask count and the last change.
 
 <div class="mv-gallery">
   <LensShot src="lens-tasks" path="/#/tasks" caption="List — grouped by state." />

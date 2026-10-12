@@ -89,7 +89,7 @@ export function createAgentHub({ cwd, main, broadcast = () => {}, onFinish = () 
     startAgentRun(cwd, { slug: task, dir, config, subtask, instruction: run.instruction || undefined, issues, options, onEvent, signal: controller.signal })
       .then(({ run: result }) => {
         run.status = controller.signal.aborted ? 'stopped' : result.ok ? 'ok' : 'failed';
-        run.result = { ok: result.ok, problems: result.problems, warnings: result.warnings || [], status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], durationMs: result.durationMs, cost: result.cost ?? null, transcript: relative(cwd, result.transcript) };
+        run.result = { ok: result.ok, problems: result.problems, warnings: result.warnings || [], status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], disputes: result.result?.disputes || [], durationMs: result.durationMs, cost: result.cost ?? null, transcript: relative(cwd, result.transcript) };
       })
       .catch(error => { run.status = controller.signal.aborted ? 'stopped' : 'failed'; run.result = { ok: false, problems: [error.message], warnings: [], questions: [], filesChanged: [] }; onEvent({ type: 'error', message: error.message }); })
       .finally(() => { run.endedAt = new Date().toISOString(); broadcast('agent-end', { id: run.id, status: run.status }); onFinish(); });

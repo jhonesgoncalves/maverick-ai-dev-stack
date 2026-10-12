@@ -108,6 +108,8 @@ test('MCP: handshake, tool listing, read-only calls and protocol errors', async 
   assert.match((await call(6, 'tools/call', { name: 'get_task', arguments: { task: 'demo' } })).result.structuredContent.idea, /Demo/);
   assert.deepEqual((await call(7, 'tools/call', { name: 'impact', arguments: { path: 'core.js' } })).result.structuredContent.direct, ['use.js']);
   assert.equal((await call(8, 'tools/call', { name: 'get_task', arguments: { task: 'missing-task' } })).result.isError, true, 'tool failures are readable results');
+  assert.match((await call(12, 'tools/call', { name: 'loop_status', arguments: { task: 'demo' } })).result.structuredContent.next, /No loop has run for demo/);
+  assert.equal((await call(13, 'tools/call', { name: 'loop_status', arguments: { task: 'missing-task' } })).result.isError, true);
   assert.equal((await call(9, 'tools/call', { name: 'impact', arguments: { path: '../etc/passwd' } })).error.code, -32602);
   assert.equal((await call(10, 'tools/call', { name: 'rm_rf' })).error.code, -32602);
   assert.equal((await call(11, 'resources/read')).error.code, -32601);

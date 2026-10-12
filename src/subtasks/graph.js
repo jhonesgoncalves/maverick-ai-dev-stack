@@ -25,7 +25,7 @@ const itemSchema = z.object({
 });
 
 const dirFor = taskDir => join(taskDir, 'subtasks');
-const CHECKBOX = /^\s*[-*] \[( |x|X)\] +(.+)$/;
+export const CHECKBOX = /^\s*[-*] \[( |x|X)\] +(.+)$/;
 
 /**
  * The work items of a task file: every `- [ ]` / `- [x]` line, with the section it is in.
@@ -44,6 +44,20 @@ export function checklist(body = '') {
   const done = items.filter(item => item.done).length;
   return { total: items.length, done, open: items.filter(item => !item.done) };
 }
+/**
+ * True when `after` differs from `before` only by ticked or unticked boxes: the one edit an
+ * agent may make to its task file. Frontmatter, wording and order must stay exactly the same.
+ */
+export function checkboxOnlyChange(before = '', after = '') {
+  const a = String(before).split('\n'), b = String(after).split('\n');
+  if (a.length !== b.length) return false;
+  return a.every((line, index) => {
+    if (line === b[index]) return true;
+    const x = line.match(CHECKBOX), y = b[index].match(CHECKBOX);
+    return Boolean(x && y) && line.replace(/\[( |x|X)\]/, '[ ]') === b[index].replace(/\[( |x|X)\]/, '[ ]');
+  });
+}
+
 function issues(error) { return error.issues.map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; '); }
 
 /** Returns one cycle as a list of ids (first id repeated at the end), or null when the graph is acyclic. */

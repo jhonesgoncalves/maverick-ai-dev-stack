@@ -1,7 +1,9 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { INSTRUCTION_ADAPTERS, instructionAdapter } from '../core/instruction-adapters.js';
-import { getTask } from '../core/tasks.js';
+import { taskStage } from '../core/pipeline.js';
+import { openPullRequest, splitDraft } from '../core/pull-request.js';
+import { getTask, taskMeta, writeTaskMeta } from '../core/tasks.js';
 import { brand, exists, output, packageRoot, readText, rel, replaceVars, sectionBody } from '../core/util.js';
 
 async function learn(cwd, slug, options = {}) {
@@ -49,13 +51,71 @@ async function ci(cwd, provider, slug, options = {}) {
   output(options.json ? JSON.stringify({ provider, task: slug, path: rel(cwd, destination) }) : `${brand()} / CI\n✓ GitHub Actions workflow: ${rel(cwd, destination)}`);
 }
 
+/** What the change is called: the PRD's heading without its "PRD —" prefix, else the idea. */
+async function taskTitle(dir, meta) {
+  const heading = (await readText(join(dir, 'PRD.md'))).match(/^#\s+(.+)$/m)?.[1]?.replace(/^PRD\s*[—–-]\s*/i, '').trim();
+  return heading || meta.idea;
+}
+
+/**
+ * Writes PR-DRAFT.md: its heading is the pull request's title and the rest its description, so a
+ * person can edit both before approving. `--keep` keeps a draft that already exists (the pr flow
+ * uses it, so a run never discards edits or an approval); on its own the command writes it again.
+ */
 async function draftPr(cwd, slug, options = {}) {
-  const { dir, preset } = await getTask(cwd, slug);
+  const { dir, preset, meta } = await getTask(cwd, slug), path = join(dir, 'PR-DRAFT.md');
+  if (options.keep && await exists(path)) return output(options.json ? JSON.stringify({ path: rel(cwd, path), kept: true }) : `${brand()} / PR\n✓ kept: ${rel(cwd, path)}`);
   const evidence = await exists(join(dir, 'EVIDENCE.md')) ? await readFile(join(dir, 'EVIDENCE.md'), 'utf8') : 'Verification evidence has not been captured.';
   const findings = await exists(join(dir, 'REVIEW-FINDINGS.md')) ? 'Diff review report is available in REVIEW-FINDINGS.md.' : 'Diff review has not been run.';
-  const goal = await taskGoal(dir), path = join(dir, 'PR-DRAFT.md');
-  await writeFile(path, `# PR Draft — ${slug}\n\n## Summary\n${goal}\n\n## Workflow\nWorkflow: ${preset.name}\n\n## Verification\n${evidence.includes('## PASS') ? 'Automated verification evidence captured in EVIDENCE.md.' : evidence}\n\n## Review\n${findings}\n\n## Risks / rollback\n${sectionBody(await readText(join(dir, 'TECHSPEC.md')), 'Risks and Rollback') || 'See TECHSPEC.md.'}\n\n## Human Review\n- [ ] Scope, behavior, tests, and security-sensitive decisions reviewed.\n`);
-  output(options.json ? JSON.stringify({ path: rel(cwd, path) }) : `${brand()} / PR\n✓ draft: ${rel(cwd, path)}`);
+  const goal = await taskGoal(dir);
+  await writeFile(path, `# ${await taskTitle(dir, meta)}\n\n## Summary\n${goal}\n\n## Workflow\nWorkflow: ${preset.name}\n\n## Verification\n${evidence.includes('## PASS') ? 'Automated verification evidence captured in EVIDENCE.md.' : evidence}\n\n## Review\n${findings}\n\n## Risks / rollback\n${sectionBody(await readText(join(dir, 'TECHSPEC.md')), 'Risks and Rollback') || 'See TECHSPEC.md.'}\n\n## Human Review\n- [ ] Scope, behavior, tests, and security-sensitive decisions reviewed.\n`);
+  output(options.json ? JSON.stringify({ path: rel(cwd, path), kept: false }) : `${brand()} / PR\n✓ draft: ${rel(cwd, path)}`);
+}
+
+/**
+ * Opens the task's pull request on the repository's provider from PR-DRAFT.md, and records it in
+ * TASK.json. The pr flow runs it after the draft is approved; run directly, it is your approval.
+ */
+async function openPr(cwd, slug, options = {}) {
+  const { config, dir, meta } = await getTask(cwd, slug), draft = join(dir, 'PR-DRAFT.md');
+  const fail = message => { if (options.json) output(JSON.stringify({ ok: false, error: message })); throw new Error(message); };
+  if (!await exists(draft)) return fail(`PR-DRAFT.md is missing; write it with maverick pr ${slug}, or run maverick flow run pr ${slug}`);
+  const { title, body } = splitDraft(await readFile(draft, 'utf8'), await taskTitle(dir, meta));
+  let result;
+  try { result = await openPullRequest(cwd, { task: slug, title, body, settings: config.pr || {} }); } catch (error) { return fail(error.message); }
+  await writeTaskMeta(dir, { ...await taskMeta(dir), pullRequest: { provider: result.provider, url: result.url, ...(result.number && { number: result.number }), branch: result.branch, base: result.base, opened: result.opened, at: new Date().toISOString() } });
+  if (options.json) return output(JSON.stringify({ ok: true, ...result }, null, 2));
+  output([
+    `${brand()} / PR OPEN`,
+    `Provider: ${result.providerName || 'unknown'}${result.cli && result.opened ? ` (${result.cli})` : ''} · ${result.remote} → ${result.base}`,
+    `✓ branch ${result.branch}${result.createdBranch ? ' (created)' : ''}`,
+    ...(result.commit ? [`✓ committed ${result.commit}: ${title}`] : []),
+    `✓ pushed to ${result.remote}`,
+    result.opened ? `✓ pull request${result.number ? ` #${result.number}` : ''} ${result.existing ? 'already open' : 'opened'}: ${result.url}` : `→ ${result.reason}${result.url ? `\n  Open it at: ${result.url}` : ''}`,
+    `\nOnce it merges, finish the task: maverick done ${slug}`
+  ].join('\n'));
+}
+
+/**
+ * Finishes a task: TASK.json records who finished it and when, and its stage becomes `done`.
+ * Before the PR stage that skips gates, so it takes --force; `maverick reopen` undoes it.
+ */
+async function finish(cwd, slug, options = {}) {
+  const { dir, preset } = await getTask(cwd, slug), meta = await taskMeta(dir);
+  if (meta.done) throw new Error(`${slug} was already finished on ${meta.done.at.slice(0, 10)}; reopen it with maverick reopen ${slug}`);
+  const { stage } = await taskStage(dir, preset, slug);
+  if (stage !== 'pr' && !options.force) throw new Error(`${slug} is at the ${stage.toUpperCase()} stage, not PR: its gates have not all passed. Finish it anyway with maverick done ${slug} --force`);
+  const done = { at: new Date().toISOString(), by: typeof options.by === 'string' && options.by.trim() ? options.by.trim() : process.env.USER || 'human', ...(stage !== 'pr' && { stage }), ...(typeof options.note === 'string' && options.note.trim() && { note: options.note.trim() }) };
+  await writeTaskMeta(dir, { ...meta, done });
+  output(options.json ? JSON.stringify({ task: slug, done }) : `${brand()} / DONE\n✓ ${slug} finished by ${done.by}${stage !== 'pr' ? ` at the ${stage.toUpperCase()} stage` : ''}${meta.pullRequest?.url ? `\nPull request: ${meta.pullRequest.url}` : ''}\nReopen with: maverick reopen ${slug}`);
+}
+
+async function reopen(cwd, slug, options = {}) {
+  const { dir, preset } = await getTask(cwd, slug), { done, ...meta } = await taskMeta(dir);
+  if (!done) throw new Error(`${slug} is not finished`);
+  await writeTaskMeta(dir, meta);
+  const { stage } = await taskStage(dir, preset, slug);
+  output(options.json ? JSON.stringify({ task: slug, stage }) : `${brand()} / REOPEN\n✓ ${slug} reopened at the ${stage.toUpperCase()} stage`);
 }
 
 export const deliveryCommands = [
@@ -63,5 +123,7 @@ export const deliveryCommands = [
   { id: 'handoff', description: 'Create a task handoff with remaining gates.', aliases: [], usage: 'handoff <task> --to <owner>', run: ({ cwd, arg, options }) => handoff(cwd, arg, options) },
   { id: 'adapter', description: 'List or install an AI adapter.', aliases: [], usage: 'adapter list|install <name>', run: ({ cwd, arg, third, options }) => adapter(cwd, arg, third, options) },
   { id: 'ci', description: 'Generate a GitHub Actions task gate.', aliases: [], usage: 'ci github <task>', run: ({ cwd, arg, third, options }) => ci(cwd, arg, third, options) },
-  { id: 'pr', description: 'Generate an evidence-backed PR draft.', aliases: [], usage: 'pr <task>', run: ({ cwd, arg, options }) => draftPr(cwd, arg, options) }
+  { id: 'pr', description: 'Write the evidence-backed PR draft, or open the pull request on the repository\'s provider (GitHub, GitLab, Azure DevOps, Bitbucket).', aliases: [], usage: 'pr <task> [--keep] | pr open <task>', run: ({ cwd, arg, third, options }) => (arg === 'open' && third ? openPr(cwd, third, options) : draftPr(cwd, arg, options)) },
+  { id: 'done', description: 'Finish a task once its pull request has landed (--force before the PR stage).', aliases: ['finish'], usage: 'done <task> [--by <name>] [--note <text>] [--force]', run: ({ cwd, arg, options }) => finish(cwd, arg, options) },
+  { id: 'reopen', description: 'Reopen a finished task.', aliases: [], usage: 'reopen <task>', run: ({ cwd, arg, options }) => reopen(cwd, arg, options) }
 ];

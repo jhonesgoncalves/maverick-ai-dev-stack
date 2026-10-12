@@ -381,5 +381,5 @@ test('status renders each task as a branded block with its stage pipeline and ne
 });
 
 test('every flow skill asks the user through the agent answer selector', async () => {
-  for (const name of FLOW) assert.match(await readFile(join(import.meta.dirname, '../capabilities/skills', name, 'SKILL.md'), 'utf8'), /## Asking the user[\s\S]*AskUserQuestion/, name);
+  for (const name of [...FLOW, 'maverick-loop']) assert.match(await readFile(join(import.meta.dirname, '../capabilities/skills', name, 'SKILL.md'), 'utf8'), /## Asking the user[\s\S]*AskUserQuestion/, name);
 });

@@ -1,0 +1,64 @@
+{
+  "flow": "pr",
+  "runs": [
+    {
+      "at": "2026-10-12T17:16:23.099Z",
+      "outcome": "done",
+      "iteration": 0,
+      "results": [
+        {
+          "id": "review",
+          "type": "artifact",
+          "severity": "block",
+          "description": "A human approved the change in REVIEW.md (the ship flow's human-review).",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "readiness",
+          "type": "maverick",
+          "severity": "block",
+          "description": "Every evidence report exists and the review decision is recorded.",
+          "status": "pass",
+          "issues": []
+        },
+        {
+          "id": "draft",
+          "type": "maverick",
+          "severity": "block",
+          "description": "PR-DRAFT.md is written from the task's evidence; a draft that exists is kept.",
+          "status": "pass",
+          "issues": [],
+          "summary": "PR-DRAFT.md kept"
+        },
+        {
+          "id": "approval",
+          "type": "approval",
+          "severity": "block",
+          "description": "A human approved the draft in PR-DRAFT.md, in Lens or with maverick flow approve.",
+          "status": "pass",
+          "issues": [],
+          "summary": "approve by Jhones"
+        },
+        {
+          "id": "open",
+          "type": "maverick",
+          "severity": "block",
+          "description": "The change is committed and pushed, and the pull request is opened on GitHub, GitLab, Azure DevOps or Bitbucket (or its page is given when the provider's CLI is missing).",
+          "status": "pass",
+          "issues": [],
+          "summary": "feat/loop-engineering pushed; gh is not installed; install it to open pull requests from Maverick: https://github.com/jhonesgoncalves/maverick-ai-dev-stack/compare/main...feat/loop-engineering?expand=1"
+        }
+      ]
+    }
+  ],
+  "approvals": {
+    "approval": {
+      "decision": "approve",
+      "by": "Jhones",
+      "at": "2026-10-12T17:16:19.678Z"
+    }
+  },
+  "integrity": "da3e9a1a4f6195f161aa6cc09e9f44706cb6da7ab503cd6d9406a530641b6cc8",
+  "status": "done"
+}

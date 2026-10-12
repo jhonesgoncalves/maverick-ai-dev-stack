@@ -1,0 +1,17 @@
+{
+  "idea": "Adicionar funcionalidade de produtos crud de produtos",
+  "workflow": "standard",
+  "createdAt": "2026-10-12",
+  "pullRequest": {
+    "provider": "github",
+    "url": "https://github.com/jhonesgoncalves/maverick-ai-dev-stack/compare/main...feat/loop-engineering?expand=1",
+    "branch": "feat/loop-engineering",
+    "base": "main",
+    "opened": false,
+    "at": "2026-10-12T17:16:23.099Z"
+  },
+  "done": {
+    "at": "2026-10-12T17:16:38.298Z",
+    "by": "Jhones"
+  }
+}

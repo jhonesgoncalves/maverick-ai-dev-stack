@@ -8,11 +8,11 @@ import {
   GROUPS,
   commands,
   findCommand
-} from "./chunk-RKGCT5G5.js";
+} from "./chunk-KCWDTZSZ.js";
 import {
   splitCommand,
   stagesForPreset
-} from "./chunk-YKOOPOXS.js";
+} from "./chunk-TWL7K2MM.js";
 import "./chunk-DSSJQNFU.js";
 
 // src/ui/screens/HomeScreen.tsx
@@ -186,7 +186,8 @@ function latestSteps({ slug, stage }) {
   if (["prd", "spec", "techspec", "tasks"].includes(stage)) return [["new", [slug]], ["instructions", [slug]]];
   if (stage === "build") return [["subtask", ["next", slug]], ["verify", [slug]]];
   if (stage === "security") return [["security", [slug]], ["review", [slug, "--diff"]]];
-  if (stage === "pr") return [["readiness", [slug]], ["pr", [slug]]];
+  if (stage === "pr") return [["flow", ["run", "pr", slug]], ["done", [slug]]];
+  if (stage === "done") return [["reopen", [slug]]];
   return [["verify", [slug]], ["review", [slug, "--diff"]], ["readiness", [slug]]];
 }
 function suggestions(snapshot = {}) {

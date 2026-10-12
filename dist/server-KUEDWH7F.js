@@ -1,14 +1,15 @@
 import {
   buildProjectIndex,
   cacheProjectIndex
-} from "./chunk-4PBG45A4.js";
+} from "./chunk-NWJPCV4W.js";
 import {
   main
-} from "./chunk-DUDIC5TR.js";
-import "./chunk-F6R5K573.js";
+} from "./chunk-XZFR5DYE.js";
+import "./chunk-JNI3YSKA.js";
 import {
   ADAPTERS,
   AGENT_STAGES,
+  LOOP_ID,
   RECOMMENDED,
   STAGE_IDS,
   acIds,
@@ -17,10 +18,15 @@ import {
   detectAdapters,
   findFlow,
   loadFlows,
+  lockHolder,
+  loopIds,
+  loopStatus,
   pathReferences,
   providersFor,
   readState,
+  readState2,
   recordApproval,
+  requestStop,
   resolveBin,
   resolveRun,
   runFlow,
@@ -29,8 +35,9 @@ import {
   serializeDevtools,
   stageDefaults,
   stageOf,
-  startAgentRun
-} from "./chunk-RKGCT5G5.js";
+  startAgentRun,
+  verifyLoop
+} from "./chunk-KCWDTZSZ.js";
 import {
   EFFORTS,
   PERMISSIONS,
@@ -44,16 +51,16 @@ import {
   sectionBody,
   setStatus,
   taskStage
-} from "./chunk-YKOOPOXS.js";
+} from "./chunk-TWL7K2MM.js";
 import "./chunk-DSSJQNFU.js";
 
 // src/lens/server.js
 import { createServer } from "http";
 import { randomBytes } from "crypto";
 import { readFile as readFile3 } from "fs/promises";
-import { join as join3 } from "path";
+import { join as join4 } from "path";
 import { URL } from "url";
-import { clearTimeout, setTimeout } from "timers";
+import { clearTimeout as clearTimeout2, setTimeout as setTimeout2 } from "timers";
 
 // src/lens/api.js
 import { readFile, readdir, stat } from "fs/promises";
@@ -84,11 +91,12 @@ async function artifactList(dir) {
   for (const name of (await readdir(join(dir, "subtasks")).catch(() => [])).filter((name2) => name2.endsWith(".md")).sort()) await add(join(dir, "subtasks", name), "subtask");
   return files;
 }
-async function taskFlows(cwd, dir, preset) {
+async function taskFlows(cwd, dir, preset, stage) {
   const [{ flows }, config] = await Promise.all([loadFlows(cwd), loadConfig(cwd).catch(() => null)]), result = [];
+  const offered = (name) => name === "ship" || name === "spec" && preset.id === "spec-driven" || name === "pr" && ["pr", "done"].includes(stage);
   for (const flow of flows) {
     const state = await readState(dir, flow.name);
-    if (!state.runs.length && flow.name !== "ship" && !(flow.name === "spec" && preset.id === "spec-driven")) continue;
+    if (!state.runs.length && !offered(flow.name)) continue;
     result.push({
       name: flow.name,
       description: flow.description,
@@ -102,9 +110,10 @@ async function taskFlows(cwd, dir, preset) {
       history: state.runs.slice(-10).map((run) => ({ at: run.at, outcome: run.outcome, iteration: run.iteration }))
     });
   }
-  return result.sort((a, b) => a.name === "ship" ? -1 : b.name === "ship" ? 1 : a.name.localeCompare(b.name));
+  const first = ["pr", "done"].includes(stage) && result.some((flow) => flow.name === "pr") ? "pr" : "ship";
+  return result.sort((a, b) => a.name === first ? -1 : b.name === first ? 1 : a.name.localeCompare(b.name));
 }
-function activityOf(flows, artifacts) {
+function activityOf(flows, artifacts, meta = {}) {
   const tone = { done: "ok", revise: "bad", stalled: "bad", exhausted: "bad", "awaiting-approval": "warn" };
   const items = [];
   for (const flow of flows) {
@@ -112,11 +121,14 @@ function activityOf(flows, artifacts) {
     for (const [gate, approval] of Object.entries(flow.approvals)) items.push({ at: approval.at, tone: approval.decision === "approve" ? "accent" : "bad", text: `${approval.by} ${approval.decision === "approve" ? "approved" : "requested changes on"} ${gate}`, detail: approval.reason || "" });
   }
   for (const artifact of artifacts.filter((item) => item.kind !== "report")) items.push({ at: artifact.updated, tone: "info", text: `${artifact.file} updated`, detail: "" });
+  if (meta.pullRequest?.at) items.push({ at: meta.pullRequest.at, tone: "ok", text: meta.pullRequest.opened ? `Pull request${meta.pullRequest.number ? ` #${meta.pullRequest.number}` : ""} opened` : `${meta.pullRequest.branch} pushed`, detail: meta.pullRequest.url || "" });
+  if (meta.done?.at) items.push({ at: meta.done.at, tone: "ok", text: `${meta.done.by} finished the task`, detail: meta.done.note || "" });
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
 }
 async function taskDetail(cwd, slug) {
   const { dir, preset, meta } = await getTask(cwd, requireSlug(slug));
-  const [status, graph, artifacts, flows] = await Promise.all([taskStage(dir, preset, slug), loadGraph(dir), artifactList(dir), taskFlows(cwd, dir, preset)]);
+  const status = await taskStage(dir, preset, slug);
+  const [graph, artifacts, flows] = await Promise.all([loadGraph(dir), artifactList(dir), taskFlows(cwd, dir, preset, status.stage)]);
   const [prd, spec, techspec] = await Promise.all(["PRD.md", "SPEC.md", "TECHSPEC.md"].map((file) => read(join(dir, file))));
   const tested = acIds(sectionBody(techspec, "Test Plan")), specified = acIds(spec);
   const criteria = sectionBody(prd, "Acceptance Criteria").split("\n").filter((line) => acIds(line).length).map((line) => {
@@ -144,7 +156,9 @@ async function taskDetail(cwd, slug) {
     artifacts,
     flows,
     evidence: artifacts.some((item) => item.file === "EVIDENCE.md"),
-    activity: activityOf(flows, artifacts)
+    activity: activityOf(flows, artifacts, meta),
+    pullRequest: meta.pullRequest || null,
+    done: meta.done || null
   };
 }
 async function taskArtifact(cwd, slug, file) {
@@ -175,7 +189,12 @@ async function runAction(cwd, main2, body) {
     const id = String(body.id || ""), status = String(body.status || "");
     if (!/^\d{2,3}$/.test(id) || !STATUSES.includes(status)) throw Object.assign(new Error("A subtask id and a valid status are required."), { status: 400 });
     argv = ["subtask", "set", task, id, status, ...body.force && status === "done" ? ["--force"] : []];
-  } else if (action === "flow-run") {
+  } else if (action === "done") {
+    const text2 = (value, max) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : "";
+    const by = text2(body.by, 80), note = text2(body.note, 500);
+    argv = ["done", task, ...by ? ["--by", by] : [], ...note ? ["--note", note] : [], ...body.force ? ["--force"] : []];
+  } else if (action === "reopen") argv = ["reopen", task];
+  else if (action === "flow-run") {
     const flow = await findFlow(cwd, String(body.flow || "ship")), { dir } = await getTask(cwd, task);
     return exclusive(async () => {
       try {
@@ -341,7 +360,7 @@ function createAgentHub({ cwd, main: main2, broadcast = () => {
     };
     startAgentRun(cwd, { slug: task, dir, config, subtask, instruction: run.instruction || void 0, issues, options, onEvent, signal: controller.signal }).then(({ run: result }) => {
       run.status = controller.signal.aborted ? "stopped" : result.ok ? "ok" : "failed";
-      run.result = { ok: result.ok, problems: result.problems, warnings: result.warnings || [], status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], durationMs: result.durationMs, cost: result.cost ?? null, transcript: relative2(cwd, result.transcript) };
+      run.result = { ok: result.ok, problems: result.problems, warnings: result.warnings || [], status: result.result?.status || null, summary: result.result?.summary || null, questions: result.result?.questions || [], filesChanged: result.result?.filesChanged || [], disputes: result.result?.disputes || [], durationMs: result.durationMs, cost: result.cost ?? null, transcript: relative2(cwd, result.transcript) };
     }).catch((error) => {
       run.status = controller.signal.aborted ? "stopped" : "failed";
       run.result = { ok: false, problems: [error.message], warnings: [], questions: [], filesChanged: [] };
@@ -392,8 +411,106 @@ function createAgentHub({ cwd, main: main2, broadcast = () => {
   return { providers, models, setStage, trust, start, stop, get, runs, transcript, close };
 }
 
+// src/lens/loops.js
+import { join as join3, sep } from "path";
+import { clearTimeout, setTimeout } from "timers";
+var MAX_LOOPS = 100;
+var MAX_ITERATIONS = 200;
+var TASK = /^[a-z0-9][a-z0-9-]{1,80}$/;
+var fail2 = (status, message) => Object.assign(new Error(message), { status });
+function summary(task, state, live) {
+  const last = state.iterations.at(-1);
+  return {
+    task,
+    id: state.loopId,
+    status: state.status,
+    reason: state.reason,
+    live: Boolean(live),
+    mode: state.mode,
+    flow: state.flow?.name,
+    iteration: state.iterations.length,
+    accepted: state.spent?.accepted || 0,
+    maxIterations: state.budgets?.maxIterations ?? null,
+    subtask: state.inFlight?.scope && state.inFlight.scope !== "goal" ? state.inFlight.scope : last?.subtask?.id || null,
+    score: state.checkpoint?.score ? { passed: state.checkpoint.score.passed, blocking: state.checkpoint.score.blocking, failing: state.checkpoint.score.failingCount, subtasksDone: state.checkpoint.score.subtasksDone, subtasksTotal: state.checkpoint.score.subtasksTotal } : null,
+    spent: state.spent,
+    budgets: state.budgets,
+    providers: [...new Set(state.iterations.map((item) => item.provider))],
+    rung: state.escalation?.rung || null,
+    startedAt: state.createdAt,
+    updatedAt: state.updatedAt,
+    endedAt: state.endedAt
+  };
+}
+function createLoopHub({ cwd, broadcast, onEnd = () => {
+} }) {
+  const seen = /* @__PURE__ */ new Map(), timers = /* @__PURE__ */ new Map();
+  const taskDir = async (task) => {
+    if (!TASK.test(String(task || ""))) throw fail2(400, "A valid task id is required.");
+    return (await getTask(cwd, task)).dir;
+  };
+  const loopId = (id) => {
+    if (!LOOP_ID.test(String(id || ""))) throw fail2(400, "A valid loop id is required.");
+    return id;
+  };
+  return {
+    /** Every loop of every task, newest activity first. */
+    async list() {
+      const config = await loadConfig(cwd), loops = [];
+      for (const { task } of await listTasks(cwd, config).catch(() => [])) {
+        const dir = join3(cwd, config.taskRoot, task), holder = await lockHolder(dir);
+        for (const id of (await loopIds(dir)).slice(0, 10)) {
+          const state = await readState2(dir, id).catch(() => null);
+          if (state) loops.push(summary(task, state, holder?.loopId === id && state.status === "running"));
+        }
+      }
+      return { loops: loops.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, MAX_LOOPS) };
+    },
+    async detail(task, id) {
+      const dir = await taskDir(task), info = await loopStatus(dir, loopId(id));
+      if (!info) throw fail2(404, "Loop not found.");
+      const { state } = info;
+      return { task, live: Boolean(info.running), stopPending: info.stopPending, forecast: info.forecast, next: info.next, summary: summary(task, state, info.running), state: { ...state, iterations: state.iterations.slice(-MAX_ITERATIONS).map((item) => ({ ...item, findings: (item.findings || []).slice(0, 50) })) } };
+    },
+    async ledger(task, id) {
+      return verifyLoop(cwd, await taskDir(task), loopId(id));
+    },
+    async stop(task, id, reason) {
+      const dir = await taskDir(task), state = await readState2(dir, loopId(id));
+      if (!state) throw fail2(404, "Loop not found.");
+      const holder = await lockHolder(dir);
+      if (state.status !== "running" || holder?.loopId !== id) throw fail2(409, "This loop is not running.");
+      await requestStop(dir, { loopId: id, reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 200) : void 0, by: "Lens" });
+      return { requested: true, live: true };
+    },
+    /** A file under a task's loops/ changed: tell the page, and on a terminal transition refresh the project. */
+    onFileChange(name) {
+      const parts = String(name).split(/[\\/]/), at = parts.lastIndexOf("loops");
+      if (at < 1 || !LOOP_ID.test(parts[at + 1] || "") || parts[at + 2] !== "state.json") return;
+      const task = parts[at - 1], id = parts[at + 1], key = `${task}${sep}${id}`;
+      clearTimeout(timers.get(key));
+      timers.set(key, setTimeout(async () => {
+        timers.delete(key);
+        const dir = await taskDir(task).catch(() => null), state = dir && await readState2(dir, id).catch(() => null);
+        if (!state) return;
+        const before = seen.get(key);
+        seen.set(key, state.status);
+        broadcast("loop", { task, id, status: state.status, iteration: state.iterations.length, phase: state.inFlight?.phase || null });
+        if (before === "running" && state.status !== "running") {
+          broadcast("loop-end", { task, id, status: state.status });
+          onEnd();
+        }
+      }, 200));
+    },
+    close() {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    }
+  };
+}
+
 // src/lens/system.js
-var fail2 = (message, status = 400) => Object.assign(new Error(message), { status });
+var fail3 = (message, status = 400) => Object.assign(new Error(message), { status });
 var REF = /^[a-z]+\/[a-z0-9][a-z0-9._-]*$/;
 var LANG = /^[a-z]{2}(?:-[A-Z]{2})?$/;
 function parse(output) {
@@ -426,17 +543,17 @@ async function capabilities(main2, cwd) {
   };
 }
 async function capability(main2, cwd, ref) {
-  if (!REF.test(String(ref || ""))) throw fail2("A capability reference like skill/maverick-build is required.");
+  if (!REF.test(String(ref || ""))) throw fail3("A capability reference like skill/maverick-build is required.");
   const result = await json(main2, cwd, ["catalog", "show", ref]);
-  if (!result.ok) throw fail2(result.error, 404);
+  if (!result.ok) throw fail3(result.error, 404);
   return result.data;
 }
 async function changeCapabilities(main2, cwd, body) {
   const action = String(body.action || ""), refs = Array.isArray(body.refs) ? body.refs.map(String) : [];
-  if (!["add", "remove", "sync"].includes(action)) throw fail2("action must be add, remove or sync");
-  if (action !== "sync" && (!refs.length || refs.some((ref) => !REF.test(ref)))) throw fail2("Name at least one capability, like skill/maverick-build.");
+  if (!["add", "remove", "sync"].includes(action)) throw fail3("action must be add, remove or sync");
+  if (action !== "sync" && (!refs.length || refs.some((ref) => !REF.test(ref)))) throw fail3("Name at least one capability, like skill/maverick-build.");
   const to = Array.isArray(body.to) ? body.to.map(String) : [];
-  if (to.some((id) => !ADAPTERS.some((adapter) => adapter.id === id))) throw fail2(`Unknown tool; use ${ADAPTERS.map((adapter) => adapter.id).join(", ")}`);
+  if (to.some((id) => !ADAPTERS.some((adapter) => adapter.id === id))) throw fail3(`Unknown tool; use ${ADAPTERS.map((adapter) => adapter.id).join(", ")}`);
   const argv = [action, ...action === "sync" ? [] : refs, ...action === "add" && to.length ? ["--to", to.join(",")] : [], ...body.allowExec && action === "add" ? ["--allow-exec"] : [], ...body.force ? ["--force"] : [], body.apply ? "--yes" : "--dry-run"];
   const result = await json(main2, cwd, argv);
   return { ...result, command: `maverick ${argv.join(" ")}` };
@@ -448,17 +565,17 @@ async function settings(main2, cwd) {
 async function changeSettings(main2, cwd, body) {
   if (body.action === "language") {
     const docs = String(body.docs || ""), code = String(body.code || "");
-    if (!LANG.test(docs) || !LANG.test(code)) throw fail2("Languages are codes like en, pt-BR or es.");
+    if (!LANG.test(docs) || !LANG.test(code)) throw fail3("Languages are codes like en, pt-BR or es.");
     const result = await json(main2, cwd, ["language", docs, code]);
     return { ...result, command: `maverick language ${docs} ${code}` };
   }
   if (body.action === "adapter") {
     const id = String(body.id || "");
-    if (!/^[a-z][a-z0-9-]*$/.test(id)) throw fail2("An adapter id is required.");
+    if (!/^[a-z][a-z0-9-]*$/.test(id)) throw fail3("An adapter id is required.");
     const result = await json(main2, cwd, ["adapter", "install", id]);
     return { ...result, command: `maverick adapter install ${id}` };
   }
-  throw fail2("action must be language or adapter");
+  throw fail3("action must be language or adapter");
 }
 
 // src/lens/server.js
@@ -517,6 +634,8 @@ data: ${JSON.stringify({ version, ...data })}
   };
   const agents = createAgentHub({ cwd, main, broadcast, onFinish: () => refresh().catch(() => {
   }) });
+  const loops = createLoopHub({ cwd, broadcast, onEnd: () => refresh().catch(() => {
+  }) });
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://localhost");
     if (!LOOPBACK.has(hostOf(req.headers.host))) {
@@ -565,6 +684,13 @@ data: ${JSON.stringify({ version, ...data })}
         await refresh();
         return json2(res, 200, result);
       }
+      if (url.pathname === "/api/loops" && req.method === "GET") return json2(res, 200, await loops.list());
+      if (url.pathname === "/api/loop" && req.method === "GET") return json2(res, 200, await loops.detail(url.searchParams.get("task"), url.searchParams.get("id")));
+      if (url.pathname === "/api/loop/ledger" && req.method === "GET") return json2(res, 200, await loops.ledger(url.searchParams.get("task"), url.searchParams.get("id")));
+      if (url.pathname === "/api/loops/stop" && req.method === "POST") {
+        const body = await requestBody(req);
+        return json2(res, 202, await loops.stop(body.task, body.id, body.reason));
+      }
       if (url.pathname === "/api/capabilities" && req.method === "GET") return json2(res, 200, await capabilities(main, cwd));
       if (url.pathname === "/api/capability") return json2(res, 200, await capability(main, cwd, url.searchParams.get("ref")));
       if (url.pathname === "/api/capabilities" && req.method === "POST") {
@@ -586,7 +712,7 @@ data: ${JSON.stringify({ version, ...data })}
         const report = await analysis(), file = url.searchParams.get("file") || "";
         const known = report.fileIndex.has(file) || report.routes.items.some((route) => route.file === file) || report.integrations.manifests.includes(file);
         if (!known) return json2(res, 404, { error: "Unknown file." });
-        const text2 = await readFile3(join3(report.root, file), "utf8").catch(() => null);
+        const text2 = await readFile3(join4(report.root, file), "utf8").catch(() => null);
         if (text2 === null) return json2(res, 404, { error: "File not readable." });
         const lines = text2.split("\n");
         return json2(res, 200, { file, root: report.root, lines: lines.length > 4e3 ? lines.slice(0, 4e3) : lines, truncated: lines.length > 4e3, imports: report.edges.filter((edge) => edge[0] === file).map((edge) => edge[1]), importedBy: report.edges.filter((edge) => edge[1] === file).map((edge) => edge[0]) });
@@ -637,9 +763,10 @@ data: ${JSON.stringify({ version })}
         if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(task)) return json2(res, 400, { error: "A valid task id is required." });
         if (decision === "reject" && (typeof body.reason !== "string" || !body.reason.trim())) return json2(res, 400, { error: "A rejection needs a reason." });
         const [flow, item] = await Promise.all([findFlow(cwd, name), getTask(cwd, task)]);
-        if (!flow.gates.some((candidate) => candidate.id === gateId && candidate.type === "approval")) return json2(res, 404, { error: "Approval gate not found." });
+        if (!flow.gates.some((candidate) => candidate.id === gateId && ["approval", "judge"].includes(candidate.type))) return json2(res, 404, { error: "Approval gate not found." });
         const by = typeof body.by === "string" && body.by.trim().slice(0, 80) || "human", reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 500) : void 0;
-        const { approval, run, next } = await exclusive(() => recordApproval({ cwd, task, taskDir: item.dir }, flow, gateId, { decision, by, reason }));
+        const invoke = async (argv) => main(argv, cwd);
+        const { approval, run, next } = await exclusive(() => recordApproval({ cwd, task, taskDir: item.dir, invoke }, flow, gateId, { decision, by, reason }));
         await refresh();
         return json2(res, 200, { approval, outcome: run?.outcome || null, next });
       }
@@ -665,8 +792,12 @@ data: ${JSON.stringify({ version })}
     const { watch: fsWatch } = await import("fs");
     const watcher = fsWatch(cwd, { recursive: true }, (_event, name) => {
       if (name && /(^|[\\/])(\.git|node_modules|\.maverick[\\/]cache)([\\/]|$)/.test(String(name))) return;
-      clearTimeout(timer);
-      timer = setTimeout(() => refresh().catch(() => {
+      if (name && /[\\/]loops[\\/]/.test(String(name))) {
+        loops.onFileChange(name);
+        return;
+      }
+      clearTimeout2(timer);
+      timer = setTimeout2(() => refresh().catch(() => {
       }), 300);
     });
     server.once("close", () => {
@@ -674,7 +805,10 @@ data: ${JSON.stringify({ version })}
       for (const client of clients) client.end();
     });
   }
-  server.once("close", () => agents.close());
+  server.once("close", () => {
+    agents.close();
+    loops.close();
+  });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(Number(port), host, resolve);

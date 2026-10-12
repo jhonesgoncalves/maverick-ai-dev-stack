@@ -1,7 +1,7 @@
 import {
   GROUPS,
   commands
-} from "./chunk-RKGCT5G5.js";
+} from "./chunk-KCWDTZSZ.js";
 
 // src/core/command-registry.js
 var groupTitle = new Map(GROUPS.flatMap((group) => group.commands.map((id) => [id, group.title])));

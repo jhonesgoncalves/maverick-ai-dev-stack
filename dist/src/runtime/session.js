@@ -20,8 +20,10 @@ async function transcriptFile(taskDir, providerId) {
  * Runs one agent turn headlessly and normalises its output into Maverick events:
  * session, text, tool, result, error. Hooks guard the run; the transcript is written as
  * the run happens. The agent never gets a shell from Maverick: argv only.
+ * `workdir` is where the agent works (a loop's worktree, a judge's export); `cwd` stays the
+ * project, for hooks and binaries. `meta` (role, loop, iteration) is recorded with the run.
  */
-export async function runAgent({ cwd, config, taskDir, task, provider, model, effort, permission, commands = [], prompt, timeoutMs, signal, onEvent = () => {} }) {
+export async function runAgent({ cwd, workdir = cwd, config, taskDir, task, provider, model, effort, permission, commands = [], prompt, timeoutMs, signal, meta, onEvent = () => {} }) {
   const bin = resolveBin(provider, config, cwd);
   if (!commandAvailable(bin, cwd)) throw new Error(`${provider.name} is not installed (${bin} not found on PATH)`);
   const before = await runHooks(cwd, config, 'before-agent-run', { task, provider: provider.id, model, effort, permission, prompt });
@@ -38,10 +40,10 @@ export async function runAgent({ cwd, config, taskDir, task, provider, model, ef
     writing = writing.then(() => appendFile(transcript, line));
     return writing;
   };
-  await record({ type: 'start', provider: provider.id, model: model || null, effort: effort || null, permission, argv: [bin, ...args.map(arg => (arg === finalPrompt ? '<prompt>' : arg))] });
+  await record({ type: 'start', provider: provider.id, model: model || null, effort: effort || null, permission, argv: [bin, ...args.map(arg => (arg === finalPrompt ? '<prompt>' : arg))], ...(meta && { ...meta }) });
   const pending = [];
   const processResult = await runProcess({
-    bin, args, cwd, input, signal, timeoutMs,
+    bin, args, cwd: workdir, input, signal, timeoutMs,
     onLine: line => { for (const event of provider.parse(line, state)) pending.push(record(event)); }
   });
   await Promise.all(pending);

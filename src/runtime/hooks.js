@@ -4,7 +4,7 @@ import { runProcess } from './process.js';
 
 export { HOOK_EVENTS } from '../core/enums.js';
 // "before" hooks guard an action and fail closed; "after" hooks observe and fail open.
-const BLOCKING = new Set(['before-agent-run']);
+const BLOCKING = new Set(['before-agent-run', 'before-loop-iteration']);
 
 /**
  * Runs configured hooks for an event in declaration order. Each hook receives the event

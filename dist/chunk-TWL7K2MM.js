@@ -257,9 +257,9 @@ var ARTIFACTS = [PRD, SPEC, TECHSPEC];
 var PLANNING_STAGES = ["prd", "spec", "techspec", "tasks"];
 var DEFAULT_ARTIFACTS = [PRD, TECHSPEC];
 var presets = {
-  standard: { id: "standard", name: "Standard", description: "PRD, technical spec and task graph, then build, verify and human review.", bestFor: "Features, fixes and refactors.", artifacts: DEFAULT_ARTIFACTS, stages: ["prd", "techspec", "tasks", "build", "verify", "review", "pr"] },
-  "spec-driven": { id: "spec-driven", name: "Spec Driven", description: "PRD, then an approved behavioral spec (SPEC.md) that the technical spec, tasks and tests trace to, then build, verify and human review.", bestFor: "APIs, integrations, shared contracts, complex domain rules or work several people must agree on.", artifacts: ARTIFACTS, stages: ["prd", "spec", "techspec", "tasks", "build", "verify", "review", "pr"] },
-  strict: { id: "strict", name: "Strict", description: "The standard pipeline plus a security gate and a checkpoint before merge.", bestFor: "Security, data, payment, migration or shared-infrastructure work.", artifacts: DEFAULT_ARTIFACTS, stages: ["prd", "techspec", "tasks", "build", "verify", "security", "review", "pr"], strict: true }
+  standard: { id: "standard", name: "Standard", description: "PRD, technical spec and task graph, then build, verify and human review.", bestFor: "Features, fixes and refactors.", artifacts: DEFAULT_ARTIFACTS, stages: ["prd", "techspec", "tasks", "build", "verify", "review", "pr", "done"] },
+  "spec-driven": { id: "spec-driven", name: "Spec Driven", description: "PRD, then an approved behavioral spec (SPEC.md) that the technical spec, tasks and tests trace to, then build, verify and human review.", bestFor: "APIs, integrations, shared contracts, complex domain rules or work several people must agree on.", artifacts: ARTIFACTS, stages: ["prd", "spec", "techspec", "tasks", "build", "verify", "review", "pr", "done"] },
+  strict: { id: "strict", name: "Strict", description: "The standard pipeline plus a security gate and a checkpoint before merge.", bestFor: "Security, data, payment, migration or shared-infrastructure work.", artifacts: DEFAULT_ARTIFACTS, stages: ["prd", "techspec", "tasks", "build", "verify", "security", "review", "pr", "done"], strict: true }
 };
 function getPreset(id = "standard") {
   return presets[id];
@@ -599,9 +599,14 @@ import { z } from "zod";
 
 // src/core/enums.js
 var PERMISSIONS = ["read-only", "edit", "full"];
-var HOOK_EVENTS = ["before-agent-run", "after-agent-run", "after-flow-run"];
+var HOOK_EVENTS = ["before-agent-run", "after-agent-run", "after-flow-run", "before-loop-iteration", "after-loop-iteration", "after-loop"];
 var EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-var AGENT_STAGE_IDS = ["prd", "spec", "techspec", "tasks", "build", "fix"];
+var AGENT_STAGE_IDS = ["prd", "spec", "techspec", "tasks", "build", "fix", "judge"];
+var LOOP_LADDER_STEPS = ["retry-with-diagnosis", "raise-effort", "switch-provider", "human"];
+var LOOP_ISOLATION = ["in-place", "worktree"];
+var GIT_PROVIDERS = ["github", "gitlab", "azure", "bitbucket"];
+var INTEGRITY_LEVELS = ["strict", "standard", "off"];
+var FINDING_KINDS = ["protected-path-modified", "undeclared-test-modified", "test-deleted", "test-count-decreased", "assertion-count-decreased", "assertion-weakened", "skip-or-only-added", "lint-or-type-suppression-added", "test-literal-special-casing", "oracle-config-modified", "blast-radius-exceeded", "overclaim", "claim-mismatch", "reviewer-directed-text", "disputed-check-modified"];
 
 // src/core/config.js
 var defaultConfig = {
@@ -654,6 +659,8 @@ var configSchema = z.looseObject({
     stages: z.partialRecord(z.enum(AGENT_STAGE_IDS), z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional(), effort: z.enum(EFFORTS).optional(), permission: z.enum(PERMISSIONS).optional() })).optional(),
     timeoutMinutes: z.number().positive().max(24 * 60).optional(),
     bins: z.record(z.string(), z.string().min(1)).optional(),
+    // The model family of a provider whose CLI can run several vendors' models (judges and loops need it).
+    families: z.record(z.string(), z.string().regex(/^[a-z0-9-]+$/)).optional(),
     custom: z.array(z.object({
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
       name: z.string().optional(),
@@ -663,6 +670,53 @@ var configSchema = z.looseObject({
   }).optional(),
   // Flows that approve their own pending approval gates once every blocking check passes.
   flows: z.object({ autoApprove: z.array(z.string().min(1)).optional() }).optional(),
+  // Pull requests the `pr` flow opens: the provider when the remote's host does not say, the remote
+  // and base branch when they cannot be inferred, draft pull requests, and whether to commit the change.
+  pr: z.object({
+    provider: z.enum(GIT_PROVIDERS).optional(),
+    remote: z.string().min(1).optional(),
+    base: z.string().min(1).optional(),
+    draft: z.boolean().optional(),
+    commit: z.boolean().optional()
+  }).optional(),
+  // Loops: budgets, escalation and guardrails for `maverick loop run`. Defaults live in src/loop/model.js.
+  loop: z.object({
+    flow: z.string().min(1).optional(),
+    providers: z.array(z.string().min(1)).optional(),
+    isolation: z.enum(LOOP_ISOLATION).optional(),
+    worktreeDir: z.string().min(1).optional(),
+    setup: z.array(z.string().min(1)).optional(),
+    setupTimeoutMinutes: z.number().positive().max(240).optional(),
+    budgets: z.object({
+      maxIterations: z.number().int().min(1).max(500).optional(),
+      maxMinutes: z.number().positive().max(7 * 24 * 60).optional(),
+      maxCostUsd: z.number().positive().optional(),
+      forecast: z.enum(["p90", "mean", "off"]).optional()
+    }).optional(),
+    stall: z.object({
+      window: z.number().int().min(2).max(10).optional(),
+      churnLines: z.number().int().positive().optional(),
+      rollbackStreak: z.number().int().min(2).max(10).optional(),
+      overclaims: z.number().int().min(1).max(10).optional()
+    }).optional(),
+    escalation: z.array(z.enum(LOOP_LADDER_STEPS)).min(1).optional(),
+    maxEffort: z.enum(EFFORTS).optional(),
+    protectedPaths: z.array(z.string().min(1)).optional(),
+    blastRadius: z.object({ maxFiles: z.number().int().positive().optional(), maxLines: z.number().int().positive().optional() }).optional(),
+    integrity: z.union([z.enum(INTEGRITY_LEVELS), z.object({
+      level: z.enum(INTEGRITY_LEVELS).optional(),
+      severity: z.partialRecord(z.enum(FINDING_KINDS), z.enum(["block", "warn", "off"])).optional(),
+      allow: z.array(z.object({ kind: z.enum(FINDING_KINDS), path: z.string().min(1), reason: z.string().min(1) })).optional()
+    })]).optional(),
+    ratchet: z.object({ newFailures: z.enum(["count", "strict"]).optional(), recheck: z.number().int().min(0).max(3).optional() }).optional(),
+    gateTimeoutMinutes: z.number().positive().max(24 * 60).optional(),
+    stopPollMs: z.number().int().min(50).max(1e4).optional(),
+    judge: z.object({
+      enabled: z.boolean().optional(),
+      prefer: z.array(z.string().min(1)).optional(),
+      isolation: z.enum(["export", "live"]).optional()
+    }).optional()
+  }).optional(),
   // Languages: `docs` for what the flow writes and says, `code` for what lands in the codebase.
   language: z.object({ docs: z.string().regex(/^[a-z]{2,3}(-[A-Z]{2,4})?$/, "use a language code such as en or pt-BR").optional(), code: z.string().regex(/^[a-z]{2,3}(-[A-Z]{2,4})?$/, "use a language code such as en or pt-BR").optional() }).optional(),
   // Authoring: project context and per-artifact rules given to every agent that writes task artifacts.
@@ -843,6 +897,15 @@ function checklist(body = "") {
   const done = items.filter((item) => item.done).length;
   return { total: items.length, done, open: items.filter((item) => !item.done) };
 }
+function checkboxOnlyChange(before = "", after = "") {
+  const a = String(before).split("\n"), b = String(after).split("\n");
+  if (a.length !== b.length) return false;
+  return a.every((line, index) => {
+    if (line === b[index]) return true;
+    const x = line.match(CHECKBOX), y = b[index].match(CHECKBOX);
+    return Boolean(x && y) && line.replace(/\[( |x|X)\]/, "[ ]") === b[index].replace(/\[( |x|X)\]/, "[ ]");
+  });
+}
 function issues(error) {
   return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
 }
@@ -1005,11 +1068,19 @@ var NEXT = {
   verify: (slug) => `verify and review with the maverick-review skill (maverick verify ${slug})`,
   security: (slug) => `run the security gate with the maverick-review skill (maverick security ${slug})`,
   review: () => `review with the maverick-review skill, then record the human decision in REVIEW.md`,
-  pr: (slug) => `ship with the maverick-ship skill (maverick readiness ${slug}, maverick pr ${slug})`
+  pr: (slug, meta) => meta.pullRequest?.opened ? `merge the pull request (${meta.pullRequest.url}), then finish the task: maverick done ${slug}` : `open the pull request: maverick flow run pr ${slug} drafts it, waits for its approval and opens it; then maverick done ${slug}`,
+  done: (slug) => `nothing: the task is finished (maverick reopen ${slug} to work on it again)`
 };
 var DECISION = /- \[[xX]\] (?:approve|approve with follow-up|request changes)/;
+var readMeta = async (dir) => {
+  try {
+    return JSON.parse(await readFile6(join6(dir, "TASK.json"), "utf8"));
+  } catch {
+    return {};
+  }
+};
 async function taskStage(dir, preset, slug = "") {
-  const artifacts = {};
+  const artifacts = {}, meta = await readMeta(dir);
   for (const item of ARTIFACTS) artifacts[item.id] = await exists(join6(dir, item.file));
   const graph = await loadGraph(dir);
   const tasks = { total: graph.items.length, done: graph.items.filter((item) => item.status === "done").length };
@@ -1017,17 +1088,18 @@ async function taskStage(dir, preset, slug = "") {
   const review = await has("REVIEW.md") ? await readFile6(join6(dir, "REVIEW.md"), "utf8") : "";
   let stage;
   const planning = planningStages(preset).find((id) => id === "tasks" ? !tasks.total : !artifacts[artifactForStage(id).id]);
-  if (planning) stage = planning;
+  if (meta.done) stage = "done";
+  else if (planning) stage = planning;
   else if (tasks.done < tasks.total) stage = "build";
   else if (!await has("EVIDENCE.md")) stage = "verify";
   else if (preset.strict && !await has("SECURITY-REPORT.md")) stage = "security";
   else if (!DECISION.test(review)) stage = "review";
   else stage = "pr";
-  return { stage, next: NEXT[stage](slug), artifacts, tasks };
+  return { stage, next: NEXT[stage](slug, meta), artifacts, tasks };
 }
 
 // src/core/tasks.js
-import { readdir as readdir4 } from "fs/promises";
+import { readdir as readdir4, writeFile as writeFile2 } from "fs/promises";
 import { join as join7 } from "path";
 function taskPath(cwd, config, slug) {
   requireSlug(slug);
@@ -1035,6 +1107,9 @@ function taskPath(cwd, config, slug) {
 }
 async function taskMeta(dir) {
   return await exists(join7(dir, "TASK.json")) ? readJson(join7(dir, "TASK.json")) : {};
+}
+async function writeTaskMeta(dir, meta) {
+  await writeFile2(join7(dir, "TASK.json"), pretty(meta));
 }
 async function taskPreset(dir) {
   return (await taskMeta(dir)).workflow || "standard";
@@ -1070,6 +1145,7 @@ export {
   exists,
   readJson,
   readText,
+  parseJson,
   pretty,
   rel,
   brandOutput,
@@ -1100,6 +1176,8 @@ export {
   PERMISSIONS,
   EFFORTS,
   AGENT_STAGE_IDS,
+  LOOP_LADDER_STEPS,
+  INTEGRITY_LEVELS,
   defaultConfig,
   globalConfigPath,
   resolveConfig,
@@ -1112,6 +1190,8 @@ export {
   STATUSES,
   COMPLEXITY,
   MANIFEST,
+  checklist,
+  checkboxOnlyChange,
   loadGraph,
   refreshManifest,
   addSubtask,
@@ -1119,6 +1199,8 @@ export {
   STAGE_SKILLS,
   taskStage,
   taskPath,
+  taskMeta,
+  writeTaskMeta,
   taskPreset,
   listTasks,
   getTask

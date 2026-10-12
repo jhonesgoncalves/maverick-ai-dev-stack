@@ -1,7 +1,8 @@
 import { esc, icon, LANES, OUTCOME, pill, plural, STAGE_LABEL, taskState, timeAgo } from '../lib.js';
 import { loadAgentRuns, loadRuns, store } from '../app.js';
-import { runFlowFor } from './task.js';
+import { finishTask, runFlowFor } from './task.js';
 import { fixWithAgent, startAgent } from './agents.js';
+import { HUMAN as LOOP_HUMAN, STATUS as LOOP_STATUS } from './loops.js';
 
 export const title = () => 'Inbox';
 export const crumbs = () => ['<b>Inbox</b>'];
@@ -18,7 +19,8 @@ function decisions(tasks) {
     else if (s.kind === 'failing') items.push({ tone: 'bad', ic: 'alert', rank: 1, title: `${s.flow} flow needs fixes on ${task.title}`, text: 'Blocking gates failed. Fix them without widening scope, then run the flow again.', task, actions: `<button class="btn sm" data-act="fix" data-task="${esc(task.id)}" data-flow="${esc(s.flow)}">${icon('agent')}Fix with agent</button><a class="btn sm" href="${open}/gates?flow=${encodeURIComponent(s.flow)}">Gates</a>` });
     else if (s.kind === 'graph') items.push({ tone: 'bad', ic: 'alert', rank: 1, title: `Subtask graph is broken on ${task.title}`, text: s.reason, task, actions: `<a class="btn sm" href="${open}/subtasks">Open subtasks</a>` });
     else if (s.kind === 'build') items.push({ tone: 'accent', ic: 'play', rank: 2, title: `${s.reason}`, text: task.title, task, actions: `<button class="btn sm primary" data-act="start" data-task="${esc(task.id)}" data-id="${esc(task.subtasks.ready[0])}">${icon('play')}Start agent</button><a class="btn sm" href="${open}/subtasks">Open</a>` });
-    else if (s.kind === 'ship') items.push({ tone: 'ok', ic: 'pr', rank: 3, title: `${task.title} is ready to ship`, text: 'Every gate passed and review is recorded. Draft the pull request.', task, actions: `<a class="btn sm" href="${open}">Open</a>` });
+    else if (s.kind === 'ship') items.push({ tone: 'ok', ic: 'pr', rank: 3, title: `${task.title} is ready to ship`, text: 'Every gate passed and review is recorded. The pr flow drafts the pull request, waits for your approval and opens it.', task, actions: `<button class="btn sm primary" data-act="rerun" data-task="${esc(task.id)}" data-flow="pr">${icon('pr')}Open pull request</button><a class="btn sm" href="${open}">Open</a>` });
+    else if (s.kind === 'merge') items.push({ tone: 'ok', ic: 'pr', rank: 3, title: `${task.title} has an open pull request`, text: 'Once it merges, finish the task.', task, actions: `<a class="btn sm" href="${esc(task.pullRequest.url)}" target="_blank" rel="noreferrer">${icon('external')}Pull request</a><button class="btn sm primary" data-act="finish" data-task="${esc(task.id)}">${icon('check')}Finish</button>` });
   }
   return items.sort((a, b) => a.rank - b.rank);
 }
@@ -32,7 +34,10 @@ export async function render() {
   const p = store.project, tasks = p.tasks || [];
   const [runs, agentRuns] = await Promise.all([loadRuns().catch(() => []), loadAgentRuns().catch(() => ({ live: [] }))]);
   const liveAgents = agentRuns.live.filter(r => r.status === 'running');
-  const items = decisions(tasks), needs = items.filter(i => i.rank < 2).length;
+  // A loop that stopped for a human comes first: it holds a whole task until someone decides.
+  const loopItems = (store.loops || []).filter(loop => LOOP_HUMAN.includes(loop.status)).map(loop => ({ loop, task: tasks.find(t => t.id === loop.task) })).filter(item => item.task).map(({ loop, task }) => ({ tone: ['integrity-violation', 'stalled-escalated'].includes(loop.status) ? 'bad' : 'warn', ic: 'loop', rank: 0, title: `Loop on ${task.title}: ${(LOOP_STATUS[loop.status] || [, loop.status])[1].toLowerCase()}`, text: loop.reason || 'The loop waits for your decision.', task, actions: `<a class="btn sm primary" href="#/loops/${encodeURIComponent(loop.task)}/${encodeURIComponent(loop.id)}">${icon('loop')}Open loop</a>` }));
+  const items = [...loopItems, ...decisions(tasks)].sort((a, b) => a.rank - b.rank), needs = items.filter(i => i.rank < 2).length;
+  const liveLoops = (store.loops || []).filter(loop => loop.live);
   const moving = tasks.filter(t => taskState(t).state === 'active').length, shipping = tasks.filter(t => t.stage === 'pr').length, rate = passRate(runs);
   const lanes = LANES.map(l => ({ ...l, n: tasks.filter(t => l.stages.includes(t.stage)).length }));
   const upNext = tasks.filter(t => ['queued', 'active'].includes(taskState(t).state) && !items.some(i => i.task === t)).slice(0, 5);
@@ -61,12 +66,12 @@ export async function render() {
             : `<div class="empty-state" style="padding:32px"><div class="glyph">${icon('check')}</div><h3>You're clear</h3><p>No approvals, failures or ready subtasks right now.</p></div>`}
         </section>
         <section class="card"><div class="card-head"><h3>Delivery pipeline</h3><span class="count">${plural(tasks.length, 'task')}</span><div class="right"><a class="btn ghost sm" href="#/tasks?view=board">Board ${icon('chev')}</a></div></div>
-          <div class="pipeline" style="grid-template-columns:repeat(${lanes.length},minmax(0,1fr))">${lanes.map(l => `<div><small>${l.label}</small><strong>${l.n}</strong><div class="bar"><i style="width:${tasks.length ? Math.round(l.n / tasks.length * 100) : 0}%;${l.id === 'ship' ? 'background:var(--ok)' : ''}"></i></div></div>`).join('')}</div>
+          <div class="pipeline" style="grid-template-columns:repeat(${lanes.length},minmax(0,1fr))">${lanes.map(l => `<div><small>${l.label}</small><strong>${l.n}</strong><div class="bar"><i style="width:${tasks.length ? Math.round(l.n / tasks.length * 100) : 0}%;${['ship', 'done'].includes(l.id) ? 'background:var(--ok)' : ''}"></i></div></div>`).join('')}</div>
         </section>
         ${upNext.length ? `<section class="card"><div class="card-head"><h3>Up next</h3></div>${upNext.map(t => `<div class="run-row" data-go="#/tasks/${encodeURIComponent(t.id)}" style="cursor:pointer"><span class="dot ${taskState(t).tone}"></span><div class="t"><b>${esc(t.title)}</b><small>${esc(t.next || '')}</small></div>${pill(STAGE_LABEL[t.stage] || t.stage, 'info')}</div>`).join('')}</section>` : ''}
       </div>
       <div class="stack">
-        ${liveAgents.length ? `<section class="card"><div class="card-head"><h3>Agents working</h3><span class="count">${liveAgents.length}</span></div>${liveAgents.map(r => `<a class="run-row" href="#/runs/agent/${esc(r.id)}"><span class="spin"></span><div class="t"><b>${esc(r.providerName)} · ${esc(r.task)}</b><small>${r.subtask ? `subtask ${esc(r.subtask)} · ` : ''}started ${esc(timeAgo(r.startedAt))}</small></div>${pill('live', 'accent')}</a>`).join('')}</section>` : ''}
+        ${liveAgents.length || liveLoops.length ? `<section class="card"><div class="card-head"><h3>Agents working</h3><span class="count">${liveAgents.length + liveLoops.length}</span></div>${liveLoops.map(loop => `<a class="run-row" href="#/loops/${encodeURIComponent(loop.task)}/${encodeURIComponent(loop.id)}"><span class="spin"></span><div class="t"><b>Loop · ${esc(loop.task)}</b><small>iteration ${loop.iteration}${loop.maxIterations ? `/${loop.maxIterations}` : ''} · ${loop.accepted} kept · started ${esc(timeAgo(loop.startedAt))}</small></div>${pill('loop', 'accent')}</a>`).join('')}${liveAgents.map(r => `<a class="run-row" href="#/runs/agent/${esc(r.id)}"><span class="spin"></span><div class="t"><b>${esc(r.providerName)} · ${esc(r.task)}</b><small>${r.subtask ? `subtask ${esc(r.subtask)} · ` : ''}started ${esc(timeAgo(r.startedAt))}</small></div>${pill('live', 'accent')}</a>`).join('')}</section>` : ''}
         <section class="card"><div class="card-head"><h3>Recent runs</h3><div class="right"><a class="btn ghost sm" href="#/runs">History ${icon('chev')}</a></div></div>
           ${runs.length ? runs.slice(0, 5).map((run, i) => { const [tone] = OUTCOME[run.outcome] || ['']; return `<a class="run-row" href="#/runs/flow/${i}"><span class="dot ${tone}"></span><div class="t"><b>${esc(run.flow)} flow · ${esc(run.task)}</b><small>${esc(run.outcome.replace(/-/g, ' '))} · ${esc(timeAgo(run.at))}</small></div></a>`; }).join('') : '<div class="empty">No flow has run yet. Open a task and run its ship flow.</div>'}
         </section>
@@ -81,5 +86,6 @@ export async function render() {
 export const actions = {
   rerun: el => runFlowFor(el.dataset.task, el.dataset.flow),
   fix: el => fixWithAgent(el.dataset.task, el.dataset.flow),
-  start: el => startAgent({ task: el.dataset.task, subtask: el.dataset.id, heading: `Start subtask ${el.dataset.id}` })
+  start: el => startAgent({ task: el.dataset.task, subtask: el.dataset.id, heading: `Start subtask ${el.dataset.id}` }),
+  finish: el => finishTask(el.dataset.task)
 };

@@ -1,7 +1,7 @@
 import {
   findCommand,
   suggestCommand
-} from "./chunk-RKGCT5G5.js";
+} from "./chunk-KCWDTZSZ.js";
 import {
   brandOutput,
   exists,
@@ -11,7 +11,7 @@ import {
   planningStages,
   presets,
   style
-} from "./chunk-YKOOPOXS.js";
+} from "./chunk-TWL7K2MM.js";
 
 // src/core/task-arg.js
 import { join } from "path";
@@ -75,30 +75,37 @@ function pick({ title, hint, items, initial = 0 }) {
 
 // src/core/task-arg.js
 var PLANNING = [...new Set(Object.values(presets).flatMap(planningStages))];
-var SIMPLE = ["packet", "validate", "learn", "handoff", "pr", "checkpoint", "guard", "readiness", "verify", "security", "deps", "review", "instructions", "generate"];
+var SIMPLE = ["packet", "validate", "learn", "handoff", "done", "reopen", "checkpoint", "guard", "integrity", "readiness", "verify", "security", "deps", "review", "instructions", "generate"];
 var PREFERRED = {
   verify: ["build", "verify"],
   guard: ["build", "verify"],
+  integrity: ["build", "verify"],
   deps: ["build", "verify"],
   security: ["security", "verify"],
   review: ["review", "verify", "security"],
   readiness: ["review", "pr"],
   pr: ["pr", "review"],
+  done: ["pr"],
+  reopen: ["done"],
   checkpoint: ["review", "pr"],
   subtask: ["tasks", "build"],
   agent: ["build"],
+  loop: ["build", "verify"],
   "flow:spec": ["spec"],
   "flow:ship": ["verify", "security", "review"],
+  "flow:pr": ["pr"],
   "flow:fix-checks": ["build", "verify"]
 };
 function taskIndex(id, positional) {
   const action = positional[1];
   if (SIMPLE.includes(id)) return 1;
+  if (id === "pr") return action === "open" ? 2 : 1;
   if (id === "ci") return action === "github" ? 2 : -1;
   if (id === "policy") return action === "check" ? 2 : -1;
   if (id === "subtask") return ["list", "next", "validate"].includes(action) ? 2 : -1;
   if (id === "agent") return ["run", "runs"].includes(action) ? 2 : -1;
   if (id === "flow") return action === "run" ? 3 : action === "status" ? 2 : -1;
+  if (id === "loop") return ["run", "status", "stop", "verify", "log", "clean"].includes(action) ? 2 : -1;
   return -1;
 }
 async function resolveTaskArg(cwd, id, positional, options) {
@@ -112,6 +119,12 @@ async function resolveTaskArg(cwd, id, positional, options) {
   }
   if (args[index]) return args;
   if (id === "flow" && args[1] === "run" && !args[2]) return args;
+  const tasks = (await listTasks(cwd, config)).map((task) => task.task);
+  const swallowed = Object.entries(options).find(([, value]) => typeof value === "string" && tasks.includes(value));
+  if (swallowed) {
+    const flag = swallowed[0].replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+    throw new Error(`--${flag} took "${swallowed[1]}" as its value; put flags after the task: ${commandLine(id, args, index)} ${swallowed[1]} --${flag}`);
+  }
   const preferred = stage ? [stage] : PREFERRED[id === "flow" ? `flow:${args[2]}` : id] || [];
   args[index] = await chooseTask(cwd, config, { command: commandLine(id, args, index), preferred, stage });
   return args;
