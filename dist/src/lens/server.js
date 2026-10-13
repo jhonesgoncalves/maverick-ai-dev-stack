@@ -13,6 +13,7 @@ import { main } from '../cli.js';
 import { allRuns, exclusive, requireSlug, runAction, setAutoApprove, taskArtifact, taskDetail } from './api.js';
 import { createAgentHub } from './agents.js';
 import { createLoopHub } from './loops.js';
+import { answerExplainBack } from '../proof/explain.js';
 import { capabilities, capability, changeCapabilities, changeSettings, settings } from './system.js';
 import { decisionDashboard, holdoutDashboard } from './decide.js';
 
@@ -60,6 +61,7 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
         return json(res, 200, { task, flow: { name: flow.name, description: flow.description, contract: flow.contract, gates: flow.gates }, state, lastRun: state.runs.at(-1) || null });
       }
       if (url.pathname === '/api/task') return json(res, 200, await taskDetail(cwd, url.searchParams.get('task')));
+      if (url.pathname === '/api/explain/answer' && req.method === 'POST') { const body = await requestBody(req); requireSlug(body.task); const state = await answerExplainBack(cwd, body.task, String(body.id || ''), String(body.text || ''), typeof body.by === 'string' && body.by.trim() ? body.by.trim() : undefined); await refresh(); return json(res, 200, state); }
       if (url.pathname === '/api/artifact') return json(res, 200, await taskArtifact(cwd, url.searchParams.get('task'), url.searchParams.get('file')));
       if (url.pathname === '/api/runs') return json(res, 200, { runs: await allRuns(cwd) });
       if (url.pathname === '/api/action' && req.method === 'POST') { const body = await requestBody(req); requireSlug(body.task); const result = await runAction(cwd, main, body); await refresh(); return json(res, 200, result); }
@@ -74,6 +76,7 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
       if (url.pathname === '/api/agents/trust' && req.method === 'POST') { const result = await agents.trust(await requestBody(req)); await refresh(); return json(res, 200, result); }
       if (url.pathname === '/api/loops' && req.method === 'GET') return json(res, 200, await loops.list());
       if (url.pathname === '/api/loop' && req.method === 'GET') return json(res, 200, await loops.detail(url.searchParams.get('task'), url.searchParams.get('id')));
+      if (url.pathname === '/api/loop/replay' && req.method === 'GET') return json(res, 200, await loops.replay(url.searchParams.get('task'), url.searchParams.get('id'), url.searchParams.getAll('set')));
       if (url.pathname === '/api/loop/ledger' && req.method === 'GET') return json(res, 200, await loops.ledger(url.searchParams.get('task'), url.searchParams.get('id')));
       if (url.pathname === '/api/loops/stop' && req.method === 'POST') { const body = await requestBody(req); return json(res, 202, await loops.stop(body.task, body.id, body.reason)); }
       if (url.pathname === '/api/capabilities' && req.method === 'GET') return json(res, 200, await capabilities(main, cwd));

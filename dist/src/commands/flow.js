@@ -79,6 +79,8 @@ async function flowCommand(cwd, [action, ...args], options = {}) {
   if (action === 'show') {
     const flow = await findFlow(cwd, args[0]);
     if (options.json) return output(JSON.stringify(flow, null, 2));
+    // A v2 flow is shown as its nodes and the typed edges out of each.
+    if (flow.nodes) return output(`${brand()} / FLOW\n\n${flow.name} [${flow.source}] · v2\n${flow.description}\n\nGoal: ${flow.contract.goal}\nIteration cap: ${flow.contract.iterationCap} · no-progress window: ${flow.contract.noProgressWindow}\n\nNodes:\n${flow.nodes.map(item => `  ${item.id} (${item.type}${item.type === 'end' ? ` ${item.outcome}` : item.type === 'decision' ? ` ${item.rubric}` : item.type === 'agent' ? ` ${item.permission}` : ''})${flow.edges.filter(edge => edge.from === item.id).map(edge => ` → ${edge.to}${[edge.when].flat().join() === 'any' ? '' : ` [${[edge.when].flat().join(', ')}]`}`).join(',')}`).join('\n')}`);
     return output(`${brand()} / FLOW\n\n${flow.name} [${flow.source}]\n${flow.description}\n\nGoal: ${flow.contract.goal}\nIteration cap: ${flow.contract.iterationCap} · no-progress window: ${flow.contract.noProgressWindow}\n\nGates:\n${flow.gates.map(gate => `  ${gate.id.padEnd(14)}${gate.type}${gate.run ? `:${gate.run}` : ''}${gate.severity === 'warn' ? ' (warn)' : ''}${gate.description ? ` — ${gate.description}` : ''}`).join('\n')}`);
   }
   if (action === 'run') {

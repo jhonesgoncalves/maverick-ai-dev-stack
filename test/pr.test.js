@@ -121,6 +121,8 @@ test('the pr flow waits for the draft approval, then commits, pushes and opens t
 test('auto-approval opens the pull request in one run; without a provider CLI the branch is pushed and its page given', unix, async () => {
   const { cwd, dir, remote, git } = await reviewedProject('git@bitbucket.org:acme/app.git');
   git('checkout', '-q', '-b', 'feat/orders');
+  const configPath = join(cwd, '.maverick/config.json'), config = JSON.parse(await readFile(configPath, 'utf8').catch(() => '{"version":1}'));
+  await writeFile(configPath, JSON.stringify({ ...config, proof: { onPullRequest: true } }, null, 2));
   await captureOutput(() => main(['flow', 'run', 'pr', 'demo', '--auto-approve'], cwd));
   const state = await readState(dir, 'pr');
   assert.equal(state.status, 'done');
@@ -130,6 +132,9 @@ test('auto-approval opens the pull request in one run; without a provider CLI th
   assert.equal(git('branch', '--show-current'), 'feat/orders', 'a feature branch is used as it is');
   assert.equal(execFileSync('git', ['rev-parse', 'feat/orders'], { cwd: remote }).toString().trim(), git('rev-parse', 'HEAD'));
   assert.equal(JSON.parse(await readFile(join(dir, 'TASK.json'), 'utf8')).pullRequest.opened, false);
+  // proof.onPullRequest: the pushed commit carries its signed receipt, which verifies from the remote's notes.
+  assert.equal(execFileSync('git', ['notes', '--ref', 'refs/notes/maverick', 'list', git('rev-parse', 'HEAD')], { cwd: remote }).toString().trim().length > 0, true);
+  assert.match((await captureOutput(() => main(['proof', 'verify', 'demo', '--commit', 'HEAD'], cwd))).output, /PASS/);
 });
 
 test('done before the PR stage needs --force, and pr open explains what is missing', async () => {

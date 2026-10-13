@@ -16,3 +16,20 @@ jobs:
         run: npx --yes @maverick-ai/cli validate {{TASK_SLUG}} --json
       - name: Check task policy
         run: npx --yes @maverick-ai/cli policy check {{TASK_SLUG}} --json
+
+  # The signed proof receipt of the pull request's head commit (maverick proof sign, or
+  # proof.onPullRequest). Remove this job if the project does not sign receipts.
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch proof receipts
+        run: git fetch origin refs/notes/maverick:refs/notes/maverick || true
+      - name: Verify the proof receipt
+        run: npx --yes @maverick-ai/cli proof verify {{TASK_SLUG}} --commit HEAD

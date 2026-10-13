@@ -7,12 +7,13 @@ import { CHECK_KINDS } from '../core/stack.js';
 import { EFFORTS } from '../core/enums.js';
 import { packageRoot } from '../core/util.js';
 import { sha256 } from '../capabilities/model.js';
+import { flowV2Schema, gatesOf } from './graph.js';
 
 /**
  * Maverick gates a flow can call. Each maps to a CLI command run in-process with --json: `pr` keeps
  * or writes PR-DRAFT.md, and `pr-open` (`pr open`) pushes the branch and opens the pull request.
  */
-export const MAVERICK_GATES = ['validate', 'verify', 'guard', 'integrity', 'ablation', 'architecture', 'contracts', 'attention', 'security', 'deps', 'policy', 'review', 'readiness', 'pr', 'pr-open'];
+export const MAVERICK_GATES = ['validate', 'verify', 'guard', 'integrity', 'ablation', 'architecture', 'contracts', 'attention', 'explain', 'security', 'deps', 'policy', 'review', 'readiness', 'pr', 'pr-open'];
 
 /** Outcomes of one flow run. Only `revise` asks the agent to iterate; the others hand control to a human. */
 export const OUTCOMES = ['done', 'revise', 'awaiting-approval', 'stalled', 'exhausted'];
@@ -36,6 +37,8 @@ const judge = z.object({
   independence: z.enum(['cross-family', 'cross-provider']).default('cross-family'),
   when: z.enum(['gates-pass', 'always']).default('gates-pass'),
   maxDiffBytes: z.number().int().min(4096).max(200000).default(60000),
+  // A diff larger than maxDiffBytes is judged in up to this many parts, each with the same criteria and evidence; 1 omits what does not fit.
+  maxParts: z.number().int().min(1).max(8).default(4),
   timeoutMinutes: z.number().positive().max(120).optional()
 });
 
@@ -90,10 +93,16 @@ export async function loadFlowFile(path, source) {
   const text = await readFile(path, 'utf8');
   let data;
   try { data = parseYaml(text); } catch (error) { throw new Error(`${path}: invalid YAML (${error.message})`); }
-  const parsed = flowSchema.safeParse(data);
+  // A v2 flow is a typed DAG (src/flows/graph.js); it also exposes its gate and human nodes as `gates`, so loops and approvals read it as they read v1.
+  const v2 = data?.apiVersion === 'maverick.flow/v2';
+  const parsed = (v2 ? flowV2Schema : flowSchema).safeParse(data);
   if (!parsed.success) throw new Error(`${path}: ${formatIssues(parsed.error)}`);
   if (parsed.data.name !== basename(path).replace(/\.ya?ml$/, '')) throw new Error(`${path}: name "${parsed.data.name}" must match the file name`);
-  return { ...parsed.data, source, path, integrity: sha256(text) };
+  let gates = parsed.data.gates;
+  if (v2) {
+    try { gates = gatesOf(parsed.data, item => { const result = gate.safeParse(item); if (!result.success) throw new Error(`node ${item.id}: ${formatIssues(result.error)}`); return result.data; }); } catch (error) { throw new Error(`${path}: ${error.message}`); }
+  }
+  return { ...parsed.data, gates, source, path, integrity: sha256(text) };
 }
 
 /** Project flows in `.maverick/flows/` shadow built-in flows with the same name. */

@@ -5,11 +5,12 @@ import { taskStage } from '../core/pipeline.js';
 import { openPullRequest, splitDraft } from '../core/pull-request.js';
 import { getTask, taskMeta, writeTaskMeta } from '../core/tasks.js';
 import { brand, exists, output, packageRoot, readText, rel, replaceVars, sectionBody } from '../core/util.js';
-import { loopIds } from '../loop/model.js';
+import { newestTaskLoop } from '../loop/model.js';
 import { readState } from '../loop/engine.js';
 import { readSealed } from '../sealed/model.js';
 import { applyRevocations, harvestContracts } from '../memory/contracts.js';
 import { budgetLine, reviewBase, reviewBudget } from '../proof/attention.js';
+import { NOTES_REF, signProof } from '../proof/receipt.js';
 
 async function learn(cwd, slug, options = {}) {
   await getTask(cwd, slug);
@@ -66,7 +67,7 @@ async function taskTitle(dir, meta) {
 async function holdoutSummary(dir) {
   const sealed = await readSealed(dir);
   if (!sealed) return null;
-  const [id] = await loopIds(dir), state = id ? await readState(dir, id).catch(() => null) : null, final = state?.sealed?.sealId === sealed.sealId && sealed.decision ? state.sealed.final : null;
+  const id = await newestTaskLoop(dir), state = id ? await readState(dir, id).catch(() => null) : null, final = state?.sealed?.sealId === sealed.sealId && sealed.decision ? state.sealed.final : null;
   return `Sealed acceptance tests: ${sealed.tests} written by ${sealed.sealer.human ? `${sealed.sealer.human} (human)` : `${sealed.sealer.provider} (${sealed.sealer.family})`}, never seen by the builders (${sealed.builders.join(', ') || '—'}).${final ? `\nLast loop: ${final.passed}/${final.total} pass${final.OI !== null ? ` · overfitting index ${final.OI >= 0 ? '+' : ''}${final.OI} pp` : ''}.` : ''}\nDecision: ${sealed.decision ? `${sealed.decision.decision === 'commit' ? `committed as ${sealed.decision.protect ? 'protected ' : ''}regression tests` : 'discarded'} by ${sealed.decision.by}` : 'pending (maverick unseal)'}.`;
 }
 
@@ -98,7 +99,9 @@ async function openPr(cwd, slug, options = {}) {
   if (!await exists(draft)) return fail(`PR-DRAFT.md is missing; write it with maverick pr ${slug}, or run maverick flow run pr ${slug}`);
   const { title, body } = splitDraft(await readFile(draft, 'utf8'), await taskTitle(dir, meta));
   let result;
-  try { result = await openPullRequest(cwd, { task: slug, title, body, settings: config.pr || {} }); } catch (error) { return fail(error.message); }
+  // With proof.onPullRequest, the commit carries its signed receipt to the provider in refs/notes/maverick.
+  const beforePush = config.proof?.onPullRequest ? async () => { const signed = await signProof(cwd, slug); return { refs: signed.noted ? [NOTES_REF] : [], proof: { keyid: signed.keyid, commit: signed.noted } }; } : undefined;
+  try { result = await openPullRequest(cwd, { task: slug, title, body, settings: config.pr || {}, beforePush }); } catch (error) { return fail(error.message); }
   await writeTaskMeta(dir, { ...await taskMeta(dir), pullRequest: { provider: result.provider, url: result.url, ...(result.number && { number: result.number }), branch: result.branch, base: result.base, opened: result.opened, at: new Date().toISOString() } });
   if (options.json) return output(JSON.stringify({ ok: true, ...result }, null, 2));
   output([
@@ -107,6 +110,8 @@ async function openPr(cwd, slug, options = {}) {
     `✓ branch ${result.branch}${result.createdBranch ? ' (created)' : ''}`,
     ...(result.commit ? [`✓ committed ${result.commit}: ${title}`] : []),
     `✓ pushed to ${result.remote}`,
+    ...(result.proof ? [`✓ proof receipt signed by ${result.proof.keyid.slice(0, 16)}${result.proof.commit ? ` on ${result.proof.commit.slice(0, 12)}` : ''}`] : []),
+    ...(result.refs || []).map(item => (item.pushed ? `✓ pushed ${item.ref}` : `WARN ${item.ref} was not pushed (${item.reason}); push it with git push ${result.remote} ${item.ref}`)),
     result.opened ? `✓ pull request${result.number ? ` #${result.number}` : ''} ${result.existing ? 'already open' : 'opened'}: ${result.url}` : `→ ${result.reason}${result.url ? `\n  Open it at: ${result.url}` : ''}`,
     `\nOnce it merges, finish the task: maverick done ${slug}`
   ].join('\n'));

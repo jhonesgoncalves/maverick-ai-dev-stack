@@ -8,6 +8,7 @@ import { getTask, listTasks } from '../core/tasks.js';
 import { loadConfig } from '../core/config.js';
 import { captureOutput, sectionBody } from '../core/util.js';
 import { loadGraph, STATUSES } from '../subtasks/graph.js';
+import { readExplainBack } from '../proof/explain.js';
 
 // Lens reads task state straight from the task files, the same way the CLI does, and changes it
 // only by running Maverick commands: the cockpit never has its own copy of the truth.
@@ -48,6 +49,8 @@ async function taskFlows(cwd, dir, preset, stage) {
     result.push({
       name: flow.name, description: flow.description, source: flow.source, contract: flow.contract,
       gates: gates.map(gate => ({ id: gate.id, type: gate.type, run: gate.run, severity: gate.severity, description: gate.description, prompt: gate.prompt })),
+      // A v2 flow is drawn as its DAG, each node colored by its output in the last run.
+      ...(flow.nodes && { graph: { nodes: flow.nodes.map(item => ({ id: item.id, type: item.type, ...(item.outcome && { outcome: item.outcome }), ...(item.rubric && { rubric: item.rubric }), ...(item.type === 'agent' && { permission: item.permission }) })), edges: flow.edges.map(edge => ({ from: edge.from, to: edge.to, when: [edge.when].flat() })) } }),
       status: state.status || 'not run', approvals: state.approvals || {}, autoApprove: autoApproves(config, flow.name), lastRun: state.runs.at(-1) || null,
       history: state.runs.slice(-10).map(run => ({ at: run.at, outcome: run.outcome, iteration: run.iteration }))
     });
@@ -89,7 +92,10 @@ export async function taskDetail(cwd, slug) {
     scope: pathReferences([sectionBody(techspec, 'File References'), sectionBody(techspec, 'Impact')].join('\n'), { includeNew: true }),
     criteria, subtasks, subtaskProblems: graph.problems, statuses: STATUSES, artifacts, flows,
     evidence: artifacts.some(item => item.file === 'EVIDENCE.md'), activity: activityOf(flows, artifacts, meta),
-    pullRequest: meta.pullRequest || null, done: meta.done || null
+    pullRequest: meta.pullRequest || null, done: meta.done || null,
+    // The review: the proof tree per criterion (maverick attention) and the explain-back questions.
+    proofTree: await readFile(join(dir, 'review-budget.json'), 'utf8').then(JSON.parse).catch(() => null),
+    explainBack: await readExplainBack(dir)
   };
 }
 

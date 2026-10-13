@@ -7,6 +7,7 @@ import { applyChanges, lockEntry, planInstall, readLock, writeLock } from '../ca
 import { loadConfig } from '../core/config.js';
 import { buildStagePrompt, parseGeneration, slugFromIdea, stageSkill, workflowForIdea } from '../core/generation.js';
 import { groundChange } from '../core/grounding.js';
+import { recordGrounding } from '../memory/precision.js';
 import { heading, keyword, languageName, languageRule, projectLanguage } from '../core/language.js';
 import { STAGE_SKILLS, taskStage } from '../core/pipeline.js';
 import { artifactForStage, planningStages, requirePreset } from '../core/presets.js';
@@ -108,6 +109,8 @@ async function newTask(cwd, idea, options = {}) {
   }
   const { dir, meta, preset } = await getTask(cwd, slug), status = await taskStage(dir, preset, slug);
   const ground = await groundChange(cwd, meta.idea || '', { exclude: slug });
+  // What grounding suggested now is measured later against what the task really changed (maverick grounding).
+  await recordGrounding(dir, ground).catch(() => {});
   if (options.headless) return generate(cwd, slug, undefined, options);
   if (options.json) return output(JSON.stringify({ task: slug, created: !resumed, idea: meta.idea, workflow: preset.id, stage: status.stage, next: status.next, grounding: { relevant: ground.relevant.map(item => item.path), tests: ground.tests, routes: ground.routes.length } }, null, 2));
   output(`${brand()} / NEW\n${resumed ? '↻ resuming' : '✓ task created'}: ${slug}  (${rel(cwd, dir)})\nIdea: ${meta.idea}\nWorkflow: ${preset.name}${reason ? ` (${reason})` : ''}\nPipeline: ${stageLine(preset, status.stage)}${planningStages(preset).includes(status.stage) ? '' : ` → ${status.stage.toUpperCase()}`}\nGrounded in: ${ground.relevant.slice(0, 3).map(item => item.path).join(', ') || 'no matching files'}${ground.relevant.length > 3 ? ` (+${ground.relevant.length - 3} more)` : ''}${ground.pastTasks.length ? `\nSimilar earlier tasks: ${ground.pastTasks.slice(0, 3).map(item => item.task).join(', ')}` : ''}${ground.owners.length ? `\nAsk: ${[...new Set(ground.owners.map(item => item.owner))].slice(0, 3).join(', ')} (most commits on these files)` : ''}`);

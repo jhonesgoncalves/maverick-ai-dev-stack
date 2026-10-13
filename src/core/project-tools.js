@@ -58,7 +58,7 @@ export async function executeCommand(cwd, command, subdir = '', limit = 12000, {
   return new Promise(resolve => {
     const detached = process.platform !== 'win32' && Boolean(timeoutMs || signal);
     // The sealed-test key never reaches a command a check runs: those run code an agent wrote.
-    const child = spawn(bin, args, { cwd: subdir ? join(cwd, subdir) : cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached, env: { ...process.env, MAVERICK_SEAL_KEY: undefined, ...env } });
+    const child = spawn(bin, args, { cwd: subdir ? join(cwd, subdir) : cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached, env: { ...process.env, MAVERICK_SEAL_KEY: undefined, MAVERICK_PROOF_KEY: undefined, ...env } });
     let output = '', timedOut = false, aborted = false, settled = false;
     const kill = sig => { try { if (detached) process.kill(-child.pid, sig); else child.kill(sig); } catch { /* already gone */ } };
     const stop = () => { if (child.exitCode !== null) return; kill('SIGTERM'); setTimeout(() => { if (child.exitCode === null) kill('SIGKILL'); }, 3000).unref(); };

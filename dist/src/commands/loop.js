@@ -1,10 +1,13 @@
 import { createInterface } from 'node:readline/promises';
 import { join } from 'node:path';
 import { getTask } from '../core/tasks.js';
-import { brand, output, rel } from '../core/util.js';
+import { brand, closest, output, rel } from '../core/util.js';
 import { cleanLoop, loopStatus, planLoop, releaseNotes, requestStop, runLoop, verifyLoop } from '../loop/engine.js';
 import { readLedger } from '../loop/ledger.js';
-import { loopIds, loopPaths } from '../loop/model.js';
+import { loopIds, loopPaths, newestTaskLoop } from '../loop/model.js';
+import { replayRecorded } from '../loop/replay.js';
+import { forkLoop } from '../loop/fork.js';
+import { planWorkGraph, runWorkGraph } from '../loop/workgraph.js';
 import { harvestProposals } from '../memory/proposals.js';
 import { holdoutLine } from '../sealed/run.js';
 import { noteCount, scoreLine, taintLine, tokens } from '../loop/report.js';
@@ -12,7 +15,7 @@ import { dryRunPayload, printer } from './agent.js';
 
 const str = value => (typeof value === 'string' && value ? value : undefined);
 const usd = value => (typeof value === 'number' ? `$${value.toFixed(value < 1 ? 4 : 2)}` : '—');
-const BOOLEAN_FLAGS = ['worktree', 'inPlace', 'resume', 'new', 'dryRun', 'json', 'quiet', 'judge', 'afterIteration', 'all', 'deleteBranch', 'yes'];
+const BOOLEAN_FLAGS = ['worktree', 'inPlace', 'resume', 'new', 'dryRun', 'json', 'quiet', 'judge', 'afterIteration', 'all', 'deleteBranch', 'yes', 'plan'];
 
 /** Prints loop events as they happen. JSON mode stays silent until the summary; quiet keeps one line per iteration. */
 function reporter(cwd, options) {
@@ -46,7 +49,7 @@ function summary(cwd, taskDir, { state, outcome, reason, next }) {
     loopId: state.loopId, task: state.task, mode: state.mode, outcome, reason, next, iterations: state.iterations.length, accepted: state.spent.accepted,
     spent: state.spent, budgets: state.budgets, checkpoint: state.checkpoint && { n: state.checkpoint.n, ref: state.checkpoint.ref, score: state.checkpoint.score },
     escalation: state.escalation, disputes: state.iterations.at(-1)?.agent?.disputes || [], questions: state.iterations.at(-1)?.agent?.questions || [],
-    report: rel(cwd, join(taskDir, 'LOOP.md')), worktree: state.worktree
+    report: rel(cwd, join(taskDir, state.lane ? `LOOP-${state.lane}.md` : 'LOOP.md')), worktree: state.worktree, ...(state.lane && { lane: state.lane, only: state.only })
   };
 }
 
@@ -76,6 +79,8 @@ Next: ${plan.work.mode === 'subtask' ? `subtask ${plan.work.subtask.id} ${plan.w
   // The error ratchet: this loop's rollbacks, rejections, escalations and disputes become proposals for a human.
   const learned = await harvestProposals(cwd, { task: slug }).catch(() => null);
   const payload = { ...summary(cwd, dir, result), ...(learned && { proposals: { created: learned.created.map(item => item.id), updated: learned.updated } }) };
+  // A lane's done is its subtasks: the whole change is checked where the lanes meet.
+  if (result.state.lane && result.outcome === 'done') { payload.next = `Lane ${result.state.lane} is done on ${result.state.worktree?.branch}; its work joins the others at the fan-in.`; result.next = payload.next; }
   if (options.json) output(JSON.stringify(payload, null, 2));
   else output(`\nOutcome: ${result.outcome.toUpperCase()}${result.reason ? ` — ${result.reason}` : ''}\n${result.next}\nSpent: ${result.state.spent.iterations} iteration(s), ${result.state.spent.accepted} accepted · ${Math.round(result.state.spent.activeMs / 60000)} min · ${usd(result.state.spent.costUsd)}${result.state.spent.costUnknown ? ` (+${result.state.spent.costUnknown} run(s) without a reported cost)` : ''}${result.state.spent.tokens ? ` · ${tokens(result.state.spent.tokens)} tokens` : ''}\n${result.state.sealed?.final && result.state.sealed.log?.at(-1)?.final ? `Holdout: ${holdoutLine(result.state.sealed.final)}\n` : ''}Report: ${payload.report}${['stalled-escalated', 'disputed', 'needs-human', 'holdout-gap', 'integrity-violation'].includes(result.outcome) ? `\nEscalation: ${rel(cwd, join(dir, 'LOOP-ESCALATION.md'))}` : ''}${learned?.created.length ? `\nLearned: ${learned.created.length} new rule proposal(s) from this loop's failures; review them with maverick proposals` : ''}`);
   // Only "done" exits zero, so scripts and agents can rely on the exit code.
@@ -129,7 +134,7 @@ const describe = entry => {
   if (entry.type === 'subtask-done') return `subtask ${d.id}`;
   if (entry.type === 'judge') return `#${d.n} ${d.scope} ${d.status} · ${(d.verdicts || []).map(item => `${item.provider} ${item.verdict || '—'}`).join(', ')}`;
   if (entry.type === 'baseline' || entry.type === 'resume') return d.score ? `${d.score.passed}/${d.score.blocking} gates pass, ${d.score.failingCount} failing${entry.type === 'resume' && d.recovered ? ` · recovered #${d.recovered.n}` : ''}` : '';
-  if (entry.type === 'rollback' || entry.type === 'flake') return JSON.stringify(d).slice(0, 100);
+  if (entry.type === 'flake') return `#${d.n} flaky: ${(d.gates || []).join(', ')}`;
   if (entry.type === 'human-ack') return `${d.by}${d.note ? `: ${d.note}` : ''}`;
   if (entry.type === 'drift') return Object.keys(d).filter(key => key !== 'oracleDigest').map(key => (key === 'oracle' ? `oracle files ${d.oracle.files.slice(0, 3).join(', ')}` : key)).join(', ');
   if (entry.type === 'sealed') return `${d.scope} · query ${d.query} · ${d.total !== undefined ? `${d.passed}/${d.total}` : 'withheld'}${d.exposed !== 'none' ? ` · builder saw ${d.exposed}` : ''}`;
@@ -141,11 +146,55 @@ const describe = entry => {
 
 async function log(cwd, slug, options) {
   const { dir } = await getTask(cwd, slug);
-  const id = str(options.loop) || (await loopIds(dir))[0];
+  const id = str(options.loop) || await newestTaskLoop(dir);
   if (!id) throw new Error(`no loop has run for ${slug}`);
   const entries = await readLedger(loopPaths(dir, id).ledger);
   if (options.json) return output(JSON.stringify(entries, null, 2));
   output(`${brand()} / LOOP LOG ${slug} (${id})\n\n${entries.map(entry => `${String(entry.seq).padStart(3)} ${entry.at.slice(11, 19)} ${entry.type.padEnd(15)} ${describe(entry)}`).join('\n')}`);
+}
+
+async function replay(cwd, slug, options) {
+  const result = await replayRecorded(cwd, slug, { loop: options.loop, set: options.set === true ? [] : options.set });
+  if (options.json) return output(JSON.stringify(result, null, 2));
+  const mark = step => (step.same ? ' ' : '≠');
+  output(`${brand()} / LOOP REPLAY ${slug} (${result.loopId})
+Recorded: ${result.recorded.iterations} iteration(s) · ${result.recorded.outcome}${result.recorded.reason ? ` — ${result.recorded.reason}` : ''}
+
+${result.steps.map(step => `${mark(step)} #${String(step.n).padEnd(3)} ${String(step.scope).padEnd(5)} ${String(step.provider).padEnd(12)} ${step.decision.padEnd(9)}${step.decision !== step.recorded.decision ? ` (was ${step.recorded.decision})` : ''}${step.signals.length ? ` · ${step.signals.join(', ')}` : ''}${step.escalation ? ` → ${step.escalation.rung}` : ''}${(step.escalation?.rung || null) !== step.recorded.escalation ? ` (was ${step.recorded.escalation || 'no escalation'})` : ''}`).join('\n') || 'No iteration replayed.'}
+
+${result.sentence}
+${result.notes.map(note => `NOTE ${note}`).join('\n')}`);
+}
+
+/** `loop fork <task> --from <n>`: a new loop from a recorded checkpoint, with another provider, in a worktree of its own. */
+async function fork(cwd, slug, options) {
+  if (options.from === undefined || options.from === true) throw new Error('use: maverick loop fork <task> --from <iteration> [--provider id] [--model m] [--effort e] [--loop id]');
+  const result = await forkLoop({ cwd, task: slug, from: options.from, loop: str(options.loop), options: { ...options, from: undefined, loop: undefined }, emit: reporter(cwd, { ...options, quiet: true }) });
+  if (options.json) return output(JSON.stringify(result, null, 2));
+  output(`${brand()} / LOOP FORK ${slug}
+From loop ${result.from.loopId}, iteration ${result.from.iteration} (${result.from.checkpoint.slice(0, 10)})${result.provider ? ` · ${result.provider}` : ''}
+Fork: ${result.outcome.toUpperCase()}${result.reason ? ` — ${result.reason}` : ''} · ${result.spent ? `${result.spent.iterations} iteration(s), ${usd(result.spent.costUsd)}` : '—'}
+Original: ${result.original.outcome} · ${result.original.spent?.iterations ?? '?'} iteration(s), ${usd(result.original.spent?.costUsd)}${result.ref ? `\nResult: ${result.ref} (compare with git diff ${result.from.checkpoint.slice(0, 10)} ${result.ref})` : ''}\nWorktree: ${result.location}`);
+}
+
+/** `loop graph <task>`: the subtasks in parallel lanes where the code allows it, merged and checked at each fan-in. */
+async function graph(cwd, slug, options) {
+  const lanesLine = lanes => lanes.map(lane => `${lane.name || lane.id} [${lane.subtasks.join(', ')}]${lane.outcome ? ` ${lane.outcome}` : ''}`).join(' · ');
+  const collision = item => `${item.a} ↔ ${item.b}: ${item.reasons.map(reason => `${reason.kind} ${reason.files.slice(0, 3).join(', ')}`).join('; ')}`;
+  if (options.plan) {
+    const plan = await planWorkGraph(cwd, slug, { maxLanes: options.maxLanes });
+    if (options.json) return output(JSON.stringify(plan, null, 2));
+    return output(`${brand()} / LOOP GRAPH ${slug} (plan)\nReady: ${plan.ready.map(item => item.id).join(', ') || 'none'}${plan.waiting.length ? ` · waiting: ${plan.waiting.join(', ')}` : ''}\nSignals: declared files${plan.signals.graph ? ', import graph (2 hops)' : ''}${plan.signals.coupling ? `, ${plan.signals.coupling} change-coupled pair(s)` : ''}\n\nPredicted collisions:\n${plan.collisions.map(item => `  ${collision(item)}`).join('\n') || '  none'}\n\nLanes: ${lanesLine(plan.lanes)}`);
+  }
+  const record = await runWorkGraph({ cwd, task: slug, options, emit: event => {
+    if (options.json || options.quiet) return;
+    if (event.type === 'wave-start') output(`\n— Wave ${event.wave.n}: ${lanesLine(event.wave.lanes)}${event.wave.predicted.length ? `\n  predicted: ${event.wave.predicted.map(collision).join(' | ')}` : ''}`);
+    else if (event.type === 'loop-end' && event.lane) output(`  [${event.lane}] ${event.outcome.toUpperCase()}${event.reason ? ` — ${event.reason}` : ''}`);
+    else if (event.type === 'wave-end') output(`  fan-in: ${event.wave.score ? `${event.wave.score.passed}/${event.wave.score.blocking} gates pass, ${event.wave.score.failingCount} failing` : '—'}${event.wave.real.length ? ` · real collisions: ${event.wave.real.map(item => `${item.kind} ${item.lane || item.lanes?.join(', ')}${item.files?.length ? ` (${item.files.join(', ')})` : ''}`).join('; ')}` : ''}`);
+  } });
+  if (options.json) output(JSON.stringify(record, null, 2));
+  else output(`\nOutcome: ${record.outcome.toUpperCase()}${record.reason ? ` — ${record.reason}` : ''}\nWaves: ${record.waves.length} · lanes: ${record.metrics.lanes} · wall ${Math.round(record.metrics.wallMs / 1000)}s vs ${Math.round(record.metrics.sequentialMs / 1000)}s of lane work${record.metrics.speedup ? ` (×${record.metrics.speedup})` : ''}\nCollisions: ${record.metrics.predicted} predicted · ${record.metrics.real} real${record.metrics.missed ? ` (${record.metrics.missed} not predicted)` : ''}\nBranch: ${record.branch}`);
+  if (record.outcome !== 'done') throw new Error(`work graph outcome: ${record.outcome}${record.reason ? `: ${record.reason}` : ''}`);
 }
 
 async function release(cwd, slug, options) {
@@ -164,7 +213,7 @@ async function confirm(question, options) {
 
 async function clean(cwd, slug, options) {
   const { dir } = await getTask(cwd, slug);
-  const ids = options.all ? await loopIds(dir) : [str(options.loop) || (await loopIds(dir))[0]].filter(Boolean);
+  const ids = options.all ? await loopIds(dir) : [str(options.loop) || await newestTaskLoop(dir)].filter(Boolean);
   if (!ids.length) throw new Error(`no loop has run for ${slug}`);
   if (!await confirm(`Remove the checkpoint refs${options.deleteBranch ? ', the worktree and its branch' : ' and worktree'} of ${ids.length} loop(s) of ${slug}? The ledger and state stay.`, options)) return output('Nothing changed.');
   const results = [];
@@ -182,9 +231,14 @@ async function loopCommand(cwd, [action, slug], options = {}) {
   if (action === 'log') return log(cwd, slug, options);
   if (action === 'clean') return clean(cwd, slug, options);
   if (action === 'release') return release(cwd, slug, options);
-  throw new Error('use loop run <task>, loop status <task>, loop stop <task>, loop verify <task>, loop log <task>, loop release <task>, or loop clean <task>');
+  if (action === 'replay') return replay(cwd, slug, options);
+  if (action === 'fork') return fork(cwd, slug, options);
+  if (action === 'graph') return graph(cwd, slug, options);
+  const guess = closest(action, ['run', 'status', 'stop', 'verify', 'log', 'replay', 'fork', 'graph', 'release', 'clean']);
+  if (guess) throw new Error(`unknown loop action "${action}"; did you mean "maverick loop ${guess}${slug ? ` ${slug}` : ''}"?`);
+  throw new Error('use loop run <task>, loop status <task>, loop stop <task>, loop verify <task>, loop log <task>, loop replay <task>, loop fork <task> --from <n>, loop graph <task> [--plan], loop release <task>, or loop clean <task>');
 }
 
 export const loopCommands = [
-  { id: 'loop', description: 'Run an agent loop the harness decides: checkpoints, rollback, integrity guard, budgets, escalation and a verifiable ledger.', aliases: [], usage: 'loop status|run|stop|verify|log|release|clean <task> [--dry-run] [--worktree] [--max-iterations n] [--max-cost usd] [--max-tokens n] [--judge] [--feedback detailed|criteria|generic] [--sealed auto|required|off] [--resume --note "..."]', run: ({ cwd, rest, options }) => loopCommand(cwd, rest, options) }
+  { id: 'loop', description: 'Run an agent loop the harness decides: checkpoints, rollback, integrity guard, budgets, escalation and a verifiable ledger.', aliases: [], usage: 'loop status|run|stop|verify|log|replay|fork|graph|release|clean <task> [--dry-run] [--worktree] [--max-iterations n] [--max-cost usd] [--max-tokens n] [--judge] [--feedback detailed|criteria|generic] [--sealed auto|required|off] [--resume --note "..."] [--lane <id> --only 01,02 --start-point <ref>] [replay: --set stall.window=3] [fork: --from <n> --provider id] [graph: --plan --max-lanes n]', run: ({ cwd, rest, options }) => loopCommand(cwd, rest, options) }
 ];

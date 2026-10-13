@@ -6,7 +6,7 @@ import { readState as readFlowState } from '../flows/engine.js';
 import { buildGraph, impactOf } from '../intel/graph.js';
 import { churn } from '../intel/hotspots.js';
 import { git } from '../loop/git.js';
-import { loopIds, loopPaths } from '../loop/model.js';
+import { loopPaths, newestTaskLoop } from '../loop/model.js';
 import { isTestPath } from '../memory/contracts.js';
 import { readSealed } from '../sealed/model.js';
 import { sealReport } from '../sealed/seal.js';
@@ -79,7 +79,7 @@ async function changeHunks(cwd, against) {
  */
 export async function reviewBase(cwd, taskDir, config = {}) {
   const ok = async ref => (ref && (await git(cwd, ['rev-parse', '--verify', '-q', `${ref}^{commit}`])).ok ? ref : null);
-  const [id] = await loopIds(taskDir);
+  const id = await newestTaskLoop(taskDir);
   const start = id ? (await readFile(loopPaths(taskDir, id).ledger, 'utf8').catch(() => '')).split('\n')[0] : '';
   const loopBase = start ? JSON.parse(start).data?.baseHead : null;
   if (await ok(loopBase)) return loopBase;
@@ -93,7 +93,7 @@ export async function reviewBase(cwd, taskDir, config = {}) {
 
 /** The newest loop's state, for its integrity warnings and judge verdicts. */
 async function latestLoop(taskDir) {
-  const [id] = await loopIds(taskDir);
+  const id = await newestTaskLoop(taskDir);
   return id ? JSON.parse(await readFile(loopPaths(taskDir, id).state, 'utf8').catch(() => 'null')) : null;
 }
 

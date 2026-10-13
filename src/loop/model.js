@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EFFORTS, INTEGRITY_LEVELS, LOOP_LADDER_STEPS } from '../core/enums.js';
 import { DEFAULT_FEEDBACK, FEEDBACK_LEVELS } from './feedback.js';
@@ -95,11 +95,14 @@ export function loopSettings(config = {}, flow, flags = {}) {
   };
 }
 
-/** Where a task's loops live: `<task>/loops/<loopId>/`, git-ignored, next to `flows/` and `runs/`. */
-export function loopPaths(taskDir, loopId) {
+/** A lane's id: lowercase letters, digits and dashes, short enough for a branch and a folder name. */
+export const LANE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** Where a task's loops live: `<task>/loops/<loopId>/`, git-ignored, next to `flows/` and `runs/`. A lane has a lock of its own. */
+export function loopPaths(taskDir, loopId, lane = null) {
   const root = join(taskDir, 'loops'), dir = loopId ? join(root, loopId) : null;
   return {
-    root, dir, taskLock: join(root, 'lock'),
+    root, dir, taskLock: join(root, lane ? `lock-${lane}` : 'lock'),
     ...(dir && { state: join(dir, 'state.json'), ledger: join(dir, 'ledger.jsonl'), stop: join(dir, 'stop.json'), gitIndex: join(dir, 'git-index'), inflight: join(dir, 'inflight'), rejected: join(dir, 'rejected') })
   };
 }
@@ -115,6 +118,18 @@ export const LOOP_ID = /^\d{8}-\d{6}-[0-9a-f]{4}$/;
 /** Every loop of a task, newest first. */
 export async function loopIds(taskDir) {
   return (await readdir(join(taskDir, 'loops'), { withFileTypes: true }).catch(() => [])).filter(entry => entry.isDirectory() && LOOP_ID.test(entry.name)).map(entry => entry.name).sort().reverse();
+}
+
+/** Whether a loop is the task's own (or one of its lanes): arena competitors and forks are records of experiments. */
+export async function isTaskLoop(taskDir, loopId) {
+  const state = await readFile(join(taskDir, 'loops', loopId, 'state.json'), 'utf8').then(JSON.parse).catch(() => null);
+  return Boolean(state) && !state.arena && !state.fork;
+}
+
+/** The newest of the task's own loops, or null. */
+export async function newestTaskLoop(taskDir) {
+  for (const id of await loopIds(taskDir)) if (await isTaskLoop(taskDir, id)) return id;
+  return null;
 }
 
 /** What a human does next after each outcome. */

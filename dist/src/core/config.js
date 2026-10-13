@@ -88,6 +88,10 @@ export const configSchema = z.looseObject({
     draft: z.boolean().optional(),
     commit: z.boolean().optional()
   }).optional(),
+  // Explain-back (experimental): before approval, a read-only agent asks the reviewer three questions about the change. Never blocks.
+  review: z.object({ explainBack: z.boolean().optional(), provider: z.string().min(1).optional() }).optional(),
+  // Proof receipts (`maverick proof`): where the signing key lives, and whether the pr flow signs the commit it pushes.
+  proof: z.object({ keyFile: z.string().min(1).optional(), onPullRequest: z.boolean().optional() }).optional(),
   // Loops: budgets, escalation and guardrails for `maverick loop run`. Defaults live in src/loop/model.js.
   loop: z.object({
     yield: z.object({ enabled: z.boolean().optional(), window: z.number().int().min(3).max(20).optional(), metric: z.enum(['tokens', 'cost']).optional(), floor: z.number().nonnegative().optional() }).optional(),

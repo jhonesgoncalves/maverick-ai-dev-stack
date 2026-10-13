@@ -43,8 +43,29 @@ function overview(t) {
     <div class="section"><h4>Acceptance criteria${t.criteria.length ? ` · ${traced}/${t.criteria.length} have a test` : ''}</h4>
       ${t.criteria.length ? `<div class="card">${t.criteria.map(c => `<div class="ac"><code>${esc(c.id)}</code><p>${esc(c.text)}</p><div class="cov">${t.workflow === 'spec-driven' ? pill('spec', c.specified ? 'info' : 'warn') : ''}${pill(c.tested ? 'test' : 'no test', c.tested ? 'ok' : 'warn')}${c.tasks.length ? pill(c.tasks.join(' '), '') : pill('no task', t.subtasks.length ? 'warn' : '')}</div></div>`).join('')}</div>`
         : `<div class="card empty">No acceptance criteria yet. They come from the PRD.</div>`}</div>
+    ${proofTree(t)}
+    ${explainBack(t)}
     <div class="section scope"><div><h4>Files in scope</h4><div class="card">${t.scope.length ? `<ul>${t.scope.map(s => `<li><code>${esc(s)}</code></li>`).join('')}</ul>` : '<div class="empty" style="padding:20px">Declared by the technical spec.</div>'}</div></div>
       <div><h4>Out of scope</h4><div class="card">${t.nonGoals.length ? `<ul>${t.nonGoals.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : '<div class="empty" style="padding:20px">Declared by the PRD.</div>'}</div></div></div>`;
+}
+
+const VERDICT = { met: ['ok', 'met'], rejected: ['bad', 'rejected'], escaped: ['bad', 'escaped the visible checks'], unjudged: ['', 'not judged'] };
+
+/** The proof tree per criterion: the files that serve it, the tests that prove it, the judges' verdicts. */
+function proofTree(t) {
+  const tree = t.proofTree;
+  if (!tree?.tree?.length) return '';
+  const files = list => list.length ? list.map(file => `<code>${esc(file)}</code>`).join(' ') : '<span class="faint">—</span>';
+  return `<div class="section"><h4>Proof tree · ${tree.tree.filter(node => node.verdict === 'met').length}/${tree.tree.length} criteria met <span class="faint" style="font-weight:400">· review ~${esc(tree.minutes.low)}–${esc(tree.minutes.high)} min</span></h4><div class="card">${tree.tree.map(node => { const [tone, label] = VERDICT[node.verdict] || ['', node.verdict]; return `<div class="ac"><code>${esc(node.id)}</code><div style="min-width:0"><p>${esc(node.text)}</p><div class="faint" style="font-size:12px;margin-top:4px">files ${files(node.files)} · tests ${files(node.tests)}${node.judges.length ? ` · judges ${node.judges.map(entry => `${esc(entry.by)} ${entry.met ? '✓' : '✗'}`).join(', ')}` : ''}</div></div><div class="cov">${pill(label, tone)}</div></div>`; }).join('')}
+    ${tree.focus.length ? `<div class="card-body" style="border-top:1px solid var(--line-soft)"><b style="font-size:12px">Read first</b>${tree.focus.map(item => `<div class="mono" style="font-size:12px">${esc(item.file)}:${esc(item.start)} <span class="faint">risk ${esc(item.risk)} · ${esc(item.why.join('; '))}</span></div>`).join('')}</div>` : ''}</div></div>`;
+}
+
+/** Explain-back: three questions about the change; the reviewer's answers go to REVIEW.md. Never blocks. */
+function explainBack(t) {
+  const state = t.explainBack;
+  if (!state?.questions?.length) return '';
+  return `<div class="section"><h4>Explain-back · ${state.questions.filter(item => item.answer).length}/${state.questions.length} answered <span class="faint" style="font-weight:400">· asked by ${esc(state.agent)}, never blocks</span></h4><div class="card">${state.questions.map(item => `<div class="card-body" style="border-top:1px solid var(--line-soft)"><p><b>${esc(item.id)}.</b> ${esc(item.question)}</p>${item.files.length ? `<div class="faint mono" style="font-size:12px">${item.files.map(esc).join(', ')}</div>` : ''}
+    ${item.answer ? `<p class="ok-text" style="margin-top:6px">${esc(item.answer.text)} <span class="faint">— ${esc(item.answer.by)}</span></p>` : `<textarea rows="2" maxlength="4000" data-explain="${esc(item.id)}" placeholder="Your answer, from what the change does" style="width:100%;margin-top:6px"></textarea><button class="btn sm" style="margin-top:6px" data-act="explain-answer" data-id="${esc(item.id)}">${icon('check')}Record answer</button>`}</div>`).join('')}</div></div>`;
 }
 
 function subtasks(t) {
@@ -68,6 +89,24 @@ function subtasks(t) {
         ${s.ready ? `<button class="btn sm primary" data-act="start-subtask" data-id="${esc(s.id)}">${icon('play')}Start</button>` : ''}</div></div>`).join('')}</div></div>`;
 }
 
+const NODE_TONE = { pass: 'ok', done: 'ok', approve: 'ok', yes: 'ok', refactor: 'ok', upheld: 'ok', fail: 'bad', reject: 'bad', 'rolled-back': 'bad', failed: 'bad', revise: 'bad', stalled: 'warn', pending: 'warn', 'needs-human': 'warn', skipped: 'faint' };
+
+/** A v2 flow's DAG in layers (depth = longest path from a root), each node colored by its last output. */
+function flowGraph(graph, run) {
+  const outputs = new Map((run?.nodes || []).map(item => [item.id, item.output]));
+  const depth = new Map(), incoming = id => graph.edges.filter(edge => edge.to === id);
+  const depthOf = id => { if (depth.has(id)) return depth.get(id); depth.set(id, 0); const d = Math.max(-1, ...incoming(id).map(edge => depthOf(edge.from))) + 1; depth.set(id, d); return d; };
+  graph.nodes.forEach(item => depthOf(item.id));
+  const layers = [];
+  for (const item of graph.nodes) (layers[depth.get(item.id)] ||= []).push(item);
+  const W = 150, H = 54, pad = 12, place = new Map();
+  layers.forEach((layer, x) => layer.forEach((item, y) => place.set(item.id, { x: pad + x * W, y: pad + y * H })));
+  const width = pad * 2 + layers.length * W - 30, height = pad * 2 + Math.max(...layers.map(layer => layer.length)) * H - 14;
+  const edges = graph.edges.map(edge => { const a = place.get(edge.from), b = place.get(edge.to), x1 = a.x + 120, y1 = a.y + 20, x2 = b.x, y2 = b.y + 20, label = edge.when.join(', '); const lit = outputs.has(edge.from) && outputs.get(edge.from) !== 'skipped' && (label === 'any' || edge.when.includes(outputs.get(edge.from))); return `<path d="M${x1},${y1} C${x1 + 18},${y1} ${x2 - 18},${y2} ${x2},${y2}" fill="none" stroke="${lit ? 'var(--accent)' : 'var(--line)'}" stroke-width="${lit ? 2 : 1}"/>${label === 'any' ? '' : `<text x="${x1 + 4}" y="${y1 + (y2 - y1) * 0.2 - 4}" font-size="9" fill="var(--muted)">${esc(label)}</text>`}`; }).join('');
+  const nodes = graph.nodes.map(item => { const p = place.get(item.id), out = outputs.get(item.id), tone = out ? NODE_TONE[out] || 'info' : ''; return `<g><title>${esc(`${item.id} (${item.type}${item.outcome ? ` ${item.outcome}` : ''})${out ? `: ${out}` : ''}`)}</title><rect x="${p.x}" y="${p.y}" width="120" height="40" rx="${item.type === 'end' ? 20 : item.type === 'decision' ? 2 : 8}" fill="var(--panel-2)" stroke="var(--${tone === 'ok' ? 'ok' : tone === 'bad' ? 'bad' : tone === 'warn' ? 'warn' : 'line'})" stroke-width="${tone && tone !== 'faint' ? 2 : 1}" opacity="${out === 'skipped' ? 0.45 : 1}"/><text x="${p.x + 60}" y="${p.y + 17}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text)">${esc(item.id)}</text><text x="${p.x + 60}" y="${p.y + 31}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(item.type === 'end' ? `end · ${item.outcome}` : `${item.type}${out ? ` · ${out}` : ''}`)}</text></g>`; }).join('');
+  return `<div style="overflow-x:auto;padding:8px 12px;border-bottom:1px solid var(--line-soft)"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Flow graph with ${graph.nodes.length} nodes">${edges}${nodes}</svg></div>`;
+}
+
 function gates(t, route) {
   if (!t.flows.length) return '<div class="card empty">No flow is available for this task.</div>';
   const flow = t.flows.find(f => f.name === route.params.get('flow')) || t.flows[0], last = flow.lastRun;
@@ -87,7 +126,7 @@ function gates(t, route) {
       <label for="ap-by">Reviewed by</label><input id="ap-by" name="by" value="${esc(reviewer())}" autocomplete="name" required placeholder="Your name">
       <label for="ap-why">Note <span class="faint">(required to request changes)</span></label><textarea id="ap-why" name="reason" rows="3" placeholder="What you checked, and anything to follow up"></textarea>
       <div class="row"><button type="button" class="btn ok" data-act="decide" data-decision="approve">${icon('check')}Approve</button><button type="button" class="btn bad" data-act="decide" data-decision="reject">${icon('x')}Request changes</button></div>
-      <p class="faint" style="margin:0;font-size:12px">${flow.autoApprove ? `Auto-approve is on: the next run of ${esc(flow.name)} approves this when every blocking check passes.` : `Approving finishes the flow when its blocking checks already pass; otherwise run ${esc(flow.name)} again.`}</p></div></form>` : '';
+      <p class="faint" style="margin:0;font-size:12px">${flow.graph ? `Your decision takes the flow down its ${esc(pending[0].id)} edges the next time ${esc(flow.name)} runs.` : flow.autoApprove ? `Auto-approve is on: the next run of ${esc(flow.name)} approves this when every blocking check passes.` : `Approving finishes the flow when its blocking checks already pass; otherwise run ${esc(flow.name)} again.`}</p></div></form>` : '';
   return `${waiting ? decision : ''}<div class="card">
     <div class="flowbar">${t.flows.length > 1 ? `<div class="seg" role="tablist">${t.flows.map(f => `<a href="#/tasks/${q(t.id)}/gates?flow=${q(f.name)}" class="${f === flow ? 'on' : ''}" role="tab" aria-selected="${f === flow}" style="height:26px;padding:0 10px;border-radius:6px;display:inline-flex;align-items:center;gap:6px;color:${f === flow ? 'var(--text)' : 'var(--muted)'};background:${f === flow ? 'var(--panel-3)' : 'none'}">${icon('flow')}${esc(f.name)}</a>`).join('')}</div>` : `<b>${icon('flow')} ${esc(flow.name)}</b>`}
       ${pill(label, tone)}
@@ -95,6 +134,7 @@ function gates(t, route) {
       ${flow.history.length ? `<span class="history" title="Last runs">${flow.history.map(h => `<i class="${(OUTCOME[h.outcome] || [''])[0]}" title="${esc(h.outcome)} · ${esc(clock(h.at))}"></i>`).join('')}</span>` : ''}
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center">${approvals.length ? `<label class="switch" title="When every blocking check passes, ${esc(flow.name)} approves its pending approval gates itself, for every task in this repository"><input type="checkbox" data-change="auto-approve" data-flow="${esc(flow.name)}" ${flow.autoApprove ? 'checked' : ''}><i aria-hidden="true"></i><span>Auto-approve</span></label>` : ''}${flow.status === 'revise' ? `<button class="btn sm" data-act="fix-agent" data-flow="${esc(flow.name)}">${icon('agent')}Fix with agent</button>` : ''}${terminal ? `<button class="btn sm" data-act="run-flow" data-flow="${esc(flow.name)}" data-reset="1">${icon('undo')}Reset and run</button>` : `<button class="btn sm primary" data-act="run-flow" data-flow="${esc(flow.name)}">${icon('play')}Run ${esc(flow.name)}</button>`}</span></div>
     <div style="padding:10px 16px;border-bottom:1px solid var(--line-soft);color:var(--muted);font-size:12.5px">${esc(flow.contract.goal.replace(/\{\{\s*task\s*\}\}/g, t.id))}</div>
+    ${flow.graph ? flowGraph(flow.graph, last) : ''}
     ${flow.gates.map(g => { const r = result(g), st = statusOf(g), approval = g.type === 'approval' ? flow.approvals[g.id] : null; return `<div class="gate"><span class="mark ${st === 'idle' || st === 'skipped' ? 'pending' : st}">${icon(mark[st])}</span>
       <div style="min-width:0"><b>${esc(g.id)}</b> <span class="pill" style="margin-left:4px">${esc(g.type === 'maverick' ? g.run : g.type)}</span>${g.severity === 'warn' ? ' <span class="pill">warn only</span>' : ''}
         <p>${esc(g.description || g.prompt || '')}</p>
@@ -253,6 +293,12 @@ function resolveOpenItems(task, id, { file, items }) {
 }
 
 export const actions = {
+  'explain-answer': async (el, { route }) => {
+    const text = $(`[data-explain="${el.dataset.id}"]`)?.value.trim();
+    if (!text) return toast('Write your answer first', 'warn');
+    try { await api('/api/explain/answer', { task: route.id, id: el.dataset.id, text, by: reviewer() || undefined }); toast(`Answer to ${el.dataset.id} recorded in REVIEW.md`); } catch (error) { return toast(error.message, 'bad'); }
+    await refreshTask(route.id);
+  },
   tab: (el, { route }) => { location.hash = `#/tasks/${q(route.id)}/${el.dataset.tab}`; },
   'copy-cmd': el => copy(el.dataset.cmd, 'Copied to clipboard'),
   run: (el, { route }) => runCommand(route.id, el.dataset.action),

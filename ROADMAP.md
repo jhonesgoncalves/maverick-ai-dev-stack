@@ -16,17 +16,19 @@
 
 - Decide: repository scorecards with uncertainty and integrity penalties, reviewed route/autonomy proposals, opt-in yield governance and typed advisory decisions, integrity canaries, capability lint, and Lens scorecard/holdout panels. Sealed suites support independent review, surface lint, disputed amendments and suspension, transcript vault-access scans and an opt-in human-decided ratchet.
 
+- The proof layer: a work graph that runs subtasks in parallel lanes where the import graph and history predict no collision, merged and checked at each fan-in; an arena of providers on one subtask, ranked by evidence and confirmed by a human; a flight recorder that replays loops under other policies and forks them from a checkpoint; signed proof receipts (in-toto, DSSE, ed25519) with Agent Trace and AI-BOM exports; explain-back questions for the reviewer; flows as typed DAGs (`maverick.flow/v2`); judges in parts for large diffs; grounding precision.
+
 ## Next
 
 - Capabilities (hooks, templates), remote and signed catalogs, and TOML merging for Codex MCP configuration.
 - Deterministic multi-round review files.
-- Parallel subtask execution in isolated worktrees, cost budgets for flows outside loops, and replaying recorded loop runs to test loop policies.
-- Memory, next steps: `why` records in the Agent Trace format, a proof tree in Lens, and grounding precision measured against the files each task really changed.
+- Cost budgets for flows outside loops, a shared budget across the lanes of a work graph, and running the independent branches of a v2 flow at once.
+- An incremental import graph (re-parsing only the changed files) for the architecture gate in very large repositories.
 - Deeper resolution (Python namespace packages, Kotlin top-level functions), and runtime capture of dependency-injection graphs.
 
 ## Later / exploratory
 
 - AST analysis, code ownership, historical insights, MCP, IDE integrations, and plugin ecosystem.
-- AST-based assertion analysis for the integrity guard, and signed (not only hash-chained) loop ledgers.
+- AST-based assertion analysis for the integrity guard, and signing each loop ledger entry (receipts already sign the ledger heads).
 
 No SaaS roadmap or telemetry commitment is implied.

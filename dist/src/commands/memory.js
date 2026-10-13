@@ -8,6 +8,7 @@ import { budgetLine, renderBudgetReport, reviewBase, reviewBudget } from '../pro
 import { changedPaths, checkContracts, harvestContracts, listContracts, overdue, readContract, reviewContract, revokeContract } from '../memory/contracts.js';
 import { acceptProposal, harvestProposals, listProposals, measureRules, rejectProposal, syncAgentsBlock } from '../memory/proposals.js';
 import { renderCriterion, renderTrace, traceCriterion, traceLine } from '../memory/why.js';
+import { groundingPrecision, groundingReport } from '../memory/precision.js';
 
 // Remember: the why of every line (why), what finished tasks promised (contract), what past
 // mistakes taught (proposals) and where a reviewer should look first (attention).
@@ -112,6 +113,9 @@ async function attention(cwd, slug, options = {}) {
     await writeFile(detailPath, renderBudgetReport(slug, budget));
     await writeFile(path, renderBudgetReport(slug, budget, { detailed: false, detailPath }));
   }
+  // Lens draws the proof tree from this file; like the task's report, it follows loop.feedback.
+  const detailed = (config.loop?.feedback || 'criteria') === 'detailed';
+  await writeFile(join(dir, 'review-budget.json'), `${JSON.stringify({ against: budget.against, at: new Date().toISOString(), minutes: budget.minutes, files: budget.files, hunks: budget.hunks, focus: budget.focus.map(item => ({ file: item.file, start: item.start, end: item.end, risk: item.risk, why: detailed ? item.why : item.brief })), tree: budget.tree.map(node => ({ ...node, judges: node.judges.map(entry => ({ by: entry.by, met: entry.met, ...(detailed && { evidence: entry.evidence }) })) })) }, null, 2)}\n`);
   if (options.json) return json({ ...budget, path: rel(cwd, path) });
   output(`${brand()} / ATTENTION ${slug}\n${budgetLine(budget)}`);
   budget.focus.forEach(item => output(`→ ${item.file}:${item.start} (risk ${item.risk}) ${item.why.join('; ')}`));
@@ -120,7 +124,22 @@ async function attention(cwd, slug, options = {}) {
   output(`Report: ${rel(cwd, path)}`);
 }
 
+/** `maverick grounding [<task>]`: how many of the files grounding suggested the task's loops really changed. */
+async function grounding(cwd, slug, options = {}) {
+  const pct = value => (value === null ? '—' : `${Math.round(value * 100)}%`);
+  if (slug) {
+    const { dir } = await getTask(cwd, slug);
+    const result = await groundingPrecision(dir);
+    if (options.json) return json({ task: slug, ...result });
+    return output(`${brand()} / GROUNDING ${slug}\n${result.measured ? `Precision ${pct(result.precision)} (${result.hits} of ${result.suggested} suggested file(s) changed) · recall ${pct(result.recall)} (${result.hits} of ${result.changed} changed file(s) suggested)${result.missed.length ? `\nNot suggested: ${result.missed.slice(0, 10).join(', ')}` : ''}${result.unused.length ? `\nSuggested, not changed: ${result.unused.slice(0, 10).join(', ')}` : ''}` : `NOTE not measured: ${result.reason}`}`);
+  }
+  const report = await groundingReport(cwd);
+  if (options.json) return json(report);
+  output(`${brand()} / GROUNDING\n${report.measured ? `Over ${report.measured} task(s): precision ${pct(report.precision)} · recall ${pct(report.recall)}` : 'No task measured yet: grounding is compared with what a task\'s loops change.'}\n${report.tasks.map(item => `${item.task.padEnd(32)} ${item.measured ? `precision ${pct(item.precision)} · recall ${pct(item.recall)}` : item.reason}`).join('\n')}`);
+}
+
 export const memoryCommands = [
+  { id: 'grounding', description: 'Grounding precision: the files maverick new suggested versus the files each task really changed.', aliases: [], usage: 'grounding [<task>] [--json]', run: ({ cwd, arg, options }) => grounding(cwd, arg, options) },
   { id: 'why', description: 'Why a line exists: its task, criterion, loop iteration, evidence, decisions and guarding contracts.', aliases: [], usage: 'why <file:line> | why <task> --ac <AC-01>', run: ({ cwd, arg, options }) => why(cwd, arg, options) },
   { id: 'contract', description: 'Living contracts left by finished tasks: list, show, harvest, check a change, revoke or review.', aliases: ['contracts'], usage: 'contract list|show <id>|harvest <task>|check [<task>] [--against <ref>]|revoke <id> --reason <why>|review <id>', run: ({ cwd, arg, third, options }) => contract(cwd, arg, third, options) },
   { id: 'proposals', description: 'Rules learned from loop failures: harvest, accept or reject, and measure whether accepted rules work.', aliases: ['proposal'], usage: 'proposals [list|harvest [<task>]|accept <id>|reject <id>|stats]', run: ({ cwd, arg, third, options }) => proposals(cwd, arg, third, options) },

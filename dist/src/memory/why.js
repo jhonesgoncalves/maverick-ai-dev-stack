@@ -44,9 +44,9 @@ async function blame(cwd, file, line, { rev } = {}) {
 }
 
 /** The tip of each loop's checkpoint chain for a task, newest loop first. Checkpoint refs first; after `loop clean`, the ledgers' records. */
-async function loopTips(cwd, taskDir, task) {
+export async function loopTips(cwd, taskDir, task) {
   const tips = new Map();
-  for (const ref of await listCheckpointRefs(cwd, task)) {
+  for (const ref of await listCheckpointRefs(cwd, task, { lanes: true })) {
     const loopId = parseTrailers((await readCommit(cwd, ref.commit))?.message).loopId;
     if (loopId && (!tips.has(loopId) || tips.get(loopId).n < ref.n)) tips.set(loopId, { loopId, n: ref.n, commit: ref.commit });
   }
@@ -85,7 +85,7 @@ export function reviewDecision(text = '') {
 }
 
 /** The task's latest flow runs, gate by gate, and the human approvals recorded on them. */
-async function flowEvidence(taskDir) {
+export async function flowEvidence(taskDir) {
   const { readdir } = await import('node:fs/promises');
   const names = (await readdir(join(taskDir, 'flows')).catch(() => [])).filter(name => name.endsWith('.json')).map(name => name.slice(0, -5));
   const gates = {}, approvals = [];
@@ -98,7 +98,7 @@ async function flowEvidence(taskDir) {
 }
 
 /** Task-level evidence and decisions: PR, completion, review, seal, flows. */
-async function taskEvidence(taskDir) {
+export async function taskEvidence(taskDir) {
   const [meta, review, sealed, flows] = await Promise.all([taskMeta(taskDir), readText(join(taskDir, 'REVIEW.md')), readSealed(taskDir), flowEvidence(taskDir)]);
   return {
     pullRequest: meta.pullRequest ? { url: meta.pullRequest.url, number: meta.pullRequest.number || null, at: meta.pullRequest.at } : null,

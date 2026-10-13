@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { sha256 } from '../capabilities/model.js';
-import { checkboxOnlyChange, checklist } from '../subtasks/graph.js';
+import { checkboxOnlyChange, checklist, writtenByHarness } from '../subtasks/graph.js';
 import { pretty } from '../core/util.js';
 
 // The harness protects itself. The files that define what "passing" means (the configuration
@@ -43,7 +43,7 @@ export async function backupProtected({ cwd, taskDir, loopDir, inflight, subtask
     if (content) { await mkdir(dirname(join(store, rel)), { recursive: true }); await writeFile(join(store, rel), content); }
     entries.push({ path, rel, hash: content ? sha256(content) : null, harness: isHarness });
   }
-  const backup = { cwd, store, entries, flowsDir: join(maverick, 'flows'), subtaskFile: subtask ? join(taskDir, 'subtasks', subtask.file) : null };
+  const backup = { cwd, taskDir, store, entries, flowsDir: join(maverick, 'flows'), subtasksDir: join(taskDir, 'subtasks'), subtaskFile: subtask ? join(taskDir, 'subtasks', subtask.file) : null };
   await writeFile(join(inflight, 'manifest.json'), pretty(backup));
   return backup;
 }
@@ -64,6 +64,8 @@ export async function checkProtected(backup) {
   for (const entry of backup.entries) {
     const content = await read(entry.path);
     if ((content ? sha256(content) : null) === entry.hash) continue;
+    // Another lane of the task changed it through the harness (a status, a harvested box): not the agent.
+    if (await harnessChanged(backup, entry, content)) continue;
     if (entry.path === backup.subtaskFile && content && entry.hash) {
       const before = (await readFile(join(backup.store, entry.rel))).toString('utf8'), after = content.toString('utf8');
       if (checkboxOnlyChange(before, after)) { checklistDelta = checklist(after).done - checklist(before).done; continue; }
@@ -86,9 +88,12 @@ export async function restoreBackup(backup) {
   for (const entry of backup.entries) {
     if (entry.harness) continue;
     const content = await read(entry.path);
-    if ((content ? sha256(content) : null) !== entry.hash) await put(backup, entry);
+    if ((content ? sha256(content) : null) !== entry.hash && !await harnessChanged(backup, entry, content)) await put(backup, entry);
   }
 }
+
+/** A subtask file whose content is the harness's latest write of it: changed by Maverick, never restored. */
+const harnessChanged = async (backup, entry, content) => Boolean(backup.subtasksDir && backup.taskDir && content && entry.path.startsWith(`${backup.subtasksDir}/`) && await writtenByHarness(backup.taskDir, entry.path, content));
 
 export async function readBackup(inflight) {
   try { return JSON.parse(await readFile(join(inflight, 'manifest.json'), 'utf8')); } catch { return null; }

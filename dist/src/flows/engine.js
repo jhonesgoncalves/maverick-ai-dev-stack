@@ -42,6 +42,8 @@ const MAVERICK_RESULTS = {
     const blocking = json.findings.filter(item => item.severity === 'block');
     return { pass: json.ok, issues: blocking.map(item => `${item.kind}: ${item.message}`), keys: blocking.map(item => `${item.kind}:${item.id}`), summary: json.touched.length ? `${json.touched.length} contract(s) touched: ${json.touched.map(item => `${item.id} ${item.status}`).join(', ')}` : `${json.active} active contract(s), none touched` };
   },
+  // Explain-back never blocks: its questions are for the reviewer, not for the change.
+  explain: json => ({ pass: true, issues: [], summary: json.enabled ? (json.questions.length ? `${json.questions.length} question(s) for the reviewer, ${json.questions.filter(item => item.answer).length} answered; see EXPLAIN-BACK.md` : json.note || 'no question') : 'off (review.explainBack)' }),
   attention: json => ({ pass: true, issues: [], summary: `review budget ~${json.minutes.low}–${json.minutes.high} min, ${json.focus.length} hunk(s) to read first; see REVIEW-BUDGET.md` }),
   security: json => ({ pass: !json.findings.length, issues: json.findings }),
   deps: json => ({ pass: true, issues: [], summary: `${json.manifests.length} manifest(s), ${json.lockfiles.length} lockfile(s) changed` }),
@@ -109,7 +111,7 @@ async function runArtifact(context, gate) {
 }
 
 // Gates that read the diff: a loop compares against its own baseline instead of HEAD.
-const DIFF_GATES = new Set(['guard', 'security', 'deps', 'review', 'policy', 'integrity', 'ablation', 'architecture', 'contracts', 'attention']);
+const DIFF_GATES = new Set(['guard', 'security', 'deps', 'review', 'policy', 'integrity', 'ablation', 'architecture', 'contracts', 'attention', 'explain']);
 
 /**
  * Evaluates one gate. Gate failures are results, not exceptions: the flow always completes a run.
@@ -249,6 +251,8 @@ async function mirrorDecision(context, gate, approval) {
 
 /** The latest run decided again with the current approvals, when nothing but approval gates blocked it. */
 async function settle(context, flow, state) {
+  // A v2 flow decides its outcome from its path, so a decision there takes effect on the next run.
+  if (flow.apiVersion === 'maverick.flow/v2') return null;
   const last = state.runs.at(-1), gates = new Map(flow.gates.map(gate => [gate.id, gate]));
   if (last?.results.some(result => result.id === 'autonomy-judge' && result.type === 'judge')) gates.set('autonomy-judge', { id: 'autonomy-judge', type: 'judge' });
   if (!last || (state.integrity && state.integrity !== flow.integrity)) return null;
@@ -300,6 +304,8 @@ export async function recordApproval(context, flow, gateId, { decision = 'approv
  * approves its pending approval gates instead, and only when every blocking check passed.
  */
 export async function runFlow(context, flow, { reset = false, autoApprove = false, agent } = {}) {
+  // A v2 flow is a DAG with its own pass; see src/flows/graph-run.js.
+  if (flow.apiVersion === 'maverick.flow/v2') return (await import('./graph-run.js')).runFlowGraph(context, flow, { reset });
   let state = await readState(context.taskDir, flow.name);
   const notes = [], ctx = { ...context, flow: flow.name };
   if (state.integrity && state.integrity !== flow.integrity) { notes.push('flow definition changed since the last run; history was reset'); state = { ...state, runs: [] }; }

@@ -1,7 +1,7 @@
 # Quickstart
 
 1. Put this kit beside or inside a project.
-2. Copy `maverick.config.json` to the project root if you want custom paths.
+2. Custom paths go in `.maverick/config.json`, which `maverick init` creates (a root `maverick.config.json` from v1 is still read as a fallback).
 3. Run `node <kit>/bin/maverick.js init <slug>` from the project root.
 4. Fill TASK.md first. If you cannot write acceptance criteria, the task is not ready for an agent.
 5. Fill CONTEXT.md with reading order and constraints.

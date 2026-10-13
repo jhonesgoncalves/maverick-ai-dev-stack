@@ -1,7 +1,7 @@
 ---
 name: maverick-ship
 description: Finishes a reviewed Maverick task by checking merge readiness and writing an evidence-backed pull request description, then, once the user approves the draft, opening the pull request on the repository's git provider with the pr flow, and finishing the task after it merges. Use after maverick-review, or when the user says ship, open the PR, or wrap up a Maverick task.
-version: 1.2.0
+version: 1.3.0
 tags: [maverick, delivery, pull-request]
 ---
 
@@ -58,6 +58,10 @@ Approving runs the flow's `open` gate: Maverick finds the provider from the `ori
 If the project has turned on `flow auto-approve pr`, the flow opens the pull request in the same run once every other gate passes: say so before you run it.
 
 Never merge, force-push or bypass branch protection.
+
+### The proof receipt
+
+If the repository signs proof receipts (`.maverick/proof-keys/` exists, or `proof.onPullRequest` is on), the `open` gate signs the commit it pushes and pushes the receipt in `refs/notes/maverick`. Otherwise, once the change is committed and only if the user asks, run `maverick proof sign <slug>` and tell them to share it with `git push origin refs/notes/maverick`. `maverick proof verify <slug> --commit HEAD` checks it. Never sign with a key the user did not set up, and never sign before the review decision is recorded.
 
 ## 4. Finish the task after it merges
 

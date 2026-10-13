@@ -96,6 +96,13 @@ test('a stalled loop climbs the ladder: it switches vendor, then hands a human t
   await fails(cwd, ['run', 'demo'], /waits for a human/);
   const { output: log } = await run(cwd, 'log', 'demo');
   assert.match(log, /escalation\s+#2 .*→ switch-provider/);
+  // The flight recorder: the recorded policy reproduces the loop, a ladder without a vendor switch stops it at #2.
+  assert.match((await run(cwd, 'replay', 'demo')).output, /decides exactly as recorded and ends as stalled-escalated/);
+  const { output: replayed } = await run(cwd, 'replay', 'demo', '--set', 'escalation=human', '--json');
+  const result = JSON.parse(replayed);
+  assert.equal(result.outcome.kind, 'earlier');
+  assert.equal(result.outcome.at, 2);
+  assert.equal(result.saved.iterations, 2);
 });
 
 test('budgets stop a loop before an iteration that would exceed them, and a raised budget resumes it', async () => {
@@ -280,6 +287,10 @@ test('Lens lists loops, shows one with its ledger, and guards the stop request',
     assert.equal(detail.state.iterations.length, 2);
     assert.equal((await (await fetch(`${base}/api/loop/ledger?task=demo&id=${loop.loopId}`)).json()).ok, true);
     assert.equal((await fetch(`${base}/api/loop?task=demo&id=../../etc`)).status, 400);
+    const replay = await (await fetch(`${base}/api/loop/replay?task=demo&id=${loop.loopId}&set=budgets.maxIterations=1`)).json();
+    assert.equal(replay.outcome.kind, 'earlier', 'the flight recorder answers what-if questions read-only');
+    assert.equal(replay.saved.iterations, 1);
+    assert.equal((await fetch(`${base}/api/loop/replay?task=demo&id=${loop.loopId}&set=nope=1`)).status, 400);
     const stop = (headers, body) => fetch(`${base}/api/loops/stop`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
     assert.equal((await stop({}, { task: 'demo', id: loop.loopId })).status, 403);
     assert.equal((await stop({ 'x-lens-token': token }, { task: 'demo', id: loop.loopId })).status, 409, 'a finished loop cannot be stopped');

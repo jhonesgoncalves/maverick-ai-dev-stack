@@ -2,9 +2,12 @@ import { join, sep } from 'node:path';
 import { clearTimeout, setTimeout } from 'node:timers';
 import { loadConfig } from '../core/config.js';
 import { getTask, listTasks } from '../core/tasks.js';
-import { lockHolder, loopStatus, readState, requestStop, verifyLoop } from '../loop/engine.js';
+import { lockHolders, loopStatus, readState, requestStop, verifyLoop } from '../loop/engine.js';
 import { LOOP_ID, loopIds, loopPaths } from '../loop/model.js';
 import { readLedger } from '../loop/ledger.js';
+import { replayRecorded } from '../loop/replay.js';
+import { listWorkGraphs } from '../loop/workgraph.js';
+import { listArenas } from '../arena/arena.js';
 
 // Lens reads loops from their state files, like the CLI, so a loop started in a terminal shows
 // up live here and the Stop button works on it: stopping writes the same request file
@@ -17,7 +20,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 function summary(task, state, live) {
   const last = state.iterations.at(-1);
   return {
-    task, id: state.loopId, status: state.status, reason: state.reason, live: Boolean(live), mode: state.mode, flow: state.flow?.name,
+    task, id: state.loopId, lane: state.lane || null, kind: state.arena ? `arena ${state.arena.competitor}` : state.fork ? `fork of #${state.fork.from?.iteration}` : state.lane ? `lane ${state.lane}` : null, status: state.status, reason: state.reason, live: Boolean(live), mode: state.mode, flow: state.flow?.name,
     iteration: state.iterations.length, accepted: state.spent?.accepted || 0, maxIterations: state.budgets?.maxIterations ?? null,
     subtask: state.inFlight?.scope && state.inFlight.scope !== 'goal' ? state.inFlight.scope : last?.subtask?.id || null,
     score: state.checkpoint?.score ? { passed: state.checkpoint.score.passed, blocking: state.checkpoint.score.blocking, failing: state.checkpoint.score.failingCount, subtasksDone: state.checkpoint.score.subtasksDone, subtasksTotal: state.checkpoint.score.subtasksTotal } : null,
@@ -39,15 +42,18 @@ export function createLoopHub({ cwd, broadcast, onEnd = () => {} }) {
   return {
     /** Every loop of every task, newest activity first. */
     async list() {
-      const config = await loadConfig(cwd), loops = [];
+      const config = await loadConfig(cwd), loops = [], graphs = [], arenas = [];
       for (const { task } of await listTasks(cwd, config).catch(() => [])) {
-        const dir = join(cwd, config.taskRoot, task), holder = await lockHolder(dir);
+        const dir = join(cwd, config.taskRoot, task), holders = await lockHolders(dir);
+        // Work graphs (parallel lanes and their fan-ins) and arenas (one subtask, several providers) of the task.
+        for (const record of (await listWorkGraphs(dir)).slice(0, 10)) graphs.push({ task, id: record.id, outcome: record.outcome, reason: record.reason, branch: record.branch, startedAt: record.startedAt, metrics: record.metrics, waves: record.waves.map(wave => ({ n: wave.n, lanes: wave.lanes.map(lane => ({ name: lane.name, subtasks: lane.subtasks, outcome: lane.outcome || null, merged: lane.merged ?? null, loopId: lane.loopId || null })), predicted: wave.predicted.map(item => ({ a: item.a, b: item.b, kinds: item.reasons.map(reason => reason.kind) })), real: wave.real.map(item => ({ kind: item.kind, lane: item.lane || null, subtasks: item.subtasks || [], files: item.files || [], predicted: item.predicted })) })) });
+        for (const record of (await listArenas(dir)).slice(0, 10)) arenas.push({ task, id: record.id, subtask: record.subtask, createdAt: record.createdAt, ranking: record.ranking, decision: record.decision, competitors: record.competitors.map(item => ({ id: item.id, provider: item.provider, outcome: item.evidence?.outcome, oracle: item.evidence?.oracle, judge: item.evidence?.judge?.status || null, diff: item.evidence?.diff?.lines ?? null, loopId: item.loopId })) });
         for (const id of (await loopIds(dir)).slice(0, 10)) {
           const state = await readState(dir, id).catch(() => null);
-          if (state) loops.push(summary(task, state, holder?.loopId === id && state.status === 'running'));
+          if (state) loops.push(summary(task, state, holders.some(holder => holder.loopId === id) && state.status === 'running'));
         }
       }
-      return { loops: loops.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, MAX_LOOPS) };
+      return { loops: loops.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, MAX_LOOPS), graphs: graphs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt))).slice(0, 20), arenas: arenas.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 20) };
     },
     async detail(task, id) {
       const dir = await taskDir(task), info = await loopStatus(dir, loopId(id));
@@ -57,11 +63,16 @@ export function createLoopHub({ cwd, broadcast, onEnd = () => {} }) {
       return { task, live: Boolean(info.running), stopPending: info.stopPending, forecast: info.forecast, next: info.next, decisions, summary: summary(task, state, info.running), state: { ...state, iterations: state.iterations.slice(-MAX_ITERATIONS).map(item => ({ ...item, findings: (item.findings || []).slice(0, 50) })) } };
     },
     async ledger(task, id) { return verifyLoop(cwd, await taskDir(task), loopId(id)); },
+    /** The flight recorder: the recorded loop through the policy functions under other settings. Read-only. */
+    async replay(task, id, set = []) {
+      await taskDir(task);
+      try { return await replayRecorded(cwd, task, { loop: loopId(id), set: set.slice(0, 20).map(String) }); } catch (error) { throw error.status ? error : fail(400, error.message); }
+    },
     async stop(task, id, reason) {
       const dir = await taskDir(task), state = await readState(dir, loopId(id));
       if (!state) throw fail(404, 'Loop not found.');
-      const holder = await lockHolder(dir);
-      if (state.status !== 'running' || holder?.loopId !== id) throw fail(409, 'This loop is not running.');
+      const holders = await lockHolders(dir);
+      if (state.status !== 'running' || !holders.some(holder => holder.loopId === id)) throw fail(409, 'This loop is not running.');
       await requestStop(dir, { loopId: id, reason: typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 200) : undefined, by: 'Lens' });
       return { requested: true, live: true };
     },

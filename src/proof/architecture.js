@@ -5,6 +5,7 @@ import { pathReferences } from '../core/quality.js';
 import { sectionBody } from '../core/util.js';
 import { boundaryViolations, loopOf } from '../intel/architecture.js';
 import { buildGraph, HEALTH_RULES, healthFor, withMetrics } from '../intel/graph.js';
+import { languageForPath } from '../core/imports.js';
 import { git } from '../loop/git.js';
 import { withExport } from './export.js';
 
@@ -26,10 +27,28 @@ async function cacheDir(cwd) {
   return common.ok ? homePath(resolve(cwd, common.stdout.trim()), 'cache', 'graphs') : null;
 }
 
-/** The import graph of a tree, cached by tree id. */
-export async function graphOfTree(cwd, tree) {
+// Files that change how imports resolve: a change to one of them changes the graph without touching a source file.
+const RESOLUTION = /(^|\/)(tsconfig[^/]*\.json|jsconfig\.json|package\.json|go\.mod|go\.work|Cargo\.toml|composer\.json|pubspec\.yaml|pyproject\.toml|setup\.cfg|[^/]+\.(csproj|fsproj|sln)|mix\.exs|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|pom\.xml)$/;
+
+/**
+ * Whether two trees have the same import graph without building either: no file the graph reads
+ * (a source file in a language it parses) and no file that changes resolution differs between them.
+ */
+export async function sameGraph(cwd, base, head) {
+  if (base === head) return true;
+  const changed = await git(cwd, ['diff', '--name-only', '--no-renames', '--relative', base, head]);
+  return changed.ok && changed.stdout.split('\n').filter(Boolean).every(path => !languageForPath(path) && !RESOLUTION.test(path));
+}
+
+/** The import graph of a tree, cached by tree id; `like` names a cached tree it may share its graph with. */
+export async function graphOfTree(cwd, tree, { like = null } = {}) {
   const dir = await cacheDir(cwd), path = dir && join(dir, `${tree}.json`);
   let data = path ? await readFile(path, 'utf8').then(JSON.parse).catch(() => null) : null;
+  // In a large repository most iterations change no source at all: the base's graph is the head's, no export or parse needed.
+  if (data?.v !== CACHE_VERSION && like && dir && await sameGraph(cwd, like, tree)) {
+    const shared = await readFile(join(dir, `${like}.json`), 'utf8').then(JSON.parse).catch(() => null);
+    if (shared?.v === CACHE_VERSION) { data = { ...shared, sharedWith: like }; await writeFile(path, JSON.stringify(data)); }
+  }
   if (data?.v !== CACHE_VERSION) {
     const graph = await withExport(cwd, tree, workdir => buildGraph(workdir), { prefix: 'maverick-graph-' });
     data = { v: CACHE_VERSION, nodes: graph.nodes.map(({ id, language, test, lines }) => ({ id, language, test, lines })), edges: graph.edges, truncated: Boolean(graph.truncated) };
@@ -88,7 +107,7 @@ const summary = graph => ({ files: graph.nodes.filter(node => !node.test).length
  */
 export async function checkArchitecture({ cwd, taskDir, config = {}, base, head }) {
   let before, after;
-  try { [before, after] = [await graphOfTree(cwd, base), await graphOfTree(cwd, head)]; } catch (error) {
+  try { before = await graphOfTree(cwd, base); after = await graphOfTree(cwd, head, { like: base }); } catch (error) {
     const empty = { files: 0, edges: 0, cycles: 0, hubs: 0, health: null, truncated: false };
     return { ok: true, findings: [], base: empty, head: empty, drop: 0, note: `the import graph could not be built (${error.message}); the structure was not compared` };
   }
