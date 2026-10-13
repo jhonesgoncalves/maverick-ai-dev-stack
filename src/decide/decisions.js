@@ -96,7 +96,7 @@ export async function assessDecision({ cwd, config, taskDir, task, rubricId, evi
     tier = 1;
     const [bin, ...args] = splitCommand(localCommand);
     let stdout = '';
-    const { MAVERICK_SEAL_KEY: _key, ...env } = process.env;
+    const { MAVERICK_SEAL_KEY: _key, MAVERICK_PROOF_KEY: _proof, ...env } = process.env;
     const run = await runProcess({ bin, args, cwd, env, input: prompt, timeoutMs: (config.decisions.timeoutSeconds || 30) * 1000, signal, onLine: line => { stdout = (stdout + line + '\n').slice(-20000); } });
     const answer = run.code === 0 && !run.timedOut && !run.aborted ? validateAnswer(rubric, parse(stdout)) : null;
     if (answer) { suggestion = answer; suggestionTier = tier; }

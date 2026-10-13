@@ -1,7 +1,7 @@
 ---
 name: maverick-review
 description: Verifies and reviews a built Maverick task by running every evidence gate (checks, scope, security, dependencies, diff) and reviewing the diff against each PRD acceptance criterion and the technical spec, then helps the human record a decision in REVIEW.md. Use after maverick-build, or when the user asks to verify, review or check a Maverick task.
-version: 1.2.0
+version: 1.3.0
 tags: [maverick, verification, review, security]
 ---
 
@@ -40,6 +40,8 @@ maverick review <slug> --diff # blast radius and findings → REVIEW-FINDINGS.md
 maverick contract check <slug> # contracts from earlier tasks the change touches: kept or revoked
 maverick attention <slug>     # hunks ranked by risk, a proof tree per criterion → REVIEW-BUDGET.md
 ```
+
+If the project turned on `review.explainBack`, `maverick explain <slug>` asks three questions about what the change does (`EXPLAIN-BACK.md`). They are for the human reviewer: never answer them yourself; tell the user they can answer in Lens or with `maverick explain <slug> --answer Q1 --text "..."`.
 
 Start your own reading with the hunks `REVIEW-BUDGET.md` lists first. Before deleting or rewriting code whose purpose is unclear, run `maverick why <file>:<line>`: a line guarded by a contract must keep it unless the PRD revokes it.
 

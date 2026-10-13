@@ -38,6 +38,17 @@ The `workflow.default` key sets the workflow for new tasks: `standard` (the defa
 
 The optional `authoring` section is given to every stage skill that writes planning artifacts (`maverick new`, `maverick generate` and `maverick instructions`). `context` is free text of up to 50 KB with project constraints, such as "money is stored in integer cents". `rules` maps a stage (`PRD`, `TECHSPEC` or `TASKS`) to extra rules for it. See [From idea to tasks](/guide/planning#project-rules).
 
+## Proof receipts and review {#proof}
+
+| Key | Default | Meaning |
+|---|---|---|
+| `proof.keyFile` | `$MAVERICK_HOME/keys/proof-ed25519.pem` | The ed25519 key that signs [proof receipts](/concepts/proof-layer#the-proof-receipt), relative to `$MAVERICK_HOME` or absolute. `MAVERICK_PROOF_KEY` (a PEM) overrides it, for CI |
+| `proof.onPullRequest` | `false` | The `pr` flow signs the commit it pushes and pushes the receipt in `refs/notes/maverick` |
+| `review.explainBack` | `false` | Before approval, a read-only agent asks the reviewer three questions about the change (the `explain-back` gate; never blocks) |
+| `review.provider` | the `review` stage's | The provider that asks the explain-back questions |
+
+A judge gate's `maxParts` (default `4`) is how many parts a diff larger than its `maxDiffBytes` is judged in. Flows can be written as typed DAGs with `apiVersion: maverick.flow/v2`; see [Flows v2](/concepts/proof-layer#flows-v2).
+
 ## Loops {#loops}
 
 The optional `loop` section sets how `maverick loop run` works for this repository. Every key has a default, and the budget flags override the budgets for one run. See [Loop engineering](/concepts/loop-engineering).

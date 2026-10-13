@@ -1,6 +1,7 @@
-import { brand, output, packageVersion } from '../core/util.js';
+import { brand, distance, output, packageVersion } from '../core/util.js';
 import { colorEnabled, style, wordmark } from '../core/style.js';
 import { agentCommands } from './agent.js';
+import { arenaCommands } from './arena.js';
 import { capabilityCommands } from './capabilities.js';
 import { deliveryCommands } from './delivery.js';
 import { flowCommands } from './flow.js';
@@ -16,17 +17,17 @@ import { taskCommands } from './task.js';
 import { decideCommands } from './decide.js';
 
 // Display order for help and the Lens CLI explorer.
-const ORDER = ['lens', 'init', 'language', 'new', 'instructions', 'generate', 'subtask', 'flow', 'loop', 'agent', 'map', 'stack', 'graph', 'hotspots', 'routes', 'coupling', 'audit', 'mcp', 'packet', 'checkpoint', 'impact', 'guard', 'integrity', 'ablation', 'structure', 'seal', 'unseal', 'contract', 'attention', 'scorecard', 'route', 'autonomy', 'canary', 'decision', 'trifecta', 'why', 'proposals', 'learn', 'handoff', 'readiness', 'policy', 'adapter', 'ci', 'catalog', 'add', 'remove', 'installed', 'sync', 'verify', 'security', 'deps', 'pr', 'done', 'reopen', 'validate', 'review', 'config', 'doctor', 'status', 'info', 'help'];
+const ORDER = ['lens', 'init', 'language', 'new', 'instructions', 'generate', 'subtask', 'flow', 'loop', 'arena', 'agent', 'map', 'stack', 'graph', 'hotspots', 'routes', 'coupling', 'audit', 'mcp', 'packet', 'checkpoint', 'impact', 'guard', 'integrity', 'ablation', 'structure', 'seal', 'unseal', 'contract', 'attention', 'explain', 'proof', 'scorecard', 'route', 'autonomy', 'canary', 'decision', 'trifecta', 'why', 'grounding', 'proposals', 'learn', 'handoff', 'readiness', 'policy', 'adapter', 'ci', 'catalog', 'add', 'remove', 'installed', 'sync', 'verify', 'security', 'deps', 'pr', 'done', 'reopen', 'validate', 'review', 'config', 'doctor', 'status', 'info', 'help'];
 
 /** Help and the interactive launcher present commands in these groups, in this order. */
 export const GROUPS = [
   { id: 'start', title: 'Get started', commands: ['init', 'language', 'status', 'doctor', 'lens'] },
   { id: 'workflow', title: 'Plan & build', commands: ['new', 'instructions', 'generate', 'validate', 'subtask', 'packet'] },
-  { id: 'gates', title: 'Verify & review', commands: ['verify', 'checkpoint', 'guard', 'integrity', 'ablation', 'structure', 'seal', 'unseal', 'contract', 'security', 'deps', 'review', 'attention', 'readiness', 'policy'] },
+  { id: 'gates', title: 'Verify & review', commands: ['verify', 'checkpoint', 'guard', 'integrity', 'ablation', 'structure', 'seal', 'unseal', 'contract', 'security', 'deps', 'review', 'attention', 'explain', 'proof', 'readiness', 'policy'] },
   { id: 'decide', title: 'Decide with evidence', commands: ['scorecard', 'route', 'autonomy', 'canary', 'decision', 'trifecta'] },
   { id: 'delivery', title: 'Deliver', commands: ['pr', 'done', 'reopen', 'handoff', 'learn', 'proposals', 'ci'] },
-  { id: 'automation', title: 'Flows & agents', commands: ['flow', 'loop', 'agent', 'adapter', 'mcp'] },
-  { id: 'intel', title: 'Project intelligence', commands: ['why', 'map', 'stack', 'graph', 'coupling', 'routes', 'hotspots', 'impact', 'audit'] },
+  { id: 'automation', title: 'Flows & agents', commands: ['flow', 'loop', 'arena', 'agent', 'adapter', 'mcp'] },
+  { id: 'intel', title: 'Project intelligence', commands: ['why', 'grounding', 'map', 'stack', 'graph', 'coupling', 'routes', 'hotspots', 'impact', 'audit'] },
   { id: 'capabilities', title: 'Capabilities', commands: ['catalog', 'add', 'remove', 'installed', 'sync'] },
   { id: 'meta', title: 'Configuration', commands: ['config', 'info', 'help'] }
 ];
@@ -39,22 +40,13 @@ const helpCommand = { id: 'help', description: 'Show usage, or details for one c
  * command registry are all derived from this list. Each entry is
  * { id, group, description, aliases, usage, run({ cwd, arg, third, rest, options }) }.
  */
-export const commands = [...projectCommands, ...newCommands, ...taskCommands, ...gateCommands, ...proofCommands, ...sealCommands, ...memoryCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...loopCommands, ...agentCommands, ...intelCommands, ...decideCommands, helpCommand]
+export const commands = [...projectCommands, ...newCommands, ...taskCommands, ...gateCommands, ...proofCommands, ...sealCommands, ...memoryCommands, ...deliveryCommands, ...capabilityCommands, ...flowCommands, ...loopCommands, ...arenaCommands, ...agentCommands, ...intelCommands, ...decideCommands, helpCommand]
   .sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id))
   .map(command => ({ ...command, group: groupOf.get(command.id) || 'meta' }));
 
 const byName = new Map(commands.flatMap(command => [command.id, ...command.aliases].map(name => [name, command])));
 
 export function findCommand(name) { return byName.get(name); }
-
-function distance(a, b) {
-  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let previous = row[0]; row[0] = i;
-    for (let j = 1; j <= b.length; j++) { const current = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1)); previous = current; }
-  }
-  return row[b.length];
-}
 
 /** The closest known command or alias to a mistyped name, if any is close enough. */
 export function suggestCommand(name) {

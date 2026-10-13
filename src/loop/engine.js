@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { clearInterval, setInterval } from 'node:timers';
@@ -19,14 +19,15 @@ import { providersFor, resolveBin } from '../runtime/providers.js';
 import { checklist, loadGraph, setStatus } from '../subtasks/graph.js';
 import { checkBudget, costWarnings, wouldExceed } from './budget.js';
 import { diagnose, nextRung } from './diagnose.js';
-import { checkpointRef, git, IntegrityError, inPlace, listCheckpointRefs, readCommit, repoInfo, resolveRef } from './git.js';
+import { checkpointRef, git, IntegrityError, inPlace, listCheckpointRefs, loopKey, readCommit, repoInfo, resolveRef } from './git.js';
 import { findingCause, gateIssues, regressionCause } from './feedback.js';
 import { backupProtected, checkProtected, readBackup, restoreBackup } from './guards.js';
 import { auditIntegrity, classifyPath, commandFiles, detectOracleSet, oracleRules } from './integrity.js';
 import { canonical, openLedger, readLedger, verifyChain } from './ledger.js';
-import { LOOP_HUMAN, LOOP_SCHEMA, loopIds, loopPaths, loopSettings, newLoopId, NEXT_STEP } from './model.js';
+import { LANE_ID, LOOP_HUMAN, LOOP_SCHEMA, loopIds, loopPaths, loopSettings, newLoopId, NEXT_STEP } from './model.js';
 import { allBlockingPass, compare, isProgress, scoreOf } from './ratchet.js';
 import { promptContext, renderEscalation, renderLoopReport, renderNotes, NOTES_HEADER } from './report.js';
+import { onInterrupt } from './signals.js';
 import { createWorktree } from './worktree.js';
 import { sealedSettings, sealReadiness } from '../sealed/model.js';
 import { holdoutLine } from '../sealed/run.js';
@@ -91,24 +92,38 @@ async function acquire(path, info) {
   throw new Error(`could not take the loop lock ${path}`);
 }
 
-export async function lockHolder(taskDir) {
-  const holder = await readFile(loopPaths(taskDir).taskLock, 'utf8').then(JSON.parse).catch(() => null);
-  return alive(holder) ? holder : null;
+/** Every loop running for a task: the task's own and its lanes', each holding a lock of its own. */
+export async function lockHolders(taskDir) {
+  const root = loopPaths(taskDir).root, names = (await readdir(root).catch(() => [])).filter(name => /^lock(-[a-z0-9-]+)?$/.test(name));
+  const holders = [];
+  for (const name of names) { const holder = await readFile(join(root, name), 'utf8').then(JSON.parse).catch(() => null); if (alive(holder)) holders.push(holder); }
+  return holders;
 }
+
+/** A loop running for the task (any lane), or null. */
+export async function lockHolder(taskDir) { return (await lockHolders(taskDir))[0] || null; }
 
 /** Asks a running loop to stop: now (the agent run is aborted) or after the current iteration. */
 export async function requestStop(taskDir, { reason, by, mode = 'now', loopId } = {}) {
-  const holder = await lockHolder(taskDir);
-  if (!holder) throw new Error('no loop is running for this task');
-  const id = loopId || holder.loopId, path = loopPaths(taskDir, id).stop;
+  const holders = await lockHolders(taskDir), holder = loopId ? holders.find(item => item.loopId === loopId) : holders[0];
+  if (!holder) throw new Error(loopId ? `loop ${loopId} is not running` : 'no loop is running for this task');
+  const id = holder.loopId, path = loopPaths(taskDir, id).stop;
   await writeFile(path, pretty({ at: now(), by: by || process.env.USER || 'human', reason: reason || null, mode }));
   return { loopId: id, path, holder };
 }
 
-/** The loop to show or continue: the given id, or the newest. */
-async function pickLoop(taskDir, loopId) {
+/** The loop to show or continue: the given id, else the newest (of the lane, when one is given). */
+async function pickLoop(taskDir, loopId, lane) {
   if (loopId) return loopId;
-  return (await loopIds(taskDir))[0] || null;
+  const ids = await loopIds(taskDir);
+  if (lane === undefined) {
+    // The task's own loops (and lanes) come first; arena competitors and forks are records, shown when named.
+    for (const id of ids) { const state = await readState(taskDir, id).catch(() => null); if (state && !state.arena && !state.fork) return id; }
+    return ids[0] || null;
+  }
+  // An arena's competitors are records of a contest, never the task's loop to continue.
+  for (const id of ids) { const state = await readState(taskDir, id).catch(() => null); if (state && (state.lane || null) === lane && !state.arena && !state.fork) return id; }
+  return null;
 }
 
 /** Status of a task's loop for `loop status`, Lens and MCP. */
@@ -117,9 +132,9 @@ export async function loopStatus(taskDir, loopId) {
   if (!id) return null;
   const state = await readState(taskDir, id);
   if (!state) return null;
-  const holder = await lockHolder(taskDir), paths = loopPaths(taskDir, id);
+  const holder = (await lockHolders(taskDir)).find(item => item.loopId === id), paths = loopPaths(taskDir, id);
   const forecast = state.budgets ? wouldExceed(state.budgets, state.spent, state.iterations) : null;
-  return { state, running: holder?.loopId === id ? holder : null, stopPending: await exists(paths.stop), forecast, next: NEXT_STEP[state.status] };
+  return { state, running: holder || null, stopPending: await exists(paths.stop), forecast, next: NEXT_STEP[state.status] };
 }
 
 /**
@@ -162,7 +177,7 @@ export async function cleanLoop(cwd, taskDir, { loopId, deleteBranch = false } =
   if (!id) throw new Error('this task has no loop yet');
   if (await lockHolder(taskDir)) throw new Error('a loop is running for this task; stop it first');
   const state = await readState(taskDir, id), paths = loopPaths(taskDir, id);
-  const refs = (await listCheckpointRefs(cwd, state.task)).map(item => item.ref);
+  const refs = (await listCheckpointRefs(cwd, loopKey(state.task, state.lane))).map(item => item.ref);
   for (const ref of refs) await git(cwd, ['update-ref', '-d', ref]);
   let worktree = null;
   if (state.worktree) worktree = await createWorktree({ cwd, task: state.task, state, settings: {}, taskDir }).cleanup({ deleteBranch });
@@ -233,6 +248,7 @@ async function keepQuarantined(dir, entry) {
 async function selectWork(taskDir, state, judgeEnabled) {
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) return { mode: 'blocked', reason: `the subtask graph has problems: ${graph.problems.join('; ')}` };
+  if (state.only?.length) return selectLaneWork(taskDir, state, graph, judgeEnabled);
   if (!graph.items.length) return { mode: 'goal', graph };
   // A subtask whose last box was ticked before a crash is finished here, unless a judge must decide it.
   if (!judgeEnabled) {
@@ -245,6 +261,22 @@ async function selectWork(taskDir, state, judgeEnabled) {
   const subtask = fresh.items.find(item => item.status === 'in-progress') || fresh.items.find(item => item.ready);
   if (!subtask) return { mode: 'blocked', reason: `the remaining subtasks are blocked: ${fresh.items.filter(item => item.status !== 'done').map(item => `${item.id} (${item.status})`).join(', ')}` };
   return { mode: 'subtask', subtask, graph: fresh };
+}
+
+/**
+ * A lane's next work: its own subtasks only, in order. A lane is done when they are; the whole
+ * oracle, the judge of the whole change and the holdout run where the lanes meet (the fan-in).
+ */
+async function selectLaneWork(taskDir, state, graph, judgeEnabled) {
+  const mine = graph.items.filter(item => state.only.includes(item.id));
+  const missing = state.only.filter(id => !mine.some(item => item.id === id));
+  if (missing.length) return { mode: 'blocked', reason: `${state.lane ? `lane ${state.lane}` : 'this loop'} names subtask(s) the task does not have: ${missing.join(', ')}` };
+  if (!judgeEnabled) for (const item of mine.filter(entry => entry.status === 'in-progress' && entry.checklist.total && !entry.checklist.open.length)) await setStatus(taskDir, state.task, item.id, 'done').catch(() => {});
+  const fresh = (await loadGraph(taskDir)).items.filter(item => state.only.includes(item.id));
+  if (fresh.every(item => item.status === 'done')) return { mode: 'done', lane: true, graph };
+  const subtask = fresh.find(item => item.status === 'in-progress') || fresh.find(item => item.ready);
+  if (!subtask) return { mode: 'blocked', reason: `${state.lane ? `lane ${state.lane}` : 'this loop'}: its remaining subtasks wait for others: ${fresh.filter(item => item.status !== 'done').map(item => `${item.id} (after ${item.dependsOn.join(', ') || 'nothing'})`).join(', ')}` };
+  return { mode: 'subtask', subtask, graph };
 }
 
 /**
@@ -298,10 +330,27 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
   const { dir: taskDir, config } = await getTask(cwd, task);
   const flow = await findFlow(cwd, str(options.flow) || config.loop?.flow || 'loop');
   const settings = loopSettings(config, flow, options);
+  // A lane: one of several loops of the task at once, in its own worktree, over some of its subtasks.
+  const lane = str(options.lane) || null;
+  // An arena competitor (set by maverick arena, never a flag): one subtask, in place in the arena's own worktree.
+  const arena = options.arena && typeof options.arena === 'object' ? options.arena : null;
+  // A fork (set by maverick loop fork, never a flag): a new loop from an old checkpoint, in place in its own worktree.
+  const fork = options.fork && typeof options.fork === 'object' ? options.fork : null;
+  const only = lane ? [options.only].flat().flatMap(item => String(item ?? '').split(',')).map(item => item.trim()).filter(Boolean) : arena ? [arena.subtask] : null;
+  if (lane && !LANE_ID.test(lane)) throw new Error(`lane id "${lane}" must be lowercase letters, digits and dashes`);
+  if (lane && !only.length) throw new Error(`lane ${lane} needs the subtasks it builds (--only 01,02)`);
+  // The holdout and the judge of the whole change run where the lanes meet, never inside one.
+  if (lane) { settings.isolation = 'worktree'; settings.sealed = 'off'; }
+  // The arena decides between competitors with the holdout and a judge of its own, after they finish.
+  if (arena) { settings.isolation = 'in-place'; settings.sealed = 'off'; settings.judge = { ...settings.judge, enabled: false }; }
+  if (fork) settings.isolation = 'in-place';
+  const key = loopKey(task, lane || (arena && `arena-${arena.id}-${arena.competitor}`) || (fork && `fork-${fork.id}`));
   const oracle = flow.gates.filter(gate => !DECIDED_APART.includes(gate.type));
   if (!oracle.some(gate => gate.severity === 'block')) throw new Error(`flow ${flow.name} has no blocking gate a loop can check (approval, judge and sealed gates are decided separately)`);
   const providers = providersFor(config);
   const info = await repoInfo(cwd);
+  const startPoint = str(options.startPoint) ? await resolveRef(cwd, `${options.startPoint}^{commit}`) : null;
+  if (str(options.startPoint) && !startPoint) throw new Error(`unknown start point: ${options.startPoint}`);
   // Preflight: everything that would make a checkpoint or a rollback untrustworthy fails closed.
   if (!info.version || info.version[0] < 2 || (info.version[0] === 2 && info.version[1] < 26)) throw new Error('loops need git 2.26 or newer');
   if (!info.repo) throw new Error('loops need a git repository: run git init and commit the project first');
@@ -327,10 +376,14 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
   if (active && overlaps(vaultRoot(cwd, task), cwd)) throw new Error(`the vault (${vaultRoot(cwd, task)}) and the project overlap; set MAVERICK_HOME outside the project`);
 
   // Open (or continue) the loop under its locks.
-  let loopId = await pickLoop(taskDir, str(options.loop)), state = loopId ? await readState(taskDir, loopId) : null;
+  let loopId = await pickLoop(taskDir, str(options.loop), lane), state = loopId ? await readState(taskDir, loopId) : null;
   const resume = state && !options.new;
+  const running = await lockHolders(taskDir);
+  // The task's own loop and its lanes never run at the same time: they would build the same subtasks.
+  if (!lane && running.some(holder => holder.lane)) throw new Error(`lanes of ${task} are running (${running.filter(holder => holder.lane).map(holder => holder.lane).join(', ')}); wait for them, or stop them with maverick loop stop ${task}`);
+  if (lane && running.some(holder => !holder.lane)) throw new Error(`the loop of ${task} is running; a lane cannot start beside it`);
   if (resume) {
-    if (state.status === 'running' && await lockHolder(taskDir)) throw new Error(`a loop is already running for ${task}; stop it with maverick loop stop ${task}`);
+    if (state.status === 'running' && running.some(holder => holder.loopId === state.loopId)) throw new Error(`a loop is already running for ${task}; stop it with maverick loop stop ${task}`);
     if (state.status === 'done') throw new Error(`the loop of ${task} is done; review the change, or start another with --new`);
     if (state.status === 'integrity-violation') throw new Error(`the loop of ${task} stopped on an integrity violation (${state.reason}); run maverick loop verify ${task}, then start over with --new`);
     if (LOOP_HUMAN.includes(state.status) && !options.resume) throw new Error(`the loop of ${task} is ${state.status} and waits for a human: read LOOP-ESCALATION.md, then run maverick loop run ${task} --resume --note "<your decision>" (or --new)`);
@@ -342,23 +395,24 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
   } else { loopId = newLoopId(); state = null; }
   const repositorySamples = (await collectEvidence(cwd, config)).rows.filter(row => row.source === 'loop' && row.task !== task).map(row => ({ durationMs: row.durationMs, costUsd: row.costUsd, tokens: { totalTokens: row.tokens } }));
   const previousStatus = state?.status || null;
-  const paths = loopPaths(taskDir, loopId), mode = resume ? state.mode : settings.isolation;
+  const paths = loopPaths(taskDir, loopId, lane), mode = resume ? state.mode : settings.isolation;
   await mkdir(paths.dir, { recursive: true });
   if (!await exists(join(paths.root, '.gitignore'))) await writeFile(join(paths.root, '.gitignore'), '# Loop state: checkpoints index, locks, in-flight backups and rejected patches.\n*\n!.gitignore\n');
-  const lockInfo = { pid: process.pid, host: hostname(), task, loopId, mode, startedAt: now() };
+  const lockInfo = { pid: process.pid, host: hostname(), task, loopId, mode, ...(lane && { lane }), startedAt: now() };
   const locks = [await acquire(paths.taskLock, lockInfo)];
   const stopWatch = { timer: null };
   const controller = { current: null };
-  let interrupts = 0;
-  const onSigint = () => { interrupts += 1; if (interrupts > 1) process.exit(130); writeFile(paths.stop, pretty({ at: now(), by: 'ctrl-c', mode: 'now' })).catch(() => {}); controller.current?.abort(); };
-  process.on('SIGINT', onSigint);
+  const releaseInterrupt = onInterrupt(`${task}:${loopId}`, () => { writeFile(paths.stop, pretty({ at: now(), by: 'ctrl-c', mode: 'now' })).catch(() => {}); controller.current?.abort(); });
   const ledger = await openLedger(paths.ledger, loopId);
   let isolation;
   const invocationStart = Date.now();
   let activeBase = state?.spent?.activeMs || 0;
   // Reports in the task say what the next agent may read (loop.feedback); the full ones live outside the work tree.
   const reportsDir = homePath(cwd, 'reports', task, loopId), redacted = () => (state.settings?.feedback || settings.feedback) !== 'detailed';
-  const writeReport = async (name, render) => {
+  // Lanes write reports of their own (LOOP-<lane>.md), so they never overwrite each other's.
+  const reportName = name => (lane ? name.replace(/\.md$/, `-${lane}.md`) : name);
+  const writeReport = async (base, render) => {
+    const name = reportName(base);
     await writeFile(join(taskDir, name), render({ detailed: false, reportsDir: redacted() ? reportsDir : null }));
     if (redacted()) { await mkdir(reportsDir, { recursive: true }); await writeFile(join(reportsDir, name), render({ detailed: true })); }
   };
@@ -379,7 +433,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
 
   try {
     if (mode === 'in-place') locks.push(await acquire(join(info.gitDir, 'maverick-loop.lock'), lockInfo));
-    isolation = mode === 'worktree' ? createWorktree({ cwd, task, state: state || {}, settings, info, taskDir }) : inPlace({ cwd, task, indexFile: paths.gitIndex, inflight: paths.inflight });
+    isolation = mode === 'worktree' ? createWorktree({ cwd, task, state: state || {}, settings, info, taskDir, lane, startPoint }) : inPlace({ cwd, task, indexFile: paths.gitIndex, inflight: paths.inflight });
     const workCwd = () => isolation.workCwd;
     const workTaskDir = () => join(isolation.workCwd, rel(cwd, taskDir));
     const invoke = async argv => (await import('../cli.js')).main(argv, workCwd());
@@ -450,11 +504,11 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
     if (!resume) {
       await isolation.prepare();
       const oracleSet = await detectOracleSet(cwd, { stack, config, taskDir, settings, gates: oracle });
-      const tree = await isolation.snapshot(), number = await nextNumber(cwd, task);
+      const tree = await isolation.snapshot(), number = await nextNumber(cwd, key);
       state = {
-        schema: LOOP_SCHEMA, loopId, task, flow: { name: flow.name, source: flow.source, integrity: flow.integrity, gates: oracle.map(gate => gate.id) },
+        schema: LOOP_SCHEMA, loopId, task, ...(lane && { lane, only, startPoint: startPoint || info.head }), ...(arena && { arena: { id: arena.id, competitor: arena.competitor }, only }), ...(fork && { fork }), flow: { name: flow.name, source: flow.source, integrity: flow.integrity, gates: oracle.map(gate => gate.id) },
         mode, worktree: isolation.worktree || null, status: 'running', reason: null, createdAt: now(), updatedAt: now(), endedAt: null,
-        baseHead: info.head, baseBranch: info.branch, baseCommit: null, configHash: configHash(config), configHashVersion: 2,
+        baseHead: lane ? startPoint || info.head : info.head, baseBranch: info.branch, baseCommit: null, configHash: configHash(config), configHashVersion: 2,
         initialProvider: initial.provider.id, oracle: { digest: oracleSet.digest, counts: oracleSet.counts },
         settings: { integrity: settings.integrity.level, blastRadius: settings.blastRadius, protectedPaths: settings.protectedPaths, escalation: settings.escalation, providers: settings.providers, judge: settings.judge.enabled, feedback: settings.feedback },
         budgets: settings.budgets, spent: { iterations: 0, accepted: 0, activeMs: 0, costUsd: 0, costUnknown: 0, costEstimated: 0, tokens: 0 },
@@ -464,10 +518,10 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
         sealed: sealedState(active)
       };
       activeBase = 0;
-      const checkpoint = { n: number, ...(mode === 'worktree' ? await isolation.baseline(checkpointRef(task, number)) : await isolation.checkpoint({ ref: checkpointRef(task, number), tree, parent: info.head, message: commitMessage(state, 0, 'baseline', ledger.head) })) };
+      const checkpoint = { n: number, ...(mode === 'worktree' ? await isolation.baseline(checkpointRef(key, number)) : await isolation.checkpoint({ ref: checkpointRef(key, number), tree, parent: info.head, message: commitMessage(state, 0, 'baseline', ledger.head) })) };
       state.baseCommit = checkpoint.commit; state.baseTree = checkpoint.tree;
       state.checkpoint = { ...checkpoint, iteration: 0, score: null, issues: [] };
-      await ledger.append('loop-start', { task, loopId, mode, flow: state.flow, configHash: state.configHash, feedback: settings.feedback, sealed: state.sealed && { sealId: state.sealed.sealId, suiteDigest: state.sealed.suiteDigest, feedback: state.sealed.feedback, threshold: state.sealed.threshold }, baseHead: info.head, baseBranch: info.branch, budgets: state.budgets, providers: [initial.provider.id, ...settings.providers], oracle: state.oracle, checkpoint });
+      await ledger.append('loop-start', { task, loopId, mode, ...(lane && { lane, only, startPoint: state.startPoint }), flow: state.flow, configHash: state.configHash, feedback: settings.feedback, sealed: state.sealed && { sealId: state.sealed.sealId, suiteDigest: state.sealed.suiteDigest, feedback: state.sealed.feedback, threshold: state.sealed.threshold }, baseHead: info.head, baseBranch: info.branch, budgets: state.budgets, providers: [initial.provider.id, ...settings.providers], oracle: state.oracle, checkpoint });
       emit({ type: 'loop-start', state, warnings });
       const baseline = await measure();
       state.checkpoint.score = baseline.score; state.checkpoint.issues = cap(baseline.issues, 30); state.baseline = baseline.score;
@@ -479,7 +533,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
     } else {
       state.status = 'running'; state.reason = null; state.endedAt = null;
       // The escalation was for the human who just decided; the agents that resume work do not read it. Its full copy stays in the reports.
-      await rm(join(taskDir, 'LOOP-ESCALATION.md'), { force: true });
+      await rm(join(taskDir, reportName('LOOP-ESCALATION.md')), { force: true });
       const changes = budgetChanges(state.budgets, options);
       if (changes) { const before = state.budgets; state.budgets = { ...state.budgets, ...changes }; await ledger.append('budget-change', { before, after: state.budgets }); }
       await isolation.prepare();
@@ -523,7 +577,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
         if (decided.data.agent?.tokens) state.spent.tokens = (state.spent.tokens || 0) + decided.data.agent.tokens;
         state.inFlight = null;
       }
-      for (const { ref, n } of await listCheckpointRefs(cwd, task)) {
+      for (const { ref, n } of await listCheckpointRefs(cwd, key)) {
         if (n > state.checkpoint.n && !ledger.entries.some(entry => entry.data?.checkpoint?.ref === ref)) await git(cwd, ['update-ref', '-d', ref]);
       }
       const backup = await readBackup(paths.inflight);
@@ -543,8 +597,8 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       const tree = await isolation.snapshot();
       if (tree === state.checkpoint.tree) return null;
       const diff = await isolation.diff(state.checkpoint.tree, tree, { patch: false });
-      const n = await nextNumber(cwd, task), label = 'human change';
-      const checkpoint = await isolation.checkpoint({ ref: checkpointRef(task, n), tree, parent: state.checkpoint.commit, message: commitMessage(state, n, label, ledger.head) });
+      const n = await nextNumber(cwd, key), label = 'human change';
+      const checkpoint = await isolation.checkpoint({ ref: checkpointRef(key, n), tree, parent: state.checkpoint.commit, message: commitMessage(state, n, label, ledger.head) });
       const rules = oracleRules({ protectedPaths: settings.protectedPaths, verificationFiles: commandFiles({ config, stack, gates: oracle }) });
       const oracleFiles = diff.files.map(file => file.path).filter(path => classifyPath(path, rules)).slice(0, 50);
       await ledger.append('human-change', { files: diff.files.length, added: diff.added, deleted: diff.deleted, oracle: oracleFiles, checkpoint: { n, ...checkpoint } });
@@ -605,6 +659,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       }
       let work = await selectWork(taskDir, state, settings.judge.enabled);
       if (work.mode === 'blocked') return await finish('needs-human', work.reason);
+      if (work.mode === 'done' && work.lane) return await finish('done', arena ? `subtask ${only.join(', ')} is done and nothing got worse, after ${state.iterations.length} iteration(s); the arena compares the competitors` : `every subtask of lane ${lane} (${only.join(', ')}) is done and nothing got worse, after ${state.iterations.length} iteration(s); the lanes meet at the fan-in`);
       if (work.mode === 'done') {
         // The whole change is judged once more before the loop calls it done; the same tree is never judged twice,
         // and a tree the sealed tests already rejected goes back to work instead of to them.
@@ -754,8 +809,8 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       let checkpoint = null, subtaskDone = null, milestone = null;
       if (accepted) {
         if (tree !== state.checkpoint.tree) {
-          const number = await nextNumber(cwd, task);
-          checkpoint = { n: number, ...await isolation.checkpoint({ ref: checkpointRef(task, number), tree, parent: state.checkpoint.commit, message: commitMessage(state, n, subtask ? `subtask ${subtask.id}` : 'goal', ledger.head) }) };
+          const number = await nextNumber(cwd, key);
+          checkpoint = { n: number, ...await isolation.checkpoint({ ref: checkpointRef(key, number), tree, parent: state.checkpoint.commit, message: commitMessage(state, n, subtask ? `subtask ${subtask.id}` : 'goal', ledger.head) }) };
         }
         // Work kept despite integrity warnings taints its checkpoint and every one derived from it.
         const warned = [...new Set(findings.filter(item => item.severity === 'warn').map(item => item.kind))];
@@ -885,7 +940,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
     throw error;
   } finally {
     if (stopWatch.timer) clearInterval(stopWatch.timer);
-    process.removeListener('SIGINT', onSigint);
+    releaseInterrupt();
     for (const lock of locks) await rm(lock, { force: true });
   }
 
@@ -928,8 +983,8 @@ function budgetChanges(budgets, options) {
 }
 
 /** Checkpoint numbers grow per task across loops, so a second loop never reuses a ref. */
-async function nextNumber(cwd, task) {
-  const refs = await listCheckpointRefs(cwd, task);
+async function nextNumber(cwd, key) {
+  const refs = await listCheckpointRefs(cwd, key);
   return refs.length ? refs.at(-1).n + 1 : 0;
 }
 

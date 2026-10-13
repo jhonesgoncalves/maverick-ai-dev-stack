@@ -57,6 +57,11 @@ gates:
     run: attention
     severity: warn
     description: Hunks ranked by risk and a proof tree per criterion, so the reviewer knows where to look first.
+  - id: explain-back
+    type: maverick
+    run: explain
+    severity: warn
+    description: With review.explainBack on, a read-only agent asks the reviewer three questions about what the change does (never blocks).
   - id: human-review
     type: approval
     prompt: A human reviews the change and records the decision.

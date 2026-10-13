@@ -127,7 +127,7 @@ export const JUDGE_RULES = `You are an independent judge of a code change, worki
  * The judge's evidence: criteria, the behavior to hold the change to, the harness's own results
  * and the diff. Never the author's summary, questions, claimed files, disputes or transcript.
  */
-export async function buildEvidencePacket({ task, taskDir, subtask, criteria, results = [], integrity, diff, maxDiffBytes = 60000 }) {
+export async function buildEvidencePacket({ task, taskDir, subtask, criteria, results = [], integrity, diff, maxDiffBytes = 60000, maxParts = 1 }) {
   const sections = [JUDGE_RULES, `# Task: ${task}${subtask ? ` — subtask ${subtask.id}: ${subtask.title}` : ''}`];
   sections.push(`## Criteria to judge\n\n| id | criterion | source |\n|---|---|---|\n${criteria.map(item => `| ${item.id} | ${item.text.replace(/\|/g, '/')} | ${item.source} |`).join('\n')}`);
   const spec = await readFile(join(taskDir, 'SPEC.md'), 'utf8').catch(() => ''), prd = await readFile(join(taskDir, 'PRD.md'), 'utf8').catch(() => '');
@@ -145,17 +145,43 @@ export async function buildEvidencePacket({ task, taskDir, subtask, criteria, re
   const pathOf = chunk => chunk.match(/^\+\+\+ b\/(.+)$/m)?.[1] || chunk.match(/^--- a\/(.+)$/m)?.[1] || chunk.split('\n')[0].split(' b/').pop();
   const declared = new Set([...scope.subtask, ...scope.all]), rank = path => (declared.has(path) ? 0 : /test|spec/i.test(path) ? 1 : /(lock|\.min\.|dist\/|build\/)/.test(path) ? 3 : 2);
   const ordered = files.map(chunk => ({ path: pathOf(chunk), chunk })).sort((a, b) => rank(a.path) - rank(b.path));
-  let used = 0;
-  const shown = [], omitted = [];
+  // Parts of at most maxDiffBytes each: a large change is judged in parts rather than cut (F6).
+  const parts = [{ shown: [], paths: [], used: 0 }], omitted = [];
   for (const file of ordered) {
-    const chunk = file.chunk.length > 12000 ? `${file.chunk.slice(0, 12000)}\n… (file clipped)` : file.chunk;
-    if (rank(file.path) === 3 || used + chunk.length > maxDiffBytes) { omitted.push(file.path); continue; }
-    used += chunk.length; shown.push(chunk);
+    const limit = Math.min(12000, maxDiffBytes - 20), chunk = file.chunk.length > limit ? `${file.chunk.slice(0, limit)}\n… (file clipped)` : file.chunk;
+    if (rank(file.path) === 3) { omitted.push(file.path); continue; }
+    let part = parts.at(-1);
+    if (part.used + chunk.length > maxDiffBytes && part.shown.length && parts.length < maxParts) parts.push(part = { shown: [], paths: [], used: 0 });
+    if (part.used + chunk.length > maxDiffBytes) { omitted.push(file.path); continue; }
+    part.used += chunk.length; part.shown.push(chunk); part.paths.push(file.path);
   }
-  sections.push(`## The change\n\n### Files\n${(diff?.numstat || []).map(item => `- ${item.path} (+${item.added} −${item.deleted})`).join('\n') || '- none'}\n\n### Diff\n\`\`\`diff\n${shown.join('').trim() || '(empty)'}\n\`\`\`${omitted.length ? `\n\nNot shown (read them from the repository if needed): ${omitted.join(', ')}` : ''}`);
-  const text = sections.join('\n\n');
-  return { text, digest: sha256(text), omitted };
+  const fileList = (diff?.numstat || []).map(item => `- ${item.path} (+${item.added} −${item.deleted})`).join('\n') || '- none';
+  const texts = parts.map((part, index) => {
+    const elsewhere = parts.length > 1 ? `\n\nThis is part ${index + 1} of ${parts.length} of a large change: judge every criterion from the diff below and from the repository (every file of the change is there). Other parts show ${parts.filter((_, other) => other !== index).flatMap(item => item.paths).join(', ')}.` : '';
+    return [...sections, `## The change\n\n### Files\n${fileList}${elsewhere}\n\n### Diff\n\`\`\`diff\n${part.shown.join('').trim() || '(empty)'}\n\`\`\`${omitted.length ? `\n\nNot shown (read them from the repository if needed): ${omitted.join(', ')}` : ''}`].join('\n\n');
+  });
+  const text = texts.join('\n\n'), digest = sha256(text);
+  return { text: texts[0], digest, omitted, parts: texts.map(item => ({ text: item, digest: sha256(item) })) };
 }
+
+/**
+ * One verdict from the verdicts on the parts of a large change: a criterion is met when a part
+ * shows it met with evidence, every issue counts, and the confidence is the lowest of the parts.
+ */
+export function mergePartVerdicts(verdicts, criteria, threshold) {
+  if (verdicts.length === 1) return verdicts[0];
+  if (verdicts.some(item => !item.verdict)) return { ...verdicts.find(item => !item.verdict), costUsd: sum(verdicts, 'costUsd'), tokens: sum(verdicts, 'tokens'), durationMs: sum(verdicts, 'durationMs'), parts: verdicts.length };
+  const merged = criteria.map(criterion => {
+    const met = verdicts.map(item => item.criteria.find(entry => entry.id === criterion.id)).filter(entry => entry?.met && entry.evidence.trim());
+    return met.length ? { id: criterion.id, met: true, evidence: met.map(entry => entry.evidence).join(' · ').slice(0, 2000) } : verdicts.map(item => item.criteria.find(entry => entry.id === criterion.id)).find(Boolean) || { id: criterion.id, met: false, evidence: 'not assessed' };
+  });
+  const issues = [...new Set(verdicts.flatMap(item => item.issues))].slice(0, 50);
+  const verdict = normalizeVerdict({ verdict: merged.every((item, index) => item.met || criteria[index].required === false) && !issues.length ? 'pass' : 'fail', criteria: merged, issues, confidence: Math.min(...verdicts.map(item => item.confidence)) }, criteria, threshold);
+  const [first] = verdicts;
+  return { ...first, ok: verdicts.every(item => item.ok), problems: verdicts.flatMap(item => item.problems || []), verdict: verdict.verdict, confidence: verdict.confidence, criteria: verdict.criteria, issues: verdict.issues, unmet: verdict.unmet, costUsd: sum(verdicts, 'costUsd'), tokens: sum(verdicts, 'tokens'), durationMs: sum(verdicts, 'durationMs'), parts: verdicts.length };
+}
+
+const sum = (items, key) => (items.some(item => typeof item[key] === 'number') ? items.reduce((total, item) => total + (item[key] || 0), 0) : null);
 
 /** Exports a tree to a temporary directory outside the project, without .maverick, and runs `fn` in it. */
 export function withJudgeWorkspace(cwd, tree, fn) { return withExport(cwd, tree, workdir => fn(workdir), { prefix: 'maverick-judge-' }); }
@@ -199,7 +225,7 @@ export async function runJudgeGate(context, gate, prior = [], state = {}, extra 
     // Integrity findings: the loop's own audit, or the issues of an integrity gate that ran before.
     const gateFindings = prior.filter(item => item.issues?.length && /integrity/.test(item.id)).flatMap(item => item.issues.map(message => ({ severity: item.severity, kind: 'integrity', message })));
     const integrity = loop.integrity || { findings: gateFindings };
-    const packet = await buildEvidencePacket({ task: context.task, taskDir: context.taskDir, subtask, criteria, results: prior, integrity, diff, maxDiffBytes: gate.maxDiffBytes });
+    const packet = await buildEvidencePacket({ task: context.task, taskDir: context.taskDir, subtask, criteria, results: prior, integrity, diff, maxDiffBytes: gate.maxDiffBytes, maxParts: gate.maxParts ?? 4 });
     const human = state.approvals?.[gate.id];
     if (human?.evidence === packet.digest) return { ...base, status: human.decision === 'approve' ? 'pass' : 'fail', issues: human.decision === 'approve' ? [] : [`rejected by ${human.by}: ${human.reason || 'no reason given'}`], summary: `${human.decision} by ${human.by} for this exact change`, judge: { digest: packet.digest, final: human.decision === 'approve' ? 'pass' : 'fail', reason: 'human', verdicts: [] } };
     const cached = state.runs?.at(-1)?.results.find(item => item.id === gate.id && item.judge?.digest === packet.digest && ['pass', 'fail'].includes(item.status));
@@ -210,7 +236,12 @@ export async function runJudgeGate(context, gate, prior = [], state = {}, extra 
     const first = selectJudge({ config, cwd: context.cwd, makers, gate, prefer });
     if (first.reason) return { ...base, status: 'pending', issues: [first.reason], summary: `a human decides: maverick flow approve <flow> ${context.task} ${gate.id}`, judge: { digest: packet.digest, final: null, reason: first.reason, verdicts: [] } };
     const verdicts = [];
-    const ask = selected => withJudgeWorkspace(context.cwd, head, workdir => judgeOnce({ cwd: context.cwd, config, taskDir: context.taskDir, task: context.task, plan: selected.plan, family: selected.family, packet, criteria, gate, workdir, signal: loop.signal || context.signal, meta: { loop: loop.loopId, iteration: loop.iteration }, reportDir: context.reportDir }));
+    // A large change is judged part by part by the same judge, in the same export; the verdicts merge into one.
+    const ask = selected => withJudgeWorkspace(context.cwd, head, async workdir => {
+      const parts = [];
+      for (const [index, part] of packet.parts.entries()) parts.push(await judgeOnce({ cwd: context.cwd, config, taskDir: context.taskDir, task: context.task, plan: selected.plan, family: selected.family, packet: part, criteria, gate, workdir, signal: loop.signal || context.signal, meta: { loop: loop.loopId, iteration: loop.iteration, ...(packet.parts.length > 1 && { part: index + 1, parts: packet.parts.length }) }, reportDir: context.reportDir }));
+      return mergePartVerdicts(parts, criteria, gate.threshold ?? 0.7);
+    });
     verdicts.push(await ask(first));
     const exclude = [first.family];
     const second = () => { const selected = selectJudge({ config, cwd: context.cwd, makers, gate: { ...gate, provider: undefined, model: undefined, effort: undefined }, exclude, prefer }); return selected.reason ? null : selected; };

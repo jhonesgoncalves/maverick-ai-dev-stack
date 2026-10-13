@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.js';
 import { captureOutput } from '../src/core/util.js';
-import { buildEvidencePacket, loadCriteria, normalizeVerdict, parseVerdictBlock, selectJudge } from '../src/flows/judge.js';
+import { buildEvidencePacket, loadCriteria, mergePartVerdicts, normalizeVerdict, parseVerdictBlock, selectJudge } from '../src/flows/judge.js';
 import { flowSchema } from '../src/flows/model.js';
 
 process.env.MAVERICK_HOME = await mkdtemp(join(tmpdir(), 'maverick-home-'));
@@ -57,6 +57,20 @@ test('the evidence packet holds criteria, harness evidence and the diff, never t
   const again = await buildEvidencePacket({ task: 'demo', taskDir, criteria, results: [{ id: 'checks', type: 'check', status: 'pass', issues: [] }], integrity: { findings: [{ severity: 'warn', kind: 'claim-mismatch', message: 'x' }] }, diff: { patch, numstat: [{ path: 'src/a.js', added: 1, deleted: 1 }] } });
   assert.equal(packet.digest, again.digest, 'the same change gives the same digest');
   await assert.rejects(loadCriteria(taskDir, { rubric: { file: '../outside.md' } }), /must stay inside the task/);
+
+  // A change larger than maxDiffBytes is judged in parts instead of being cut, up to maxParts.
+  const big = ['a', 'b', 'c'].map(name => `diff --git a/src/${name}.js b/src/${name}.js\n--- a/src/${name}.js\n+++ b/src/${name}.js\n@@ -1 +1 @@\n${'+x\n'.repeat(2000)}`).join('');
+  const split = await buildEvidencePacket({ task: 'demo', taskDir, criteria, diff: { patch: big }, maxDiffBytes: 5000, maxParts: 4 });
+  assert.equal(split.parts.length, 3);
+  assert.deepEqual(split.omitted, []);
+  assert.match(split.parts[1].text, /part 2 of 3 of a large change[^\n]*Other parts show src\/a\.js, src\/c\.js/);
+  const capped = await buildEvidencePacket({ task: 'demo', taskDir, criteria, diff: { patch: big }, maxDiffBytes: 5000, maxParts: 2 });
+  assert.deepEqual(capped.omitted, ['src/c.js']);
+  const part = (met, issues = []) => ({ ok: true, verdict: met.length === 3 ? 'pass' : 'fail', confidence: 0.9, criteria: ['R-01', 'AC-01', 'AC-02'].map(id => ({ id, met: met.includes(id), evidence: met.includes(id) ? `src/${id}.js:1` : 'not in this part' })), issues, unmet: [], costUsd: 0.1, tokens: 10, durationMs: 5 });
+  const merged = mergePartVerdicts([part(['R-01', 'AC-01']), part(['R-01', 'AC-02'])], criteria, 0.7);
+  assert.equal(merged.verdict, 'pass', 'each criterion is met in some part');
+  assert.deepEqual([merged.costUsd, merged.tokens, merged.parts], [0.2, 20, 2]);
+  assert.equal(mergePartVerdicts([part(['R-01', 'AC-01', 'AC-02']), part(['R-01', 'AC-01', 'AC-02'], ['src/b.js swallows errors'])], criteria, 0.7).verdict, 'fail', 'an issue in any part fails the change');
 });
 
 /** A fake judge CLI (a custom provider reading the prompt on stdin) that logs where and what it was asked. */

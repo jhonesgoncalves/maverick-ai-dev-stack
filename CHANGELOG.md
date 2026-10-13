@@ -4,6 +4,44 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+### Added: the work graph, parallel lanes guided by the code
+- `maverick loop graph <task>` runs a task's ready subtasks in parallel **lanes**, each a loop in a worktree of its own from the same integration commit. For every pair of ready subtasks it predicts a collision from the files both declare, the files one changes that the other's files import within two hops, and the files history says change together; subtasks that may collide share a lane and run in series. `--plan` shows the predicted collisions and lanes without running anything; `--max-lanes` caps them (default 4).
+- The lanes meet at a **fan-in**: an integration worktree merges their branches and runs the whole oracle. A merge conflict, or a gate the merged lanes break, is a real collision, recorded next to the prediction; its subtasks go back to pending and run again in the next wave on the merged code. When every subtask is done, the merged work must pass every blocking gate and, for a sealed task, the holdout. The result stays on `maverick/graph/<task>-<id>`; `.maverick/tasks/<task>/graphs/<id>.json` keeps every wave, the predicted and real collisions and wall-clock time against the lanes' total.
+- `maverick loop run <task> --lane <id> --only 01,02 [--start-point <ref>]` runs one lane by hand. A lane has its own checkpoint refs (`refs/maverick/loops/<task>/lanes/<lane>/`), branch (`maverick/lane/<task>/<lane>`), lock and `LOOP-<lane>.md`; it is done when its subtasks are, and never runs the holdout or the judge of the whole change. The task's own loop and its lanes never run at the same time.
+- Lens: **Loops → Work graphs** shows each wave's lanes, the collisions predicted and the ones the fan-in found.
+
+### Added: the arena
+- `maverick arena run <task> --subtask <id> --providers a,b[,c]` builds one subtask with several providers at once, each by a bounded loop in a worktree of its own, from one snapshot of the working copy and a private copy of the task. The winner comes from evidence, each step breaking only the ties of the one before: finished, the oracle, the sealed holdout, integrity, a judge from a model family none of the competitors belongs to, vacuous tests, the architecture delta, the smaller diff. A tie is a tie.
+- `arena confirm <task> <id>` (a human, `--by`) applies the winner's change to the working copy, which must still be the arena's base, and finishes its subtask; choosing against the evidence needs `--reason`. The others are recorded as rejected in their loops' ledgers. Every competitor's loop joins the task's loops, so the scorecard counts it, and decided arenas add a win rate per provider. `arena stats` says how often the winner by evidence was the human's choice; `arena status|list|verify` read and check the record. Lens shows arenas on the Loops page.
+
+### Added: the flight recorder
+- `maverick loop replay <task> --set stall.window=3 [--set escalation=human]` replays a recorded loop through the pure policy functions (budgets and forecast, ratchet, stall diagnosis, escalation ladder) under other settings and says what would have happened: stopped earlier and what it would have saved, decided the same, or diverged at the first iteration where the recording can no longer say what the agent would have done. Nothing runs. Lens: a **Flight recorder** card on each loop with its checkpoints and a what-if form (`GET /api/loop/replay`).
+- `maverick loop fork <task> --from <iteration> --provider <id>` starts a new loop from a recorded checkpoint, in a worktree of its own, on a copy of the task with the subtasks as they were then; the original loop, its task and the checkout are untouched, and the result stays on `refs/maverick/forks/<task>/<id>`. Commands that default to the newest loop (`status`, `log`, `verify`, `replay`, the review budget, the PR's holdout section) ignore forks and arena competitors.
+
+### Added: proof receipts
+- `maverick proof sign <task>` writes `PROOF.json`: an in-toto Statement (predicate `https://maverick.dev/proof/v1`) in a DSSE envelope signed with ed25519 from `node:crypto`, no new dependency. Its subject is the git tree without `.maverick/`; it records the PRD, SPEC and TECHSPEC digests, every loop ledger's head and outcome, the gates, the holdout and its overfitting index (once a reviewer decided on the seal), integrity findings, the judges' verdicts, the approvals and the models. A committed change also gets the receipt as a note in `refs/notes/maverick`.
+- `maverick proof verify [<task>] [--commit <ref> | --file <path>]` checks the signature against `.maverick/proof-keys/`, that the code is the tree it names, that the PRD and SPEC are unchanged and that every local ledger still has the recorded head. `proof keygen` creates the key (`$MAVERICK_HOME/keys/proof-ed25519.pem`, `proof.keyFile`, or `MAVERICK_PROOF_KEY` for CI, never passed to an agent or a check) and commits its public half. `proof.onPullRequest` makes the `pr` flow sign the commit it pushes and push the note; the generated GitHub Actions workflow verifies the pull request's head.
+- `maverick proof export <task> --format agent-trace` writes Agent Trace 0.1 with the exact line ranges each loop iteration wrote (blamed against the loops' checkpoint chains, hand edits left out); `--format aibom` writes a CycloneDX 1.6 AI bill of materials.
+
+### Added: explain-back (experimental)
+- With `review.explainBack`, `maverick explain <task>` (and the new `explain-back` gate of the `ship` flow, which never blocks) has a read-only agent ask the reviewer three questions about what the change does, from the SPEC and the diff, in an export of the change. Answers, in Lens or with `--answer Q1 --text "..."`, go into `REVIEW.md` under `## Explain-back` and `EXPLAIN-BACK.md`.
+
+### Added: flows v2, typed DAGs
+- `apiVersion: maverick.flow/v2` flows have `gate`, `agent` (with a context policy and read-only or guarded edit permission), `decision` (a typed rubric), `human`, `fan-out`, `join` and explicit `end` nodes, and edges whose `when` is a typed contract on the source's outputs. Cycles, impossible routes, a missing end and a decision that leads straight to `done` are refused when the flow loads. One run is one pass; the contract's iteration cap and no-progress window still apply. Gate and human nodes are the flow's `gates`, so loops and `flow approve` work with them. Lens draws the DAG with each node's last output.
+
+### Added: smaller pieces
+- A judge gate splits a diff larger than `maxDiffBytes` into up to `maxParts` parts (default 4) instead of leaving files out; the verdicts merge criterion by criterion.
+- `maverick grounding [<task>]` measures grounding precision and recall: the files `maverick new` suggested (kept in `TASK.json`) against the files the task's loops kept.
+- The task's overview in Lens shows the proof tree per criterion (from `review-budget.json`, written by `maverick attention`) and the explain-back questions.
+- The architecture gate reuses the base tree's cached import graph when a change touches no source file and no file that changes import resolution.
+
+### Changed: concurrency
+- Captured command output belongs to its invocation (`AsyncLocalStorage`), so loops in one process never mix their gates' output. Changes to a task's subtask graph take a lock, and the harness journals its own writes to subtask files so one lane's guard never undoes another's. One Ctrl-C handler stops every loop in the process; a second Ctrl-C exits. Worktree loops collect reports atomically.
+- A flag given twice keeps both values (`--set a=1 --set b=2`).
+
+### Removed
+- The v1 `.maverick/` task and `maverick.config.json` at the repository root (a root `maverick.config.json` in your project is still read as a fallback). `loop log` no longer describes a `rollback` entry type the ledger never had; rollbacks are part of `iteration-end`.
+
 ## [1.10.0] - 2026-10-13
 
 - New Decide commands and sealed-suite review actions follow the Maverick CLI wordmark, status badges, spacing and next-step hints. Human reports preserve uncertainty and unknown costs; `--json` remains machine-readable. The help and launcher keep Get started first.

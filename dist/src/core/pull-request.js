@@ -167,7 +167,7 @@ export function splitDraft(text, title) {
  * On the base branch (or a detached HEAD) the change moves to `maverick/<task>` first; uncommitted
  * changes outside .maverick/ are committed with the title, through the repository's hooks.
  */
-export async function openPullRequest(cwd, { task, title, body, settings = {}, timeoutMs }) {
+export async function openPullRequest(cwd, { task, title, body, settings = {}, timeoutMs, beforePush }) {
   const exec = (bin, args, options) => run(cwd, bin, args, { timeoutMs, ...options });
   const git = args => exec('git', args);
   const must = async (args, what) => { const result = await git(args); if (!result.ok) throw new Error(`${what} failed: ${tail(result)}`); return result.stdout.trim(); };
@@ -200,8 +200,16 @@ export async function openPullRequest(cwd, { task, title, body, settings = {}, t
     await must(['commit', '-q', '-m', title, '-m', `Maverick task: ${task}`, ...scope], 'git commit');
     commit = await must(['rev-parse', '--short', 'HEAD'], 'reading the commit');
   }
+  // What travels with the commit (a signed proof receipt in a git note) is made before the push.
+  const extra = beforePush ? await beforePush() : null;
   await must(['push', '-u', remote, branch], `git push ${remote} ${branch}`);
   const result = { provider: repo?.provider || null, providerName: PROVIDERS[repo?.provider]?.name || null, cli: PROVIDERS[repo?.provider]?.cli || null, remote, branch, base, createdBranch, commit, pushed: true };
+  for (const ref of extra?.refs || []) {
+    // Never forced: notes someone else pushed are kept, and the push is reported instead.
+    const pushed = await git(['push', remote, `${ref}:${ref}`]);
+    (result.refs ||= []).push({ ref, pushed: pushed.ok, ...(pushed.ok ? {} : { reason: tail(pushed) }) });
+  }
+  if (extra?.proof) result.proof = extra.proof;
   const page = newPullRequestUrl(repo, branch, base);
   if (!repo?.provider) return { ...result, opened: false, url: null, reason: `the provider of ${repo ? repo.host : `the ${remote} remote`} is unknown; set pr.provider (${Object.keys(PROVIDERS).join(', ')})` };
   const adapter = ADAPTERS[repo.provider];

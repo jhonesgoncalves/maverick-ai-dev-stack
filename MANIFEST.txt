@@ -1,5 +1,4 @@
 .github/pull_request_template.md
-.maverick/README.md
 CHANGELOG.md
 CONTRIBUTING.md
 LICENSE-CODE
@@ -44,7 +43,6 @@ examples/orders-pagination/REVIEW.md
 examples/orders-pagination/TASK.md
 lab/experiment-template.md
 lab/scorecard.csv
-maverick.config.json
 package.json
 playbooks/context-engineering.md
 playbooks/diff-review.md

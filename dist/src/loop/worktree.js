@@ -1,11 +1,12 @@
-import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { copyFile, cp, mkdir, readdir, readFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { sha256 } from '../capabilities/model.js';
 import { maverickHome } from '../core/home.js';
 import { executeCommand } from '../core/project-tools.js';
 import { exists, rel } from '../core/util.js';
-import { checkboxOnlyChange } from '../subtasks/graph.js';
-import { git, IntegrityError, resolveRef, treeDiff } from './git.js';
+import { checkboxOnlyChange, harnessWrite, withGraphLock } from '../subtasks/graph.js';
+import { git, IntegrityError, loopKey, ownRefLines, resolveRef, treeDiff } from './git.js';
 
 // Worktree isolation. The loop works in its own git worktree on the branch
 // `maverick/loop/<task>`, outside the repository, and commits each accepted iteration there.
@@ -37,12 +38,17 @@ export function worktreeLocation(root, task, settings = {}) {
   return join(base, task);
 }
 
-export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}, taskDir }) {
-  const branch = `maverick/loop/${task}`;
+export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}, taskDir, lane = state.lane || null, startPoint = state.startPoint || null }) {
+  // A lane has its own branch, folder and refs, so several loops of one task can run at once.
+  const key = loopKey(task, lane);
+  const branch = state.worktree?.branch || (lane ? `maverick/lane/${task}/${lane}` : `maverick/loop/${task}`);
   const prefix = state.worktree?.prefix ?? info.prefix ?? '';
-  const location = state.worktree?.path || worktreeLocation(info.root || cwd, task, settings);
+  const location = state.worktree?.path || worktreeLocation(info.root || cwd, lane ? `${task}--${lane}` : task, settings);
   const workCwd = join(location, prefix);
   const mainMaverick = join(cwd, '.maverick'), workMaverick = join(workCwd, '.maverick');
+  // What the last sync put in the mirror: an agent's edit is a difference from it, not from the main
+  // checkout, which another lane of the task may have changed since (its own subtask, the manifest).
+  const synced = new Map();
   const self = {
     mode: 'worktree', workCwd, worktree: { path: location, branch, prefix, setup: state.worktree?.setup || [] },
     /** Creates the worktree and runs the setup commands once; on a resume, checks it is still there. */
@@ -51,7 +57,7 @@ export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}
       if (await exists(location)) throw new Error(`${location} already exists; remove it (maverick loop clean ${task}) or set loop.worktreeDir`);
       if (await resolveRef(cwd, `refs/heads/${branch}`)) throw new Error(`the branch ${branch} exists from an earlier loop; merge or delete it (maverick loop clean ${task} --delete-branch) before starting a worktree loop`);
       await mkdir(dirname(location), { recursive: true });
-      await must(cwd, ['worktree', 'add', '-q', '-b', branch, location, 'HEAD']);
+      await must(cwd, ['worktree', 'add', '-q', '-b', branch, location, startPoint || 'HEAD']);
       await self.sync(taskDir);
       for (const command of settings.setup || []) {
         const result = await executeCommand(workCwd, command, '', 4000, { timeoutMs: (settings.setupTimeoutMinutes || 20) * 60000 });
@@ -80,10 +86,13 @@ export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}
       if (!await exists(from)) return;
       await mkdir(to, { recursive: true });
       for (const entry of await readdir(from)) {
-        if (['runs', 'loops'].includes(entry)) continue;
+        // Another lane's report on its way in (see collect) is not part of the task.
+        if (['runs', 'loops'].includes(entry) || /^\..+\.\d+\.[0-9a-f]{8}$/.test(entry)) continue;
         await rm(join(to, entry), { recursive: true, force: true });
-        await cp(join(from, entry), join(to, entry), { recursive: true });
+        await cp(join(from, entry), join(to, entry), { recursive: true }).catch(error => { if (error.code !== 'ENOENT') throw error; });
       }
+      synced.clear();
+      for (const path of await files(to)) if (!/[\\/](runs|loops)[\\/]/.test(relative(to, path))) synced.set(path, await readFile(path, 'utf8').catch(() => null));
     },
     /**
      * Takes back what the agent may change in the worktree's mirror of the task: ticked boxes in
@@ -96,9 +105,11 @@ export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}
       for (const path of await files(join(workMaverick, 'flows'))) pairs.push([join(mainMaverick, relative(workMaverick, path)), path]);
       for (const path of await files(join(workCwd, taskRel))) if (!/[\\/](runs|loops)[\\/]/.test(relative(join(workCwd, taskRel), path)) && !REPORTS.includes(basename(path)) && !/^(LOOP.*|JUDGE-.*|FLOW-.*)\.md$/.test(basename(path))) pairs.push([join(taskDir, relative(join(workCwd, taskRel), path)), path]);
       for (const [main, mirror] of pairs) {
-        const [a, b] = await Promise.all([readFile(main, 'utf8').catch(() => null), readFile(mirror, 'utf8').catch(() => null)]);
+        const [now, b] = await Promise.all([readFile(main, 'utf8').catch(() => null), readFile(mirror, 'utf8').catch(() => null)]);
+        // The task's files are compared with what was synced; configuration and flows with the main checkout.
+        const a = synced.has(mirror) ? synced.get(mirror) : now;
         if (a === b) continue;
-        if (subtask && main === join(taskDir, 'subtasks', subtask.file) && a !== null && b !== null && checkboxOnlyChange(a, b)) { await writeFile(main, b); continue; }
+        if (subtask && main === join(taskDir, 'subtasks', subtask.file) && a !== null && b !== null && checkboxOnlyChange(a, b)) { await withGraphLock(taskDir, () => harnessWrite(taskDir, main, b)); continue; }
         findings.push({ severity: 'block', kind: 'protected-path-modified', file: rel(cwd, main), message: 'the agent changed a file that defines the task or its checks; Maverick restored it' });
       }
       return { findings };
@@ -106,7 +117,13 @@ export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}
     /** Copies the gates' reports from the worktree's task back to the main task. */
     async collect(taskDir) {
       const from = join(workCwd, relative(cwd, taskDir));
-      for (const name of REPORTS) if (await exists(join(from, name))) await cp(join(from, name), join(taskDir, name));
+      // Copied then renamed: lanes of one task collect at the same time, and a rename never leaves a half-written or missing report.
+      for (const name of REPORTS) {
+        if (!await exists(join(from, name))) continue;
+        const temporary = join(taskDir, `.${name}.${process.pid}.${randomBytes(4).toString('hex')}`);
+        await copyFile(join(from, name), temporary);
+        await rename(temporary, join(taskDir, name));
+      }
     },
     async snapshot() {
       await must(workCwd, ['add', '-A', ...EXCLUDE]);
@@ -140,13 +157,13 @@ export function createWorktree({ cwd, task, state = {}, settings = {}, info = {}
     async captureInvariants() {
       return {
         head: await resolveRef(workCwd, 'HEAD'), branch: (await git(workCwd, ['symbolic-ref', '-q', 'HEAD'])).stdout.trim() || null,
-        refs: (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', `refs/maverick/loops/${task}/`])).stdout
+        refs: await ownRefLines(cwd, key)
       };
     },
     /** A commit or checkout in the worktree is undone (the files stay, so the iteration is judged and rolled back); forged loop refs end the loop. */
     async checkInvariants(before) {
       const fatal = [], findings = [];
-      const refs = (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', `refs/maverick/loops/${task}/`])).stdout;
+      const refs = await ownRefLines(cwd, key);
       if (refs !== before.refs) fatal.push('the loop\'s checkpoint refs changed during the iteration');
       const head = await resolveRef(workCwd, 'HEAD'), current = (await git(workCwd, ['symbolic-ref', '-q', 'HEAD'])).stdout.trim() || null;
       if (head !== before.head || current !== before.branch) {

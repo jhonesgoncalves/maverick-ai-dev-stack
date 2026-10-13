@@ -1,89 +1,42 @@
 # Pendências de implementação (estratégia 2026)
 
-Este arquivo substitui o estudo `STRATEGY-2026.md`, que não está mais no repositório, e guarda só o que **falta** implementar. Já foram entregues o v1.9 "Prove" e o v1.10 "Remember", descritos no `CHANGELOG.md` e no `ROADMAP.md`.
+Este arquivo substitui o estudo `STRATEGY-2026.md`, que não está mais no repositório, e guarda só o que **falta** implementar. Já foram entregues o v1.9 "Prove", o v1.10 "Remember" e o v1.11 "Decide" (publicado como 1.10.0), descritos no `CHANGELOG.md` e no `ROADMAP.md`.
 
 A tese continua a mesma: o Maverick deixa de ser só um harness e passa a ser um **sistema de prova**. Agentes escrevem, o Maverick prova, engenheiros decidem.
 
-Para priorizar, cada item tem uma nota `D × U × A / (E × R)`:
-- **D** é a diferenciação, **U** o desejo do usuário e **A** quanto reaproveita do código; os três vão de 1 a 5;
-- **E** é o esforço: P = 1, P–M = 1,5, M = 2, M–G = 2,5, G = 3;
-- **R** é o risco, de 1 a 3.
+## v2.0 "Proof layer" implementado (Unreleased)
 
-## Ordem sugerida
-
-| Versão | Conteúdo | Por quê nesta ordem |
-|---|---|---|
-| **v2.0 "Proof layer"** | F1 concorrência, G1 grafo de trabalho guiado pelo código, G2 Arena, G4 replay, H3 recibo de prova, G3 flows v2, F6, F7 | Exige a refatoração de concorrência (F1) e aproveita tudo o que veio antes |
-
-## v1.11 “Decide” implementado (Unreleased)
-
-D2, D4, P4, a triagem inicial do D1, D3 e H4 estão no CLI e no Lens. Os selados têm revisão independente opt-in, lint de superfície, amend/suspend/restore, varredura de transcripts, runners por subprojeto (já presentes) e ratchet opt-in. Rotas e autonomia continuam sendo patches revisáveis; decisões tipadas continuam consultivas.
-
-A configuração, os limites de análise estática, a calibração e as métricas estão em [Decide](../../site/concepts/decide.md) e [Sealed tests](../../site/concepts/sealed-tests.md). Os alvos de 90% de falha na base, menos de 20% de amend e até 15% de custo/tempo extra são medidos pelo painel; não são resultados que se possam afirmar antes de acumular dados reais.
-
-## ESCALAR: o grafo de trabalho (v2.0)
-
-### F1 Fundação de concorrência (pré-requisito de G1 e G2)
-- Captura de saída por invocação com `AsyncLocalStorage`, como `withCommandScope` já faz em `src/core/project-tools.js`.
-- Chaves de loop por subtask (`src/loop/git.js`).
-- Lock no `_tasks.md` (`src/subtasks/graph.js`).
-- SIGINT por loop.
-
-### G1 Grafo de trabalho guiado pelo grafo de código · nota 8,3
-- Para cada par de subtasks prontas, prever a colisão pelos `Files` declarados, por `impactOf` em 2 saltos e pelo change coupling histórico.
-- Subtasks sem colisão vão para pistas paralelas em worktrees; subtasks acopladas vão para a mesma pista, em série.
-- **Fan-in:** o merge das pistas acontece num worktree de integração, que roda o oráculo completo, os selados e a arquitetura.
-- **No Lens:** pistas, colisões previstas e colisões reais.
-- **Métrica:** tempo de parede por task; colisões previstas versus reais.
-
-### G2 Arena · nota 12
-- `maverick arena <task> --subtask 03 --providers a,b,c` roda a mesma subtask em N worktrees.
-- **O vencedor sai da evidência:** oráculo, selados, integridade, ablation, delta de arquitetura, tamanho do diff e um juiz de família diferente de todos os competidores.
-- O humano confirma. Os perdedores viram patches rejeitados no ledger e alimentam o placar (D2).
-- **Métrica:** quantas vezes o vencedor por evidência coincide com a escolha humana.
-
-### G4 Gravador de voo e simulador de políticas · nota 22,5
-- `maverick loop replay <task> [--set stall.window=3]` reexecuta as funções **puras** de política sobre `state.iterations` gravados: `compare`, `isProgress`, `diagnose`, `nextRung`, `checkBudget`, `wouldExceed`, `decideOutcome`.
-- Responde perguntas como: "com esta política, o loop teria parado na iteração 5 e economizado US$ 0,40".
-- **No Lens:** viagem no tempo pelos checkpoints e fork a partir de um checkpoint com outro provider.
-
-### G3 Flows v2 como grafo · nota 3
-- `maverick.flow/v2` com nós `agent`, `gate`, `decision` (D1), `human`, `fan-out` e `join`.
-- Contratos tipados nas arestas e política de contexto por nó.
-- Detecção de ciclo e renderização ao vivo no Lens.
-- **Cuidado:** não virar um LangGraph. Continua um DAG tipado em arquivo, com desfechos explícitos.
-
-## ENTREGAR
-
-### H3 Recibo de prova · nota 12
-- **Formato:** Statement in-toto num envelope DSSE assinado com ed25519 via `node:crypto`, sem dependência nova.
-- **Predicado `maverick.dev/proof/v1`:** digests do PRD e do SPEC, cabeça do ledger, gates, selados e OI, integridade, vereditos, aprovações e modelos usados.
-- **Onde fica:** `refs/notes/maverick` e `PROOF.json`.
-- **Verificação:** `maverick proof verify` e um check de CI.
-- **Interoperabilidade:** Agent Trace e AI-BOM. O diferencial é dizer *o que provou*, não só *quem escreveu*.
-
-### H2 Explain-back (experimental) · nota 8
-- Antes da aprovação, um agente read-only gera 3 perguntas sobre o comportamento da mudança, a partir do SPEC e do diff.
-- O revisor responde no Lens, e a resposta fica no `REVIEW.md`.
-- Opt-in, nunca bloqueia.
-
-## Sobras do v1.10 "Remember"
-
-- Exportar os registros do `why` no formato Agent Trace.
-- Árvore de prova por critério no Lens. Hoje ela está só no `REVIEW-BUDGET.md`.
-- Medir a precisão do grounding: arquivos sugeridos versus arquivos de fato alterados por task.
-- Usar os snapshots do grafo (`.maverick/cache/graph/`) como cache do gate de arquitetura em monorepos grandes.
-
-## FUNDAÇÕES restantes
+Todos os itens do v2.0 estão no CLI e no Lens, com testes (`test/lanes.test.js`, `test/arena.test.js`, `test/workgraph.test.js`, `test/proof-layer.test.js`, `test/proof-receipt.test.js`, `test/flows-v2.test.js`). A documentação pública está em [The proof layer](../../site/concepts/proof-layer.md).
 
 | Id | O quê | Onde |
 |---|---|---|
-| F6 | Juiz em blocos acima de `maxDiffBytes` | `src/flows/judge.js` |
-| F7 | Remover o `.maverick/` v1 da raiz e o `maverick.config.json`; registrar `rollback` no ledger ou tirá-lo do `loop log` | raiz, `src/commands/loop.js` |
+| F1 | Saída capturada por invocação (`AsyncLocalStorage`), chaves de loop por lane, lock e diário de escritas do harness no grafo de subtasks, um handler de Ctrl-C para todos os loops | `src/core/util.js`, `src/core/lock.js`, `src/subtasks/graph.js`, `src/loop/git.js`, `src/loop/signals.js`, `src/loop/guards.js` |
+| G1 | `loop graph`: colisões previstas (Files, `impactOf` em 2 saltos, change coupling), pistas paralelas, fan-in com merge e oráculo completo, colisões reais, Lens | `src/loop/workgraph.js` |
+| G2 | `arena`: N worktrees, vencedor por evidência, juiz de família diferente de todos, confirmação humana, perdedores no ledger e no placar | `src/arena/arena.js` |
+| G4 | `loop replay` (simulador de políticas) e `loop fork` (fork de um checkpoint com outro provider); card "Flight recorder" no Lens | `src/loop/replay.js`, `src/loop/fork.js` |
+| H3 | Recibo de prova in-toto/DSSE/ed25519, `refs/notes/maverick`, `PROOF.json`, `proof verify`, check de CI, Agent Trace e AI-BOM | `src/proof/receipt.js`, `src/proof/interop.js` |
+| G3 | `maverick.flow/v2`: DAG tipado com nós agent, gate, decision, human, fan-out, join e end; contratos nas arestas; política de contexto; detecção de ciclo; DAG no Lens | `src/flows/graph.js`, `src/flows/graph-run.js` |
+| H2 | Explain-back opt-in, nunca bloqueia; respostas no Lens e no `REVIEW.md` | `src/proof/explain.js` |
+| F6 | Juiz em partes acima de `maxDiffBytes` (`maxParts`) | `src/flows/judge.js` |
+| F7 | Removidos o `.maverick/` v1 da raiz e o `maverick.config.json`; `loop log` não descreve mais um tipo `rollback` que o ledger nunca teve | raiz, `src/commands/loop.js` |
+
+Sobras do v1.10 também entregues: export Agent Trace (`proof export`), árvore de prova no Lens (`review-budget.json`), precisão do grounding (`maverick grounding`) e reaproveitamento do grafo da base no gate de arquitetura.
+
+## O que ainda falta
+
+Nada do plano ficou sem implementação; o que segue são limites conhecidos e métricas que só os dados reais vão responder.
+
+- **Métricas a acumular:** tempo de parede por task e colisões previstas versus reais (G1), concordância entre o vencedor por evidência e a escolha humana (G2), precisão do grounding. Os comandos medem; os alvos só podem ser afirmados com uso real.
+- **Orçamento compartilhado:** cada lane e cada competidor da arena recebe o orçamento inteiro do loop. Falta um orçamento global por work graph e por arena.
+- **Flows v2 em paralelo:** um run percorre o DAG em ordem topológica, um nó por vez. Ramos independentes depois de um `fan-out` ainda não rodam ao mesmo tempo (agentes de edição no mesmo working tree colidiriam; só nós read-only poderiam).
+- **Settle de aprovações no v2:** uma decisão humana num nó `human` vale na próxima execução do flow; o v1 decide o run na hora.
+- **Grafo incremental:** o gate de arquitetura só reaproveita o grafo quando nenhum arquivo de código ou de resolução mudou. Reanalisar só os arquivos alterados exige o contexto de resolução do projeto inteiro (tsconfig, workspaces, namespaces de C# e Elixir).
+- **Agent Trace:** o export segue a forma 0.1 da especificação como ela estava em 2026; revisar quando a especificação estabilizar.
+- **Fork:** os status das subtasks no ponto do fork são reconstruídos pelo ledger (`subtask-done`); caixas marcadas de subtasks não terminadas são desmarcadas.
 
 ## O que não fazer
 
 - Não decidir roteamento ou autonomia pela taxa de aprovação bruta: integridade e OI sempre pesam contra.
-- Não deixar o holdout virar oráculo escondido. Uma falha selada vai para um humano e nunca gera rollback automático.
-- Não aplicar sozinho nenhuma mudança de política (autonomia, rotas, regras). Sempre propor um diff revisável.
-- Não transformar os flows num framework genérico de grafos.
+- Não deixar o holdout virar oráculo escondido. Uma falha selada vai para um humano e nunca gera rollback automático; nenhuma lane roda o holdout.
+- Não aplicar sozinho nenhuma mudança de política (autonomia, rotas, regras). Sempre propor um diff revisável. A arena e o work graph também não aplicam nada no working copy sem um humano.
+- Não transformar os flows num framework genérico de grafos: o v2 continua um DAG tipado em arquivo, sem ciclos, com desfechos explícitos.

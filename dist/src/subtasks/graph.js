@@ -1,7 +1,9 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { parseFrontmatter, renderFrontmatter } from '../capabilities/model.js';
+import { parseFrontmatter, renderFrontmatter, sha256 } from '../capabilities/model.js';
+import { maverickHome } from '../core/home.js';
+import { withFileLock } from '../core/lock.js';
 import { exists } from '../core/util.js';
 
 // A task's subtasks live in `<task>/subtasks/`: `_tasks.md` owns the graph (nodes and
@@ -25,6 +27,33 @@ const itemSchema = z.object({
 });
 
 const dirFor = taskDir => join(taskDir, 'subtasks');
+/**
+ * Every change to the graph or a subtask's status reads, changes and rewrites files: lanes of one
+ * task that run at once take this lock, so no update is lost between a read and a write. It lives
+ * in Maverick's private directory, so no worktree mirror and no commit ever carries it.
+ */
+const lockBase = taskDir => join(maverickHome(), 'locks', sha256(resolve(taskDir)).slice(0, 24));
+export const withGraphLock = (taskDir, fn) => withFileLock(`${lockBase(taskDir)}.lock`, fn);
+
+/**
+ * The harness's own writes to a task's subtask files, by content hash: a loop's guard accepts a
+ * change another lane's harness made (a status, a ticked box it harvested) and still restores one
+ * an agent made. Only the latest write of each file counts. Written under the graph lock.
+ */
+export async function harnessWrite(taskDir, path, content) {
+  await writeFile(path, content);
+  const journal = `${lockBase(taskDir)}.journal.json`, entries = await readFile(journal, 'utf8').then(JSON.parse).catch(() => ({}));
+  entries[resolve(path)] = sha256(content);
+  await mkdir(dirname(journal), { recursive: true });
+  await writeFile(journal, JSON.stringify(entries));
+}
+
+/** Whether `content` of `path` is the harness's latest write of it. */
+export async function writtenByHarness(taskDir, path, content) {
+  if (!content) return false;
+  const entries = await readFile(`${lockBase(taskDir)}.journal.json`, 'utf8').then(JSON.parse).catch(() => ({}));
+  return entries[resolve(path)] === sha256(content);
+}
 export const CHECKBOX = /^\s*[-*] \[( |x|X)\] +(.+)$/;
 
 /**
@@ -129,18 +158,25 @@ export async function loadGraph(taskDir) {
 async function writeManifest(taskDir, slug, nodes, edges, items) {
   // A checklist of the tasks, rewritten on every change: checked when the task is done.
   const list = items.map(item => `- [${item.status === 'done' ? 'x' : ' '}] ${item.id} ${item.title} — ${item.status}${item.dependsOn.length ? ` · after ${item.dependsOn.join(', ')}` : ''}`).join('\n');
-  await writeFile(join(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: 'maverick.subtasks/v1', nodes, edges }, `# Subtasks — ${slug}\n\nThe frontmatter is the source of truth for dependencies and each task_NN.md for its status. Manage them with \`maverick subtask\`.\n\n${list}\n`));
+  await harnessWrite(taskDir, join(dirFor(taskDir), MANIFEST), renderFrontmatter({ schema: 'maverick.subtasks/v1', nodes, edges }, `# Subtasks — ${slug}\n\nThe frontmatter is the source of truth for dependencies and each task_NN.md for its status. Manage them with \`maverick subtask\`.\n\n${list}\n`));
 }
 
 /** Rewrites `_tasks.md` from the graph and the task files, for example after a format change. */
-export async function refreshManifest(taskDir, slug) {
+export async function refreshManifest(taskDir, slug) { return withGraphLock(taskDir, () => refresh(taskDir, slug)); }
+
+async function refresh(taskDir, slug) {
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
   await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
 }
 
 /** Adds a subtask, refusing edges that would create a cycle. */
-export async function addSubtask(taskDir, slug, { title, after = [], type, complexity, body }) {
+export async function addSubtask(taskDir, slug, spec) {
+  await mkdir(dirFor(taskDir), { recursive: true });
+  return withGraphLock(taskDir, () => add(taskDir, slug, spec));
+}
+
+async function add(taskDir, slug, { title, after = [], type, complexity, body }) {
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
   const ids = graph.nodes.map(node => node.id);
@@ -150,7 +186,7 @@ export async function addSubtask(taskDir, slug, { title, after = [], type, compl
   const id = String(Math.max(0, ...ids.map(Number)) + 1).padStart(2, '0'), file = `task_${id}.md`;
   const nodes = [...graph.nodes, { id, file }], edges = [...graph.edges, ...after.map(from => ({ from, to: id }))];
   await mkdir(dirFor(taskDir), { recursive: true });
-  await writeFile(join(dirFor(taskDir), file), renderFrontmatter({ title, status: 'pending', type, complexity }, body?.trim() ? `${body.trim()}\n` : `# ${title}\n\n## Goal\nFILL ME\n\n## Acceptance Criteria\n- [ ] AC-01: FILL ME\n\n## Files\n- \`FILL ME\`\n\n## Steps\n- [ ] FILL ME\n\n## Verification\n\`\`\`bash\nFILL ME\n\`\`\`\n- [ ] UT-01: FILL ME\n`));
+  await harnessWrite(taskDir, join(dirFor(taskDir), file), renderFrontmatter({ title, status: 'pending', type, complexity }, body?.trim() ? `${body.trim()}\n` : `# ${title}\n\n## Goal\nFILL ME\n\n## Acceptance Criteria\n- [ ] AC-01: FILL ME\n\n## Files\n- \`FILL ME\`\n\n## Steps\n- [ ] FILL ME\n\n## Verification\n\`\`\`bash\nFILL ME\n\`\`\`\n- [ ] UT-01: FILL ME\n`));
   await writeManifest(taskDir, slug, nodes, edges, [...graph.items, { id, title, status: 'pending', dependsOn: after }]);
   return { id, file };
 }
@@ -159,8 +195,12 @@ export async function addSubtask(taskDir, slug, { title, after = [], type, compl
  * Updates one subtask's status. Starting or finishing work requires its dependencies to be done,
  * and finishing requires every checklist item of the task to be checked (unless `force`).
  */
-export async function setStatus(taskDir, slug, id, status, { force = false } = {}) {
+export async function setStatus(taskDir, slug, id, status, options = {}) {
   if (!STATUSES.includes(status)) throw new Error(`status must be one of ${STATUSES.join(', ')}`);
+  return withGraphLock(taskDir, () => updateStatus(taskDir, slug, id, status, options));
+}
+
+async function updateStatus(taskDir, slug, id, status, { force = false } = {}) {
   const graph = await loadGraph(taskDir);
   if (graph.problems.length) throw new Error(`fix the subtask graph first: ${graph.problems.join('; ')}`);
   const item = graph.items.find(entry => entry.id === id);
@@ -172,7 +212,7 @@ export async function setStatus(taskDir, slug, id, status, { force = false } = {
     throw new Error(`subtask ${id} has ${item.checklist.open.length} of ${item.checklist.total} item(s) unchecked in ${item.file}; check each one as it is done (- [x]), or pass --force:${open}`);
   }
   const path = join(dirFor(taskDir), item.file), { data, body } = parseFrontmatter(await readFile(path, 'utf8'));
-  await writeFile(path, renderFrontmatter({ ...data, status }, body));
+  await harnessWrite(taskDir, path, renderFrontmatter({ ...data, status }, body));
   item.status = status;
   await writeManifest(taskDir, slug, graph.nodes, graph.edges, graph.items);
   return item;

@@ -30,7 +30,7 @@ export function estimateCost(usage, price) {
 
 /** The environment an agent runs with: the user's, without the sealed-test key. */
 export function agentEnv(extra = {}) {
-  const { MAVERICK_SEAL_KEY: _key, ...env } = process.env;
+  const { MAVERICK_SEAL_KEY: _key, MAVERICK_PROOF_KEY: _proof, ...env } = process.env;
   return { ...env, ...extra };
 }
 

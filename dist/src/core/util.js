@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { access, readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
@@ -31,11 +32,15 @@ export async function readText(path) { try { return await readFile(path, 'utf8')
 export function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 export function pretty(value) { return `${JSON.stringify(value, null, 2)}\n`; }
 export function rel(cwd, path) { return relative(cwd, path) || '.'; }
-let sink = null, pendingHeader = null;
+// Captured output belongs to one invocation: loops and lanes that run gates in-process at the same
+// time each get their own sink, through the async context instead of a module-wide variable.
+const sinks = new AsyncLocalStorage();
+let pendingHeader = null;
 /** Every command opens with the brand header on a terminal: the first `output` of a run adds `MAVERICK AI / <TITLE>` when the command did not print one itself. */
 export function brandOutput(title) { pendingHeader = title; }
 const branded = text => text.startsWith('MAVERICK AI') || text.startsWith(wordmark());
 export function output(message) {
+  const sink = sinks.getStore();
   if (sink) return void sink.push(String(message));
   if (pendingHeader) {
     const text = String(message).replace(/^\n+/, '');
@@ -47,9 +52,10 @@ export function output(message) {
 
 /** Runs fn while collecting everything it would print, so commands can be reused as building blocks. */
 export async function captureOutput(fn) {
-  const previous = sink, lines = [];
-  sink = lines;
-  try { return { value: await fn(), output: lines.join('\n') }; } catch (error) { error.output = lines.join('\n'); throw error; } finally { sink = previous; }
+  const lines = [];
+  return sinks.run(lines, async () => {
+    try { return { value: await fn(), output: lines.join('\n') }; } catch (error) { error.output = lines.join('\n'); throw error; }
+  });
 }
 /** The plain brand mark; `output` colours it (and the `/ SECTION` suffix) on interactive terminals. */
 export function brand() { return 'MAVERICK AI'; }
@@ -81,7 +87,9 @@ export function parseOptions(args) {
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--')) {
       const key = args[i].slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      options[key] = args[i + 1]?.startsWith('--') || args[i + 1] === undefined ? true : args[++i];
+      const value = args[i + 1]?.startsWith('--') || args[i + 1] === undefined ? true : args[++i];
+      // A flag given twice with values keeps both (`--set a=1 --set b=2`); otherwise the last one wins.
+      options[key] = typeof value === 'string' && (typeof options[key] === 'string' || Array.isArray(options[key])) ? [options[key]].flat().concat(value) : value;
     } else positional.push(args[i]);
   }
   return { positional, options };
@@ -111,3 +119,19 @@ export function commandAvailable(bin, cwd = process.cwd()) {
 }
 
 export function changedFilesFromDiff(diff) { return [...new Set([...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(match => match[1]))]; }
+
+/** Edit distance between two strings, for "did you mean" suggestions. */
+export function distance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0]; row[0] = i;
+    for (let j = 1; j <= b.length; j++) { const current = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1)); previous = current; }
+  }
+  return row[b.length];
+}
+
+/** The candidate closest to a mistyped `name`, when it is close enough to be a typo. */
+export function closest(name, candidates) {
+  const [best] = candidates.map(key => ({ key, score: distance(String(name), key) })).sort((a, b) => a.score - b.score);
+  return best && best.score <= Math.max(1, Math.floor(String(name).length / 3)) ? best.key : undefined;
+}

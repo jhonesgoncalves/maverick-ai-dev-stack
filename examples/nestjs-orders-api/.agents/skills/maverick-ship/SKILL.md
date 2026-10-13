@@ -1,6 +1,6 @@
 ---
 name: maverick-ship
-description: Finishes a reviewed Maverick task by checking merge readiness and writing an evidence-backed pull request description, then, only if the user asks, committing, pushing and opening the pull request. Use after maverick-review, or when the user says ship, open the PR, or wrap up a Maverick task.
+description: Finishes a reviewed Maverick task by checking merge readiness and writing an evidence-backed pull request description, then, once the user approves the draft, opening the pull request on the repository's git provider with the pr flow, and finishing the task after it merges. Use after maverick-review, or when the user says ship, open the PR, or wrap up a Maverick task.
 ---
 
 # Maverick ship
@@ -29,23 +29,44 @@ maverick readiness <slug>
 ## 2. Write the pull request description
 
 ```bash
-maverick pr <slug>
+maverick flow run pr <slug>
 ```
 
-This writes `PR-DRAFT.md` from the PRD overview, the evidence and the technical spec's rollback. Improve it in `language.docs`:
+The `pr` flow checks the review decision and readiness, then writes `PR-DRAFT.md` from the PRD overview, the evidence and the technical spec's rollback, and stops at its `approval` gate (it exits non-zero with `awaiting-approval`; that is expected). The draft's heading is the pull request's title and the rest its description. Improve it in `language.docs`, keeping the heading and the `## Human Review` checkbox:
 
+- **Title:** the heading, a short imperative summary of the change.
 - **Summary:** what changed and why, taken from PRD.md.
 - **Acceptance criteria:** each `AC-NN`, with the test that proves it.
 - **Verification:** the commands that ran and their results, from EVIDENCE.md.
 - **Risks and rollback:** taken from TECHSPEC.md.
 - **Reviewer notes:** anything the human flagged in REVIEW.md.
 
-## 3. Commit, push and open the pull request, only on request
+The flow keeps an existing draft, so running it again never discards your edits.
 
-Committing, pushing and opening a pull request change shared state. Do each one only when the user explicitly asks for it:
+## 3. Open the pull request, only once the user approves the draft
 
-- Write the commit message in `language.code`, and use the repository's existing commit convention (check `git log`).
-- Open the pull request with the repository's tooling, for example `gh pr create --body-file .maverick/tasks/<slug>/PR-DRAFT.md`.
-- Never merge, force-push or bypass branch protection.
+Opening the pull request commits the change, pushes a branch and publishes it on the provider. Ask the user to read `PR-DRAFT.md` and approve it, with the answer selector. Never approve it yourself unless the user says so. The user approves in Lens (**Record your decision**) or you run, on their explicit answer:
 
-Finish by telling the user where the PR is and what a reviewer should look at first.
+```bash
+maverick flow approve pr <slug> approval --by "<their name>"
+```
+
+Approving runs the flow's `open` gate: Maverick finds the provider from the `origin` remote (GitHub with `gh`, GitLab with `glab`, Azure DevOps with `az repos`, Bitbucket), moves the change to `maverick/<slug>` when it is on the base branch, commits everything outside `.maverick/` with the draft's title through the repository's hooks, pushes without force, and opens the pull request, or reuses the one already open for the branch. Without the provider's CLI it pushes the branch and gives the provider's page to open it by hand. If the gate fails (authentication, a hook, a rejected push), tell the user what failed and how to fix it, then run `maverick flow run pr <slug>` again.
+
+If the project has turned on `flow auto-approve pr`, the flow opens the pull request in the same run once every other gate passes: say so before you run it.
+
+Never merge, force-push or bypass branch protection.
+
+### The proof receipt
+
+If the repository signs proof receipts (`.maverick/proof-keys/` exists, or `proof.onPullRequest` is on), the `open` gate signs the commit it pushes and pushes the receipt in `refs/notes/maverick`. Otherwise, once the change is committed and only if the user asks, run `maverick proof sign <slug>` and tell them to share it with `git push origin refs/notes/maverick`. `maverick proof verify <slug> --commit HEAD` checks it. Never sign with a key the user did not set up, and never sign before the review decision is recorded.
+
+## 4. Finish the task after it merges
+
+Tell the user where the pull request is and what a reviewer should look at first. Once it has merged, and only when the user confirms it, finish the task:
+
+```bash
+maverick done <slug> --by "<their name>"
+```
+
+`maverick reopen <slug>` undoes it.

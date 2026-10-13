@@ -55,11 +55,22 @@ export async function repoInfo(cwd) {
   };
 }
 
-export const checkpointRef = (task, n) => `refs/maverick/loops/${task}/${String(n).padStart(4, '0')}`;
+/**
+ * A loop's key names its checkpoint refs: the task, or `<task>/lanes/<lane>` for a lane (one of
+ * several loops of a task that run at once in their own worktrees). Lanes never share refs.
+ */
+export const loopKey = (task, lane) => (lane ? `${task}/lanes/${lane}` : task);
+export const checkpointRef = (key, n) => `refs/maverick/loops/${key}/${String(n).padStart(4, '0')}`;
 
-/** Checkpoint refs of a task: `[{ ref, n, commit }]`, in order. */
-export async function listCheckpointRefs(cwd, task) {
-  const out = (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', `refs/maverick/loops/${task}/`])).stdout;
+/** `for-each-ref` lines of the refs directly under a key: a task's own refs, never its lanes'. */
+export async function ownRefLines(cwd, key) {
+  const prefix = `refs/maverick/loops/${key}/`;
+  return (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', prefix])).stdout.split('\n').filter(line => line && !line.split(' ')[0].slice(prefix.length).includes('/')).join('\n');
+}
+
+/** Checkpoint refs of a loop key: `[{ ref, n, commit }]`, in order; with `lanes`, the task's lanes' too. */
+export async function listCheckpointRefs(cwd, key, { lanes = false } = {}) {
+  const out = lanes ? (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', `refs/maverick/loops/${key}/`])).stdout : await ownRefLines(cwd, key);
   return out.split('\n').filter(Boolean).map(line => { const [ref, commit] = line.split(' '); return { ref, n: Number(ref.split('/').pop()), commit }; }).sort((a, b) => a.n - b.n);
 }
 
@@ -167,7 +178,7 @@ export function inPlace({ cwd, task, indexFile, inflight }) {
       return {
         head: await resolveRef(cwd, 'HEAD'), branch: (await git(cwd, ['symbolic-ref', '-q', 'HEAD'])).stdout.trim() || null,
         staged: sha256((await git(cwd, ['ls-files', '-s', '-z'])).stdout), stash: await resolveRef(cwd, 'refs/stash'),
-        refs: (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', `refs/maverick/loops/${task}/`])).stdout,
+        refs: await ownRefLines(cwd, task),
         index, backup
       };
     },
@@ -176,7 +187,7 @@ export function inPlace({ cwd, task, indexFile, inflight }) {
       const fatal = [], findings = [];
       const head = await resolveRef(cwd, 'HEAD'), branch = (await git(cwd, ['symbolic-ref', '-q', 'HEAD'])).stdout.trim() || null;
       if (head !== before.head || branch !== before.branch) fatal.push(`HEAD moved during the iteration (${before.branch || before.head?.slice(0, 8)} → ${branch || head?.slice(0, 8)}): the agent committed or checked out; Maverick never resets your branch`);
-      const refs = (await git(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', `refs/maverick/loops/${task}/`])).stdout;
+      const refs = await ownRefLines(cwd, task);
       if (refs !== before.refs) fatal.push('the loop\'s checkpoint refs changed during the iteration');
       if (sha256((await git(cwd, ['ls-files', '-s', '-z'])).stdout) !== before.staged) {
         if (await exists(before.backup)) await copyFile(before.backup, before.index); else await rm(before.index, { force: true });

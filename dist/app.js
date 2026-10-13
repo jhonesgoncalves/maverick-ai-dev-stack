@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 import {
   main
-} from "./chunk-KLRW2J5D.js";
-import "./chunk-CAKACX3K.js";
-import "./chunk-SXR3DEER.js";
-import "./chunk-VZF7QBRD.js";
-import "./chunk-YS6LRZVS.js";
-import "./chunk-MXEATQKY.js";
-import "./chunk-PXT62BYS.js";
+} from "./chunk-ZTZU47DN.js";
+import "./chunk-XFU6F3IL.js";
+import "./chunk-P3HZXI5Z.js";
+import "./chunk-5QOS2D55.js";
+import "./chunk-ONE7H2FR.js";
+import "./chunk-MYBR3ZVS.js";
+import "./chunk-CJM6UDEI.js";
+import "./chunk-MV66CFUZ.js";
+import "./chunk-7NWRWT3R.js";
 import {
   colorEnabled,
   style
-} from "./chunk-RXZYNRDJ.js";
+} from "./chunk-NBABBXKT.js";
 import "./chunk-5ZWVM3IA.js";
 import "./chunk-YL4AI5AN.js";
 
@@ -27,8 +29,8 @@ async function launcher() {
   const [{ default: React }, { render }, { HomeScreen }, { projectSnapshot }] = await Promise.all([
     import("react"),
     import("ink"),
-    import("./HomeScreen-Z6LMM5IP.js"),
-    import("./snapshot-CYTFCQZO.js")
+    import("./HomeScreen-IMVTUTDW.js"),
+    import("./snapshot-H5BZJPWB.js")
   ]);
   let chosen;
   const app = render(React.createElement(HomeScreen, { snapshot: await projectSnapshot(), onRun: (argv) => {

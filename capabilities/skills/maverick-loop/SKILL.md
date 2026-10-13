@@ -1,7 +1,7 @@
 ---
 name: maverick-loop
 description: Runs and supervises a bounded Maverick loop on a planned task, where the harness (not the agent) decides every iteration with its gates, an integrity guard, a ratchet that rolls back regressions and, optionally, an independent judge from another model family. Use when the user says loop, keep going until it passes, run it unattended, build all the subtasks on its own, or asks why a loop stopped.
-version: 1.0.0
+version: 1.1.0
 tags: [maverick, loop, automation, verification]
 ---
 
@@ -70,6 +70,14 @@ Read `.maverick/tasks/<slug>/LOOP.md` and, for anything but done, `LOOP-ESCALATI
 - **integrity-violation:** something rewrote history, refs or the ledger. Run `maverick loop verify <slug>`, show the result, and only then suggest `--new`.
 
 If `LOOP.md` lists quarantined notes or a tainted checkpoint, tell the user: an iteration was kept despite integrity warnings. Releasing the notes (`maverick loop release <slug>`) is their decision.
+
+## 5. Parallel lanes, arenas and replays
+
+Offer these only when they fit, and say what they cost: each runs several agents.
+
+- **Independent subtasks:** `maverick loop graph <slug> --plan` shows which subtasks could run in parallel lanes and which may collide. `maverick loop graph <slug>` runs them, merges each wave at a fan-in and checks the merged work; the result is a branch the user merges.
+- **Which provider for a hard subtask:** `maverick arena run <slug> --subtask <id> --providers a,b` builds it with each at once and ranks them by evidence. Show the ranking; the user confirms with `maverick arena confirm <slug> <arena-id>` (never confirm for them).
+- **Why a loop stopped where it did:** `maverick loop replay <slug> --set stall.window=3` answers what another policy would have done with the same iterations, without running anything. `maverick loop fork <slug> --from <n> --provider <id>` tries another provider from a checkpoint in a worktree of its own.
 
 ## Rules for you
 

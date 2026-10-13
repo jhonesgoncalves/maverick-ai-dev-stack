@@ -68,7 +68,7 @@ const resultMac = (key, tests) => createHmac('sha256', key).update(canonical(tes
  */
 async function sealBase(cwd, taskDir, options) {
   if (typeof options.base === 'string') { const commit = await resolveRef(cwd, options.base); if (!commit) throw new Error(`unknown revision: ${options.base}`); return { tree: await treeOf(cwd, commit), from: options.base }; }
-  const { loopIds } = await import('../loop/model.js'), { readState } = await import('../loop/engine.js'), [id] = await loopIds(taskDir);
+  const { newestTaskLoop } = await import('../loop/model.js'), { readState } = await import('../loop/engine.js'), id = await newestTaskLoop(taskDir);
   const state = id ? await readState(taskDir, id).catch(() => null) : null;
   if (state?.baseTree) return { tree: state.baseTree, from: `the start of loop ${id}` };
   return { tree: await snapshot(cwd), from: 'the working tree' };
@@ -280,7 +280,7 @@ async function protectPaths(cwd, paths) {
 
 /** The decision also lands in the newest loop's ledger, when one exists and is not running. */
 async function recordInLoop(taskDir, data) {
-  const { loopIds, loopPaths } = await import('../loop/model.js'), [id] = await loopIds(taskDir);
+  const { newestTaskLoop, loopPaths } = await import('../loop/model.js'), id = await newestTaskLoop(taskDir);
   if (!id || await runningLoop(taskDir)) return;
   const ledger = await openLedger(loopPaths(taskDir, id).ledger, id);
   await ledger.append('unseal', data);

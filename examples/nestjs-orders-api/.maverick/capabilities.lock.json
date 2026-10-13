@@ -31,6 +31,36 @@
         }
       }
     },
+    "skill/maverick-loop": {
+      "kind": "skill",
+      "version": "1.1.0",
+      "source": "built-in",
+      "integrity": "8032afecd8bc645f7dfac280708c24088ede48b441f96debe223c558ea043d69",
+      "installedAt": "2026-10-13",
+      "targets": {
+        "claude-code": {
+          "files": [],
+          "keys": [],
+          "links": [
+            {
+              "path": ".claude/skills",
+              "target": "../.agents/skills",
+              "dir": true,
+              "shared": true
+            }
+          ]
+        },
+        "agents": {
+          "files": [
+            {
+              "path": ".agents/skills/maverick-loop/SKILL.md",
+              "sha256": "c0db4541e380a44bcf095cdcb6797b23504a5d91aeeb656645d90378f8cafb8b"
+            }
+          ],
+          "keys": []
+        }
+      }
+    },
     "skill/maverick-new": {
       "kind": "skill",
       "version": "2.3.0",
@@ -141,9 +171,9 @@
     },
     "skill/maverick-review": {
       "kind": "skill",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "source": "built-in",
-      "integrity": "bf9047faae8129a838134d504484302f5f634eee108d2643191d3bad8f7c2da7",
+      "integrity": "78626175ea9563cd71e913243ba06ea018f590462c2a951187d07c0dedb8945f",
       "installedAt": "2026-09-27",
       "targets": {
         "claude-code": {
@@ -162,7 +192,7 @@
           "files": [
             {
               "path": ".agents/skills/maverick-review/SKILL.md",
-              "sha256": "0027920660b9c82a687dd65c851baf1f8a47dbde322d4561132430bc1dbffb03"
+              "sha256": "3194117c8324f8070e7db8e2871b33bca3d379ee47eb59af8635f1c66ba07eb0"
             }
           ],
           "keys": []
@@ -171,9 +201,9 @@
     },
     "skill/maverick-ship": {
       "kind": "skill",
-      "version": "1.1.0",
+      "version": "1.3.0",
       "source": "built-in",
-      "integrity": "846622ec11fc2b4d5317dd0d9016d95833a66477c233e03ed7e793663b1d3c42",
+      "integrity": "bbbda430eebe484be22f00a2cb3604e80d84e5cbc72ae1c90260d39bc5df65a8",
       "installedAt": "2026-09-27",
       "targets": {
         "claude-code": {
@@ -232,7 +262,7 @@
           "files": [
             {
               "path": ".agents/skills/maverick-ship/SKILL.md",
-              "sha256": "a2e336f4d2d78416a43a8d3a52c4ec90a5dfc26afd0c15e6b6e70dce29e6a43e"
+              "sha256": "689be5e83c7249923143617c6bc2bbbe13f2bca2582608e00227b77b8515ce77"
             }
           ],
           "keys": []
