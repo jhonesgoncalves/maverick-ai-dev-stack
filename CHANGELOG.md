@@ -4,6 +4,8 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-13
+
 - New Decide commands and sealed-suite review actions follow the Maverick CLI wordmark, status badges, spacing and next-step hints. Human reports preserve uncertainty and unknown costs; `--json` remains machine-readable. The help and launcher keep Get started first.
 
 ### Added: Decide
