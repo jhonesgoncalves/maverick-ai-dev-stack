@@ -4,6 +4,7 @@ import { exists, pretty } from '../core/util.js';
 import { SHARED, sharedOutputs } from './adapters.js';
 import { sha256 } from './model.js';
 import { formatFor } from './structured.js';
+import { lintCapability } from './lint.js';
 
 export const LOCK_PATH = '.maverick/capabilities.lock.json';
 
@@ -122,6 +123,8 @@ async function adoptFolder(cwd, root, target, owners, installing, adopted) {
  * with identical content becomes a symlink to it, so all tools share one copy.
  */
 export async function planInstall(cwd, capability, adapters, lock, { force = false, layout = 'copy' } = {}) {
+  const security = lintCapability(capability);
+  if (!security.ok) throw new Error(`capability security lint failed: ${security.findings.filter(item => item.severity === 'block').map(item => `${item.path}: ${item.message}`).join('; ')}`);
   const owners = ownership(lock), changes = [], skipped = [], conflicts = [], outputsByTarget = {}, targets = [], adoptions = new Map();
   for (const adapter of adapters) {
     if (capability.targets && !capability.targets.includes(adapter.id)) { skipped.push({ target: adapter.id, reason: `the capability is limited to ${capability.targets.join(', ')}` }); continue; }
@@ -193,7 +196,7 @@ export async function planInstall(cwd, capability, adapters, lock, { force = fal
     for (const link of recorded.links || []) if (!produced.has(link.path)) changes.push({ target, type: 'link', op: 'delete', path: link.path });
     for (const key of recorded.keys || []) if (!changes.some(change => change.type === 'json-key' && keyId(change.path, change.pointer) === keyId(key.path, key.pointer))) changes.push({ target, type: 'json-key', op: 'delete', path: key.path, pointer: key.pointer });
   }
-  return { capability, targets, changes, skipped, conflicts: force ? [] : conflicts, forced: force ? conflicts : [] };
+  return { capability, targets, changes, skipped, security, conflicts: force ? [] : conflicts, forced: force ? conflicts : [] };
 }
 
 /** Plans removal from the lockfile. Locally edited files block removal unless forced. */

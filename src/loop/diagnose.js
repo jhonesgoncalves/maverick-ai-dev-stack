@@ -5,7 +5,22 @@ import { familyOf } from '../runtime/families.js';
 // the same: each signal names what is going wrong, and each rung changes something real (a
 // diagnosis in the prompt, more reasoning, a different vendor) before a human is asked.
 
-export const SIGNALS = ['no-progress', 'oscillation', 'churn', 'overclaim', 'empty', 'rollback-streak', 'no-result'];
+export const SIGNALS = ['no-progress', 'oscillation', 'churn', 'overclaim', 'empty', 'rollback-streak', 'no-result', 'low-yield'];
+
+/** Gate gains per dollar or 1K tokens; unknown usage cannot be treated as free work. */
+export function yieldOf(history, settings = {}) {
+  if (!settings.enabled) return null;
+  const window = settings.window || 4;
+  if (history.length < window) return null;
+  const recent = history.slice(-window), metric = settings.metric || 'tokens';
+  const values = recent.map(item => metric === 'cost' ? item.costUsd : item.tokens?.totalTokens);
+  if (values.some(value => !Number.isFinite(value) || value < 0)) return { measurable: false, metric, window };
+  const usage = values.reduce((sum, value) => sum + value, 0);
+  if (!usage) return { measurable: false, metric, window };
+  const gains = recent.reduce((sum, item) => sum + Math.max(0, item.gateGain || 0), 0);
+  const rate = gains / (metric === 'cost' ? usage : usage / 1000);
+  return { measurable: true, metric, window, usage, gains, rate, floor: settings.floor ?? 0.01, low: rate < (settings.floor ?? 0.01) };
+}
 
 const lines = record => (record.diff?.added || 0) + (record.diff?.deleted || 0);
 const lastN = (items, n) => (items.length >= n ? items.slice(-n) : null);
@@ -14,7 +29,7 @@ const lastN = (items, n) => (items.length >= n ? items.slice(-n) : null);
  * Signals in the iterations of one scope (a subtask, or the goal) since its last escalation.
  * Each record carries: progress, failureKey, decision, diff, agent.status, overclaim, checklistDelta.
  */
-export function diagnose(history, stall) {
+export function diagnose(history, stall, yieldSettings) {
   const signals = [], window = Math.max(2, stall.window || 2);
   const stuck = lastN(history, window);
   if (stuck && stuck.every(item => !item.progress) && stuck[0].failureKey && stuck.every(item => item.failureKey === stuck[0].failureKey)) signals.push({ kind: 'no-progress', evidence: `the same failures ${window} times in a row` });
@@ -28,7 +43,9 @@ export function diagnose(history, stall) {
   const rejected = lastN(history, stall.rollbackStreak);
   if (rejected && rejected.every(item => item.decision === 'rejected')) signals.push({ kind: 'rollback-streak', evidence: `the last ${stall.rollbackStreak} iterations were rolled back` });
   if (pair && pair.every(item => ['no-result', 'failed'].includes(item.agent?.status))) signals.push({ kind: 'no-result', evidence: 'two runs in a row failed or ended without a result block' });
-  return { signals, summary: signals.map(signal => `${signal.kind}: ${signal.evidence}`).join('; ') };
+  const yieldReport = yieldOf(history, yieldSettings);
+  if (yieldReport?.low) signals.push({ kind: 'low-yield', evidence: `${yieldReport.gains} gate gains for ${yieldReport.usage} ${yieldReport.metric === 'cost' ? 'USD' : 'tokens'} over ${yieldReport.window} iterations (yield ${yieldReport.rate.toFixed(4)}, floor ${yieldReport.floor})` });
+  return { signals, yield: yieldReport, summary: signals.map(signal => `${signal.kind}: ${signal.evidence}`).join('; ') };
 }
 
 /** The next effort level above `current` that the provider accepts, up to `max`. */

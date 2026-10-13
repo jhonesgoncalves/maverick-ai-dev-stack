@@ -52,7 +52,7 @@ export function renderFrontmatter(data, body) {
 async function listFiles(dir, root = dir) {
   const files = [];
   for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name.startsWith('.')) continue;
+    if (['.git', 'node_modules'].includes(entry.name)) continue;
     const path = join(dir, entry.name);
     if (entry.isDirectory()) files.push(...await listFiles(path, root));
     else if (entry.isFile()) files.push(relative(root, path).split(sep).join('/'));

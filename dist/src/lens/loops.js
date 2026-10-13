@@ -3,7 +3,8 @@ import { clearTimeout, setTimeout } from 'node:timers';
 import { loadConfig } from '../core/config.js';
 import { getTask, listTasks } from '../core/tasks.js';
 import { lockHolder, loopStatus, readState, requestStop, verifyLoop } from '../loop/engine.js';
-import { LOOP_ID, loopIds } from '../loop/model.js';
+import { LOOP_ID, loopIds, loopPaths } from '../loop/model.js';
+import { readLedger } from '../loop/ledger.js';
 
 // Lens reads loops from their state files, like the CLI, so a loop started in a terminal shows
 // up live here and the Stop button works on it: stopping writes the same request file
@@ -52,7 +53,8 @@ export function createLoopHub({ cwd, broadcast, onEnd = () => {} }) {
       const dir = await taskDir(task), info = await loopStatus(dir, loopId(id));
       if (!info) throw fail(404, 'Loop not found.');
       const { state } = info;
-      return { task, live: Boolean(info.running), stopPending: info.stopPending, forecast: info.forecast, next: info.next, summary: summary(task, state, info.running), state: { ...state, iterations: state.iterations.slice(-MAX_ITERATIONS).map(item => ({ ...item, findings: (item.findings || []).slice(0, 50) })) } };
+      const decisions = (await readLedger(loopPaths(dir, id).ledger)).filter(entry => entry.type === 'decision').slice(-50).map(({ data }) => ({ id: data.id, n: data.n, rubric: data.rubric, version: data.version, tier: data.tier, answer: data.answer, probability: data.probability, threshold: data.threshold, advisory: data.advisory, needsHuman: data.needsHuman, calibration: data.calibration, eligible: data.eligible }));
+      return { task, live: Boolean(info.running), stopPending: info.stopPending, forecast: info.forecast, next: info.next, decisions, summary: summary(task, state, info.running), state: { ...state, iterations: state.iterations.slice(-MAX_ITERATIONS).map(item => ({ ...item, findings: (item.findings || []).slice(0, 50) })) } };
     },
     async ledger(task, id) { return verifyLoop(cwd, await taskDir(task), loopId(id)); },
     async stop(task, id, reason) {

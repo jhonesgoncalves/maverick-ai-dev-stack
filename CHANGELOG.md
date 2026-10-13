@@ -4,6 +4,16 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+- New Decide commands and sealed-suite review actions follow the Maverick CLI wordmark, status badges, spacing and next-step hints. Human reports preserve uncertainty and unknown costs; `--json` remains machine-readable. The help and launcher keep Get started first.
+
+### Added: Decide
+- Repository scorecards from verified evidence, confidence intervals, integrity/OI penalties, repeated-run `passK`, and reviewed routing and autonomy patch proposals.
+- Opt-in yield governor, repository-based budget forecasts, typed integrity/dispute suggestions and version-specific human calibration with a 30-label minimum.
+- Isolated integrity canaries, capability security lint, declared session trifecta reports, and Lens scorecard/calibration and holdout panels.
+- Independent sealed-suite review, surface import lint, dispute-linked amendments and test suspension/restoration, builder transcript vault-access checks, and an opt-in sealed ratchet that stops for human review without rolling work back.
+- Applied autonomy policies constrain permissions, loop file budgets and flow auto-approval, with independent judge evidence and explicit human settlement.
+- The Northstar Lens example now covers scorecards, canaries, calibration, yield escalation, disputed and failed holdouts, reviewed policy proposals, living memory and capability drift, using a disposable private home and local provider stubs. Loop details show recorded typed decisions and yield measurements.
+
 ## [1.9.0] - 2026-10-12
 
 ### Added: `maverick why`, the reason behind every line

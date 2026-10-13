@@ -80,6 +80,11 @@ kbd { font: 500 10.5px var(--mono); color: var(--muted); border: 1px solid var(-
 .icon-btn:hover { background: var(--panel-2); color: var(--text); }
 
 .view { flex: 1; overflow: auto; min-height: 0; }
+.evidence .card { overflow-x: auto; margin-bottom: 16px; padding: 16px; }
+.evidence table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.evidence th, .evidence td { text-align: left; padding: 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.evidence th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.evidence td small { display: block; color: var(--muted); margin-top: 4px; }
 .page { padding: 28px 32px 48px; max-width: 1360px; margin: 0 auto; }
 .page-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }

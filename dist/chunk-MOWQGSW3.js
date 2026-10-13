@@ -1,15 +1,15 @@
 import {
   commandRegistry
-} from "./chunk-KS7FBQ56.js";
+} from "./chunk-CAKACX3K.js";
 import {
   INSTRUCTION_ADAPTERS
-} from "./chunk-PUP4WTVD.js";
+} from "./chunk-SXR3DEER.js";
 import {
   buildGraph,
   churn,
   inspectProject,
   rankHotspots
-} from "./chunk-FDZLEB4U.js";
+} from "./chunk-VZF7QBRD.js";
 import {
   IGNORED_DIRS,
   loadConfig,
@@ -19,7 +19,7 @@ import {
   requirePreset,
   sectionBody,
   taskStage
-} from "./chunk-EVJRL34C.js";
+} from "./chunk-RXZYNRDJ.js";
 
 // src/core/lens-index.js
 import { mkdir, readFile, readdir, stat, writeFile } from "fs/promises";

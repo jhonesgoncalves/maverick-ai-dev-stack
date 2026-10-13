@@ -1,36 +1,47 @@
 import {
   main
-} from "./chunk-W7T7ENJL.js";
+} from "./chunk-KLRW2J5D.js";
 import {
   buildProjectIndex,
   cacheProjectIndex
-} from "./chunk-VI7EHI2J.js";
-import "./chunk-KS7FBQ56.js";
+} from "./chunk-MOWQGSW3.js";
+import "./chunk-CAKACX3K.js";
 import {
   ADAPTERS,
   buildDevtools,
   detectAdapters,
+  postMergeIncidents,
   serializeDevtools
-} from "./chunk-PUP4WTVD.js";
+} from "./chunk-SXR3DEER.js";
 import {
+  RUBRICS,
   autoApproves,
+  calibration,
   findFlow,
+  interval,
   loadFlows,
+  loadRubric,
   lockHolder,
   loopStatus,
+  readLedger,
   readState,
   readState2,
   recordApproval,
   requestStop,
   runFlow,
+  scorecard,
+  sealPaths,
+  sealReport,
   selectSubtask,
   startAgentRun,
   verifyLoop
-} from "./chunk-FDZLEB4U.js";
+} from "./chunk-VZF7QBRD.js";
 import {
   LOOP_ID,
-  loopIds
-} from "./chunk-P3Q7POVR.js";
+  loopIds,
+  loopPaths
+} from "./chunk-YS6LRZVS.js";
+import "./chunk-MXEATQKY.js";
 import {
   AGENT_STAGES,
   RECOMMENDED,
@@ -43,7 +54,7 @@ import {
   runProcess,
   stageDefaults,
   stageOf
-} from "./chunk-2B5ZDJBT.js";
+} from "./chunk-PXT62BYS.js";
 import {
   STATUSES,
   captureOutput,
@@ -55,7 +66,7 @@ import {
   sectionBody,
   setStatus,
   taskStage
-} from "./chunk-EVJRL34C.js";
+} from "./chunk-RXZYNRDJ.js";
 import {
   EFFORTS,
   PERMISSIONS
@@ -65,8 +76,8 @@ import "./chunk-YL4AI5AN.js";
 // src/lens/server.js
 import { createServer } from "http";
 import { randomBytes } from "crypto";
-import { readFile as readFile3 } from "fs/promises";
-import { join as join4 } from "path";
+import { readFile as readFile4 } from "fs/promises";
+import { join as join5 } from "path";
 import { URL } from "url";
 import { clearTimeout as clearTimeout2, setTimeout as setTimeout2 } from "timers";
 
@@ -105,12 +116,14 @@ async function taskFlows(cwd, dir, preset, stage) {
   for (const flow of flows) {
     const state = await readState(dir, flow.name);
     if (!state.runs.length && !offered(flow.name)) continue;
+    const gates = [...flow.gates];
+    if (state.runs.at(-1)?.results.some((r) => r.id === "autonomy-judge") && !gates.some((g) => g.id === "autonomy-judge")) gates.push({ id: "autonomy-judge", type: "judge", severity: "block", description: "Independent judge required by the reviewed autonomy policy." });
     result.push({
       name: flow.name,
       description: flow.description,
       source: flow.source,
       contract: flow.contract,
-      gates: flow.gates.map((gate) => ({ id: gate.id, type: gate.type, run: gate.run, severity: gate.severity, description: gate.description, prompt: gate.prompt })),
+      gates: gates.map((gate) => ({ id: gate.id, type: gate.type, run: gate.run, severity: gate.severity, description: gate.description, prompt: gate.prompt })),
       status: state.status || "not run",
       approvals: state.approvals || {},
       autoApprove: autoApproves(config, flow.name),
@@ -481,7 +494,8 @@ function createLoopHub({ cwd, broadcast, onEnd = () => {
       const dir = await taskDir(task), info = await loopStatus(dir, loopId(id));
       if (!info) throw fail2(404, "Loop not found.");
       const { state } = info;
-      return { task, live: Boolean(info.running), stopPending: info.stopPending, forecast: info.forecast, next: info.next, summary: summary(task, state, info.running), state: { ...state, iterations: state.iterations.slice(-MAX_ITERATIONS).map((item) => ({ ...item, findings: (item.findings || []).slice(0, 50) })) } };
+      const decisions = (await readLedger(loopPaths(dir, id).ledger)).filter((entry) => entry.type === "decision").slice(-50).map(({ data }) => ({ id: data.id, n: data.n, rubric: data.rubric, version: data.version, tier: data.tier, answer: data.answer, probability: data.probability, threshold: data.threshold, advisory: data.advisory, needsHuman: data.needsHuman, calibration: data.calibration, eligible: data.eligible }));
+      return { task, live: Boolean(info.running), stopPending: info.stopPending, forecast: info.forecast, next: info.next, decisions, summary: summary(task, state, info.running), state: { ...state, iterations: state.iterations.slice(-MAX_ITERATIONS).map((item) => ({ ...item, findings: (item.findings || []).slice(0, 50) })) } };
     },
     async ledger(task, id) {
       return verifyLoop(cwd, await taskDir(task), loopId(id));
@@ -587,6 +601,41 @@ async function changeSettings(main2, cwd, body) {
     return { ...result, command: `maverick adapter install ${id}` };
   }
   throw fail3("action must be language or adapter");
+}
+
+// src/lens/decide.js
+import { readdir as readdir3, readFile as readFile3 } from "fs/promises";
+import { join as join4 } from "path";
+async function decisionDashboard(cwd) {
+  const config = await loadConfig(cwd);
+  const rubrics = await Promise.all(Object.keys(RUBRICS).map(async (id) => ({ id, ...await calibration(cwd, await loadRubric(cwd, id)) })));
+  return { scorecard: await scorecard(cwd, config), rubrics };
+}
+async function holdoutDashboard(cwd) {
+  const config = await loadConfig(cwd), tasks = [], warnings = [];
+  const dirs = await readdir3(join4(cwd, config.taskRoot), { withFileTypes: true }).catch(() => []);
+  for (const dir of dirs.filter((d) => d.isDirectory())) {
+    try {
+      const report = await sealReport({ cwd, task: dir.name, taskDir: join4(cwd, config.taskRoot, dir.name), config });
+      if (!report.sealed) continue;
+      const sealed = report.sealed, entries = await readLedger(sealPaths(cwd, dir.name, sealed.sealId).ledger);
+      const last = entries.findLast((e) => e.type === "seal-run");
+      const loopDirs = await readdir3(join4(cwd, config.taskRoot, dir.name, "loops"), { withFileTypes: true }).catch(() => []);
+      const loops = await Promise.all(loopDirs.filter((d) => d.isDirectory()).map((d) => readFile3(join4(cwd, config.taskRoot, dir.name, "loops", d.name, "state.json"), "utf8").then(JSON.parse).catch(() => null)));
+      const spent = loops.filter(Boolean).reduce((sum, loop) => ({ cost: sum.cost + (loop.spent?.costUsd || 0), time: sum.time + (loop.spent?.activeMs || 0), unknown: sum.unknown + (loop.spent?.costUnknown || 0) }), { cost: 0, time: 0, unknown: 0 });
+      const durationMs = entries.filter((e) => e.type === "seal-run").reduce((sum, e) => sum + (e.data.durationMs || 0), 0);
+      const extraCost = sealed.authoring?.costUsd != null && (sealed.review?.costUsd != null || !sealed.review) ? sealed.authoring.costUsd + (sealed.review?.costUsd || 0) : null;
+      tasks.push({ task: dir.name, state: report.state, sealId: sealed.sealId, surface: sealed.surface, tests: sealed.tests, discriminating: sealed.discriminating, baseFailureRate: sealed.tests ? sealed.discriminating / sealed.tests : null, queries: report.queries, suspended: sealed.suspended?.length || 0, amended: Boolean(sealed.amendedFrom), review: sealed.review || null, approval: sealed.approval || null, ledgerValid: report.ledger.ok, S: last?.data.S ?? null, OI: last?.data.OI ?? null, durationMs, overhead: { cost: spent.cost && !spent.unknown && extraCost !== null ? extraCost / spent.cost : null, time: spent.time && sealed.authoring ? (durationMs + sealed.authoring.durationMs) / spent.time : null } });
+    } catch (error) {
+      warnings.push(`${dir.name}: ${error.message}`);
+    }
+  }
+  const history = await postMergeIncidents(cwd, config.autonomy?.windowDays || 30), merged = [...new Set(history.commits.map((c) => c.task).filter(Boolean))];
+  const cohorts = [true, false].map((sealed) => {
+    const group = merged.filter((task) => tasks.some((t) => t.task === task) === sealed);
+    return { sealed, tasks: group.length, defects: interval(group.filter((task) => history.incidents.some((i) => i.task === task)).length, group.length), observational: true };
+  });
+  return { tasks, warnings, cohorts, amendmentRate: tasks.length ? tasks.filter((t) => t.amended).length / tasks.length : null, targets: { baseFailureRate: 0.9, amendmentRate: 0.2, overhead: 0.15 } };
 }
 
 // src/lens/server.js
@@ -709,6 +758,8 @@ data: ${JSON.stringify({ version, ...data })}
         if (result.ok && result.data?.applied !== false) await refresh();
         return json2(res, 200, result);
       }
+      if (url.pathname === "/api/scorecard" && req.method === "GET") return json2(res, 200, await decisionDashboard(cwd));
+      if (url.pathname === "/api/holdouts" && req.method === "GET") return json2(res, 200, await holdoutDashboard(cwd));
       if (url.pathname === "/api/settings" && req.method === "GET") return json2(res, 200, await settings(main, cwd));
       if (url.pathname === "/api/settings" && req.method === "POST") {
         const result = await changeSettings(main, cwd, await requestBody(req));
@@ -723,7 +774,7 @@ data: ${JSON.stringify({ version, ...data })}
         const report = await analysis(), file = url.searchParams.get("file") || "";
         const known = report.fileIndex.has(file) || report.routes.items.some((route) => route.file === file) || report.integrations.manifests.includes(file);
         if (!known) return json2(res, 404, { error: "Unknown file." });
-        const text2 = await readFile3(join4(report.root, file), "utf8").catch(() => null);
+        const text2 = await readFile4(join5(report.root, file), "utf8").catch(() => null);
         if (text2 === null) return json2(res, 404, { error: "File not readable." });
         const lines = text2.split("\n");
         return json2(res, 200, { file, root: report.root, lines: lines.length > 4e3 ? lines.slice(0, 4e3) : lines, truncated: lines.length > 4e3, imports: report.edges.filter((edge) => edge[0] === file).map((edge) => edge[1]), importedBy: report.edges.filter((edge) => edge[1] === file).map((edge) => edge[0]) });
@@ -782,14 +833,14 @@ data: ${JSON.stringify({ version })}
         return json2(res, 200, { approval, outcome: run?.outcome || null, next });
       }
       if (req.method === "GET" && ASSET.test(url.pathname)) {
-        const body = await readFile3(new URL(`.${url.pathname}`, ui)).catch(() => null);
+        const body = await readFile4(new URL(`.${url.pathname}`, ui)).catch(() => null);
         if (body !== null) {
           res.writeHead(200, { "content-type": TYPES[url.pathname.slice(url.pathname.lastIndexOf("."))], "cache-control": "no-store" });
           return res.end(body);
         }
       }
       if (url.pathname === "/") {
-        const html = (await readFile3(page, "utf8")).replace('<meta charset="utf-8">', `<meta charset="utf-8"><meta name="lens-token" content="${token}">`);
+        const html = (await readFile4(page, "utf8")).replace('<meta charset="utf-8">', `<meta charset="utf-8"><meta name="lens-token" content="${token}">`);
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'" });
         return res.end(html);
       }

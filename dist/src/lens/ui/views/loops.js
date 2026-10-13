@@ -86,6 +86,7 @@ function iteration(item, task) {
     item.gates?.length && `<div><h6>Gates</h6><div class="chip-row">${item.gates.map(gate => pill(`${gate.id} ${gate.status}`, gate.status === 'pass' ? 'ok' : gate.status === 'fail' ? (gate.severity === 'warn' ? 'warn' : 'bad') : '')).join('')}</div></div>`,
     item.judge && `<div><h6>Judge</h6><p>${esc(item.judge.status)}${item.judge.summary ? ` · ${esc(item.judge.summary)}` : ''}</p>${item.judge.issues?.length ? `<ul>${item.judge.issues.map(issue => `<li>${esc(issue)}</li>`).join('')}</ul>` : ''}</div>`,
     item.agent?.disputes?.length && `<div><h6>Disputes</h6><ul>${item.agent.disputes.map(dispute => `<li><code>${esc(dispute.target)}</code>: ${esc(dispute.reason)}</li>`).join('')}</ul></div>`,
+    item.yield && `<div><h6>Yield governor</h6><p>${item.yield.measurable ? `${esc(item.yield.gains)} gate improvements / ${esc(item.yield.usage)} ${item.yield.metric === 'cost' ? 'USD' : 'tokens'} over ${esc(item.yield.window)} iterations · rate ${esc(item.yield.rate.toFixed(4))} · floor ${esc(item.yield.floor)}` : 'Unmeasured: usage was not reported.'}${item.yield.low ? ' · escalated for low yield' : ''}</p></div>`,
     item.agent && `<div><h6>The agent said</h6><p>${esc(item.agent.status)}${item.agent.summary ? ` · ${esc(item.agent.summary)}` : ''}</p><p class="faint">Its summary is advisory: the decision above comes from the harness.</p></div>`
   ].filter(Boolean).join('');
   return `<details class="iter"><summary>
@@ -133,6 +134,8 @@ async function detail(task, id) {
         ${escalation.rung || escalation.diagnosis || human ? `<section class="card"><div class="card-head"><h3>Escalation</h3>${escalation.rung ? pill(escalation.rung, 'accent') : ''}</div><div class="kv">
           ${escalation.diagnosis ? `<dt>Diagnosis</dt><dd>${esc(escalation.diagnosis)}</dd>` : ''}<dt>Agents tried</dt><dd>${esc((escalation.tried || []).join(', ') || '—')}</dd><dt>Ladder</dt><dd>${esc((state.settings?.escalation || []).join(' → '))}</dd>
         </div></section>` : ''}
+        ${yieldPanel(state)}
+        ${decisionPanel(data.decisions)}
         ${holdout(state, task)}
         ${state.checkpoint?.tainted || state.quarantine?.length ? `<section class="card"><div class="card-head"><h3>Integrity warnings kept</h3></div><div class="kv">
           ${state.checkpoint?.tainted ? `<dt>Tainted</dt><dd>since #${esc(state.checkpoint.tainted.since)} · ${esc(state.checkpoint.tainted.kinds.join(', '))}${state.checkpoint.tainted.acknowledged ? ` · acknowledged by ${esc(state.checkpoint.tainted.acknowledged.by)}` : ''}</dd>` : ''}
@@ -148,6 +151,18 @@ async function detail(task, id) {
         </div></section>
       </div>
     </div></div>`;
+}
+
+function yieldPanel(state) {
+  const report = state.iterations.findLast(item => item.yield)?.yield;
+  if (!report) return '';
+  return `<section class="card"><div class="card-head"><h3>Yield governor</h3>${pill(report.low ? 'low yield' : 'measured', report.low ? 'warn' : 'ok')}</div><div class="kv"><dt>Window</dt><dd>${esc(report.window)} iterations</dd><dt>Rate</dt><dd>${report.measurable ? `${esc(report.rate.toFixed(4))} gate improvements / ${report.metric === 'cost' ? 'USD' : '1K tokens'}` : 'usage not reported'}</dd><dt>Floor</dt><dd>${esc(report.floor ?? '—')}</dd><dt>Outcome</dt><dd>${report.low ? 'Escalate through the configured ladder; a human decides at its end.' : 'Continue within the hard budgets.'}</dd></div></section>`;
+}
+
+function decisionPanel(decisions = []) {
+  if (!decisions.length) return '';
+  const tiers = ['deterministic rule', 'local model', 'independent LLM', 'human'];
+  return `<section class="card"><div class="card-head"><h3>Typed decisions</h3><a class="link" href="#/scorecard">Calibration</a></div>${decisions.map(d => `<div class="card-body" style="border-top:1px solid var(--line-soft)"><b>${esc(d.rubric)} · v${esc(d.version)}</b> ${pill(d.advisory ? 'advisory' : 'recorded', 'info')}<p>${esc(d.answer ?? 'undecided')} · probability ${pct(d.probability)} / threshold ${pct(d.threshold)}</p><p class="faint">${esc(tiers[d.tier] || 'unknown tier')} · ${esc(d.calibration ?? 0)}/30 human labels${d.needsHuman ? ' · human review required' : ''}</p></div>`).join('')}</section>`;
 }
 
 /** The holdout card: the seal, every query, and once the loop stopped the counts and the overfitting index. Never a test. */

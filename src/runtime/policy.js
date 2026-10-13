@@ -1,5 +1,7 @@
 import { PERMISSIONS } from '../core/enums.js';
 import { recommendedFor } from './stages.js';
+import { autonomyFor } from '../decide/autonomy.js';
+import { sectionBody } from '../core/util.js';
 
 export { PERMISSIONS };
 const rank = level => PERMISSIONS.indexOf(level);
@@ -30,6 +32,9 @@ export function resolveRun(config, { provider, model, effort, permission, subtas
   if (checks && !trusted.includes(chosen)) throw new Error(`provider ${chosen} is not trusted in this repository; review it, then run maverick agent trust ${chosen}`);
   const ceiling = runtime.maxPermission || 'edit';
   const requested = permission || route?.permission || step?.permission || runtime.defaultPermission || (rank(ceiling) < rank('edit') ? ceiling : 'edit');
+  const declared = subtask?.body ? [...sectionBody(subtask.body, 'Files').matchAll(/`([^`]+)`/g)].map(match => match[1]) : (config.autonomy?.paths || []).map(p => p.path);
+  const autonomy = autonomyFor(config, declared);
+  if (checks && autonomy.maxPermission && rank(requested) > rank(autonomy.maxPermission)) throw new Error(`permission ${requested} exceeds the reviewed autonomy ceiling (${autonomy.maxPermission}) for this scope`);
   if (!PERMISSIONS.includes(requested)) throw new Error(`permission must be one of ${PERMISSIONS.join(', ')}`);
   if (checks && rank(requested) > rank(ceiling)) throw new Error(`permission ${requested} exceeds runtime.maxPermission (${ceiling}); raise it in .maverick/config.json only after review`);
   const support = definition.permissions?.[requested];

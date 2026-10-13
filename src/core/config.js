@@ -30,6 +30,10 @@ export const configSchema = z.looseObject({
   workflow: z.looseObject({ default: z.enum(PRESET_IDS) }),
   adapter: z.string().min(1),
   taskRoot: projectPath,
+  decisions: z.object({ enabled: z.boolean().optional(), localCommand: z.string().min(1).optional(), llm: z.boolean().optional(), timeoutSeconds: z.number().positive().max(300).optional() }).optional(),
+  autonomy: z.object({ windowDays: z.number().int().min(7).optional(), minSamples: z.number().int().min(30).optional(), paths: z.array(z.object({ path: projectPath, autoApprove: z.boolean(), judgeRequired: z.boolean(), maxFiles: z.number().int().positive(), maxPermission: z.enum(PERMISSIONS) })).optional() }).optional(),
+  session: z.object({ privateData: z.boolean().optional(), web: z.boolean().optional(), externalWrite: z.boolean().optional() }).optional(),
+  canary: z.object({ fixture: z.object({ language: z.string().min(1), source: projectPath, code: z.string(), test: projectPath, visible: z.string(), truth: z.string(), commands: z.array(z.string().min(1)).min(1) }).optional() }).optional(),
   defaultVerification: z.array(z.string()).optional(),
   maxChangedFilesGuideline: z.number().int().positive().optional(),
   verification: z.object({
@@ -86,6 +90,7 @@ export const configSchema = z.looseObject({
   }).optional(),
   // Loops: budgets, escalation and guardrails for `maverick loop run`. Defaults live in src/loop/model.js.
   loop: z.object({
+    yield: z.object({ enabled: z.boolean().optional(), window: z.number().int().min(3).max(20).optional(), metric: z.enum(['tokens', 'cost']).optional(), floor: z.number().nonnegative().optional() }).optional(),
     flow: z.string().min(1).optional(),
     providers: z.array(z.string().min(1)).optional(),
     isolation: z.enum(LOOP_ISOLATION).optional(),
@@ -130,6 +135,8 @@ export const configSchema = z.looseObject({
   }).optional(),
   // Sealed tests: acceptance tests the builder never sees (maverick seal). Defaults live in src/sealed/model.js.
   sealed: z.object({
+    ratchet: z.boolean().optional(),
+    review: z.object({ required: z.boolean().optional(), provider: z.string().min(1).optional() }).optional(),
     surface: z.enum(['spec', 'techspec', 'boundary']).optional(),
     feedback: z.enum(['none', 'count', 'ac']).optional(),
     threshold: z.number().min(0).max(1).optional(),

@@ -83,6 +83,8 @@ Loop: ${state.loopId} · ${state.mode}${state.worktree ? ` (branch \`${state.wor
 Budgets: ${spent.iterations}/${budgets.maxIterations ?? '∞'} iterations · ${mins(spent.activeMs)}/${budgets.maxMinutes ? `${budgets.maxMinutes} min` : '∞'} · ${usd(spent.costUsd)}/${budgets.maxCostUsd ? usd(budgets.maxCostUsd) : '∞'}${spent.costEstimated ? ` (${spent.costEstimated} estimated from tokens)` : ''}${spent.costUnknown ? ` (${spent.costUnknown} run(s) without a reported cost)` : ''} · ${tokens(spent.tokens)}/${budgets.maxTokens ? tokens(budgets.maxTokens) : '∞'} tokens
 Checkpoint: #${state.checkpoint?.n ?? 0} \`${state.checkpoint?.ref || '—'}\` · ${scoreLine(state.checkpoint?.score)}${taintLine(state.checkpoint?.tainted, policy)}
 
+${state.iterations.at(-1)?.yield ? `Yield: ${state.iterations.at(-1).yield.measurable ? `${state.iterations.at(-1).yield.rate.toFixed(4)} gate gains per ${state.iterations.at(-1).yield.metric === 'cost' ? 'USD' : '1K tokens'} over ${state.iterations.at(-1).yield.window} iterations (floor ${state.iterations.at(-1).yield.floor})` : 'not measurable: usage was not reported'}` : ''}
+
 ## Next step
 ${NEXT_STEP[state.status]}
 

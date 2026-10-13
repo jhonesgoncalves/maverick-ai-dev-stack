@@ -104,6 +104,18 @@ Below the threshold with `feedback: none` the gate is `pending`, never `revise`:
 
 `loop.sealed` is `auto` (a ready seal decides the loop), `required` (no loop without one) or `off`. `verification.runners` tells Maverick how to run chosen test files; it is inferred for node:test, Vitest, Jest, Mocha, AVA, pytest, unittest, Go, Cargo, RSpec, Minitest, PHPUnit, ExUnit and Dart, and a file no runner matches is reported, never counted as passing. Every key is in [Configuration](/reference/config#sealed-tests).
 
+## Suite review and disputes
+
+`seal review <task>` asks another model family, independent of the sealer and builders, to review the suite read-only. Its transcript and detailed issues stay encrypted in the vault. Set `sealed.review.required: true` to require a passing review of the exact suite before approval; older configurations preserve manual approval. A missing independent family is reported rather than silently accepting the suite.
+
+Surface lint checks project imports with the existing multi-language resolver. Boundary tests cannot import project source; spec/techspec tests cannot import named symbols absent from their declared contract. Dynamic or unrecognized access is a review warning, not proof that every call is compliant.
+
+`seal amend <task> --from-file <bundle> --reason "<dispute>"` creates a new seal against the original base and records its lineage. `seal suspend <task> ST-01 --reason "<dispute>"` excludes a disputed test; `seal restore` reverses that exclusion. Both revoke prior approval and refuse while the task's loop runs.
+
+`sealed.ratchet: true` stops for a human if a previously passing sealed test fails at a milestone. It never rolls work back or turns the holdout into iterative repair feedback. Builder transcripts are scanned for tool calls accessing the vault. Existing verification runners already select by subproject `cwd` and glob.
+
+Lens's **Sealed holdouts** page shows base failures, review, suspension, amendment rate, OI, measured overhead and observed post-merge defects. Missing usage stays unknown. The success targets (90% fail on the base, less than 20% amended, at most 15% extra cost/time) require accumulated repository evidence.
+
 ## Next
 
 - [Loop engineering](/concepts/loop-engineering): the loop the holdout decides.

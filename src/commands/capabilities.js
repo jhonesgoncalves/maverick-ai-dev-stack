@@ -20,6 +20,7 @@ function renderPlans(title, plans) {
     lines.push('', plan.capability ? `${plan.capability.ref} ${plan.capability.version} (${plan.capability.source})` : plan.ref);
     for (const change of plan.changes) { if (seen.has(changeKey(change))) continue; seen.add(changeKey(change)); lines.push(`  ${MARK[change.op]} ${change.target.padEnd(12)} ${describe(change)}`); }
     for (const skip of plan.skipped) lines.push(`  · ${skip.target.padEnd(12)} skipped: ${skip.reason}`);
+    for (const finding of plan.security?.findings || []) lines.push(`  WARN ${finding.kind} ${finding.path}: ${finding.message}`);
     for (const conflict of plan.conflicts) lines.push(`  ! ${conflict.target.padEnd(12)} ${conflict.path}: ${conflict.reason}`);
     for (const forced of plan.forced) lines.push(`  ! ${forced.target.padEnd(12)} ${forced.path}: ${forced.reason} (overwriting: --force)`);
   }
@@ -30,7 +31,7 @@ const pending = plans => [...new Map(plans.flatMap(plan => plan.changes).filter(
 
 /** Shows the plan and decides whether to apply it: nothing is written without consent. */
 async function confirm(title, plans, options) {
-  const summary = plans.map(plan => ({ ref: plan.capability?.ref || plan.ref, changes: plan.changes.map(({ target, op, type, path, pointer }) => ({ target, op, type, path, ...(pointer && { pointer }) })), skipped: plan.skipped, conflicts: plan.conflicts }));
+  const summary = plans.map(plan => ({ ref: plan.capability?.ref || plan.ref, changes: plan.changes.map(({ target, op, type, path, pointer }) => ({ target, op, type, path, ...(pointer && { pointer }) })), skipped: plan.skipped, conflicts: plan.conflicts, security: plan.security }));
   if (!options.json) output(renderPlans(title, plans));
   const conflicts = plans.flatMap(plan => plan.conflicts);
   if (conflicts.length) {

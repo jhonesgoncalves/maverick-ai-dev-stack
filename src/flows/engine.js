@@ -1,7 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadConfig } from '../core/config.js';
-import { executeCommand, inspectProject, withCommandScope, writeEvidence } from '../core/project-tools.js';
+import { executeCommand, gitDiff, inspectProject, withCommandScope, writeEvidence } from '../core/project-tools.js';
+import { parseDiff } from '../core/diff.js';
+import { autonomyFor, eligibleForAutoApproval } from '../decide/autonomy.js';
 import { selectVerificationCommands } from '../core/stack.js';
 import { captureOutput, exists, hasMeaningfulContent, pretty, sectionPresent } from '../core/util.js';
 import { fingerprintsFor } from './fingerprint.js';
@@ -248,6 +250,7 @@ async function mirrorDecision(context, gate, approval) {
 /** The latest run decided again with the current approvals, when nothing but approval gates blocked it. */
 async function settle(context, flow, state) {
   const last = state.runs.at(-1), gates = new Map(flow.gates.map(gate => [gate.id, gate]));
+  if (last?.results.some(result => result.id === 'autonomy-judge' && result.type === 'judge')) gates.set('autonomy-judge', { id: 'autonomy-judge', type: 'judge' });
   if (!last || (state.integrity && state.integrity !== flow.integrity)) return null;
   if (last.results.some(result => result.severity === 'block' && result.status === 'fail' && !['approval', 'judge', 'sealed'].includes(gates.get(result.id)?.type))) return null;
   const results = [];
@@ -270,7 +273,8 @@ async function settle(context, flow, state) {
  * that waited on the approval (the pr flow's `open`), so `context` needs `invoke`.
  */
 export async function recordApproval(context, flow, gateId, { decision = 'approve', by = 'human', reason, auto = false } = {}) {
-  const gate = flow.gates.find(item => item.id === gateId);
+  const config = await loadConfig(context.cwd);
+  const gate = flow.gates.find(item => item.id === gateId) || (gateId === 'autonomy-judge' && config.autonomy?.paths?.some(p => p.judgeRequired) ? { id: gateId, type: 'judge' } : null);
   if (!gate || !['approval', 'judge', 'sealed'].includes(gate.type)) throw new Error(`${flow.name} has no approval gate "${gateId || ''}"; gates a human decides (approval, judge and sealed): ${flow.gates.filter(item => ['approval', 'judge', 'sealed'].includes(item.type)).map(item => item.id).join(', ') || 'none'}`);
   if (decision === 'reject' && !reason) throw new Error('a rejection needs a reason');
   if (['judge', 'sealed'].includes(gate.type) && auto) throw new Error(`a ${gate.type} gate is never approved automatically`);
@@ -309,8 +313,13 @@ export async function runFlow(context, flow, { reset = false, autoApprove = fals
     if (gate.type === 'approval' && state.approvals?.[gate.id]?.decision === 'approve') await mirrorDecision(ctx, gate, state.approvals[gate.id]);
     results.push(await evaluateGate(ctx, gate, state, results));
   }
+  const config = await loadConfig(context.cwd);
+  const paths = config.autonomy?.paths?.length ? [...new Set(parseDiff(await gitDiff(context.cwd, context.against || 'HEAD')).flatMap(f => [f.oldPath, f.newPath]).filter(Boolean))] : [];
+  const autonomy = autonomyFor(config, paths);
+  if (autonomy.judgeRequired && !results.some(r => r.type === 'judge')) results.push(await runJudgeGate({ ...ctx, config }, { id: 'autonomy-judge', type: 'judge', severity: 'block', description: 'The reviewed path policy requires an independent judge.' }, results, state));
   let decision = decideOutcome(results, state.runs, flow.contract);
-  if (decision.outcome === 'awaiting-approval' && (autoApprove || autoApproves(await loadConfig(context.cwd).catch(() => null), flow.name))) {
+  const pathApproval = autonomy.configured && eligibleForAutoApproval(autonomy, results, paths);
+  if (decision.outcome === 'awaiting-approval' && (autoApprove || autoApproves(config, flow.name) || pathApproval) && (!autonomy.configured || pathApproval)) {
     const at = new Date().toISOString();
     for (const [index, result] of results.entries()) {
       const gate = flow.gates.find(item => item.id === result.id);

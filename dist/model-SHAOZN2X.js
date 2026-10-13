@@ -11,7 +11,7 @@ import {
   loopPaths,
   loopSettings,
   newLoopId
-} from "./chunk-P3Q7POVR.js";
+} from "./chunk-YS6LRZVS.js";
 import "./chunk-5ZWVM3IA.js";
 export {
   LOOP_DEFAULTS,

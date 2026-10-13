@@ -29,8 +29,8 @@ export function forecast(samples, mode = 'p90') {
 }
 
 /** Whether the next iteration is expected to cross a limit, from the iterations so far. */
-export function wouldExceed(budgets, spent, iterations, mode = budgets.forecast || 'p90') {
-  const done = iterations.filter(item => item.durationMs);
+export function wouldExceed(budgets, spent, iterations, mode = budgets.forecast || 'p90', repositorySamples = []) {
+  const done = [...repositorySamples, ...iterations].filter(item => item.durationMs);
   const time = forecast(done.map(item => item.durationMs), mode);
   if (budgets.maxMinutes && time !== null) {
     const remaining = budgets.maxMinutes * 60000 - spent.activeMs;

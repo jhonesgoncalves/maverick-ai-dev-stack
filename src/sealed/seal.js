@@ -14,6 +14,8 @@ import { authorSuite, buildersOf, familiesOf, sealerPrompt } from './author.js';
 import { aad, checkBundle, newSealId, readSealed, SEAL_SCHEMA, sealedSettings, sealPaths, sealReadiness, sourceHashes, SURFACES, suiteDigest, taskCriteria, writeSealed, SEALED_SCHEMA } from './model.js';
 import { holdoutMetrics, runSuite } from './run.js';
 import { readVaultJson, vaultKey, vaultRoot, writeVaultFile } from './vault.js';
+import { lintSurface } from './surface.js';
+import { createResolver } from '../intel/graph.js';
 
 // The life of a seal: `seal` writes it (an independent agent, or a human with --from-file),
 // checks every test fails on the code as it is, encrypts it and writes SEALED.json; `seal
@@ -103,6 +105,7 @@ export async function planSeal({ cwd, task, taskDir, config, stack, options = {}
  * criteria, a vault inside the project, a path that already exists, tests no runner matches.
  */
 export async function createSeal({ cwd, task, taskDir, config, stack, options = {}, by = process.env.USER || 'human', signal }) {
+  const started = Date.now();
   const settings = { ...sealedSettings(config), ...(typeof options.surface === 'string' && { surface: options.surface }) };
   if (!SURFACES.includes(settings.surface)) throw new Error(`--surface must be one of ${SURFACES.join(', ')}`);
   const info = await repoInfo(cwd);
@@ -117,6 +120,12 @@ export async function createSeal({ cwd, task, taskDir, config, stack, options = 
   if (!authored.raw) throw new Error(`the sealer ${authored.sealer.provider} returned no valid maverick-sealed block${authored.problems?.length ? ` (${authored.problems.join('; ')})` : ''}; run maverick seal again, or write the suite yourself and pass --from-file`);
   const { bundle, problems } = checkBundle(authored.raw, criteria);
   if (problems?.length) throw new Error(`the sealed suite is not valid: ${problems.slice(0, 5).join('; ')}`);
+  const [spec, techspec] = await Promise.all(['SPEC.md', 'TECHSPEC.md'].map(name => readFile(join(taskDir, name), 'utf8').catch(() => '')));
+  const tracked = (await git(cwd, ['ls-files', '-z', '--', '.', ':(exclude).maverick'])).stdout.split('\0').filter(Boolean);
+  const resolveImport = await createResolver(cwd, [...tracked, ...bundle.files.map(file => file.path)], new Map(bundle.files.map(file => [file.path, file.content])));
+  const surfaceLint = lintSurface(bundle, { surface: settings.surface, spec, techspec, resolveImport });
+  if (!surfaceLint.ok) throw new Error(`sealed surface lint failed: ${surfaceLint.findings.filter(item => item.severity === 'block').map(item => item.message).join('; ')}`);
+  warnings.push(...surfaceLint.findings.map(item => `${item.file}: ${item.message}`));
   for (const file of bundle.files) {
     if ((await git(cwd, ['cat-file', '-e', `${base}:./${file.path}`])).ok) throw new Error(`${file.path} already exists in the project; sealed tests go to new paths`);
     if ((await git(cwd, ['log', '--all', '--format=%h', '-1', '--', file.path])).stdout.trim()) warnings.push(`${file.path} appears in the git history, so a builder could read it there`);
@@ -145,7 +154,8 @@ export async function createSeal({ cwd, task, taskDir, config, stack, options = 
     schema: SEALED_SCHEMA, sealId, task, status: 'sealed', createdAt: new Date().toISOString(), suiteDigest: digest,
     sealer: authored.sealer, builders, base, surface: settings.surface, sources: await sourceHashes(taskDir),
     tests: bundle.tests.length, discriminating: discriminating.length, vacuous: vacuous.length, criteria: perCriterion,
-    uncovered: criteria.filter(item => !perCriterion[item.id]).map(item => item.id), approval: null, ledgerHead: ledger.head
+    authoring: { costUsd: authored.costUsd ?? (options.fromFile ? 0 : null), tokens: authored.tokens ?? null, durationMs: Date.now() - started },
+    uncovered: criteria.filter(item => !perCriterion[item.id]).map(item => item.id), surfaceLint: { ok: surfaceLint.ok, warnings: surfaceLint.findings.length }, approval: null, ledgerHead: ledger.head
   };
   await writeSealed(taskDir, sealed);
   if (options.fromFile) warnings.push(`the plaintext suite is still at ${resolve(options.fromFile)}; delete it or move it out of any agent's reach`);
@@ -160,9 +170,10 @@ export async function appendSealLedger(cwd, task, sealId, type, data) {
 
 /** A human approves the sealed suite: required (by default) before it decides a loop. */
 export async function approveSeal({ cwd, task, taskDir, config, by = process.env.USER || 'human' }) {
-  const readiness = await sealReadiness(taskDir, { ...sealedSettings(config), requireApproval: false });
+  const readiness = await sealReadiness(taskDir, { ...sealedSettings(config), requireApproval: false, review: { required: false } });
   if (readiness.state === 'missing') throw new Error(`${task} has no sealed suite; write one with maverick seal ${task}`);
   if (readiness.state !== 'ready') throw new Error(`the seal is ${readiness.state}${readiness.detail ? `: ${readiness.detail}` : ''}`);
+  if (config.sealed?.review?.required && (readiness.sealed.review?.verdict !== 'pass' || readiness.sealed.review?.digest !== readiness.sealed.suiteDigest)) throw new Error('an independent suite review must pass before approval: maverick seal review <task>');
   const approval = { by, at: new Date().toISOString() };
   const entry = await appendSealLedger(cwd, task, readiness.sealed.sealId, 'seal-approve', approval);
   await writeSealed(taskDir, { ...readiness.sealed, approval, ledgerHead: entry.hash });
@@ -188,13 +199,22 @@ export async function querySeal({ cwd, task, taskDir, config, stack, tree, scope
   const sealed = await readSealed(taskDir);
   const { bundle, key, paths, settings, discriminating } = await openSeal(cwd, task, sealed, config);
   return withSealLock(paths.dir, async () => {
+    const started = Date.now();
     const runners = await testRunners(cwd, config, stack);
     const run = await runSuite({ cwd, tree, bundle, runners, timeoutMs: (timeoutMinutes || settings.timeoutMinutes) * 60000, signal });
     const metrics = holdoutMetrics({ bundle, tests: run.tests, discriminating, suspended: sealed.suspended || [], visible });
     const ledger = await openLedger(paths.ledger, sealed.sealId, { schema: SEAL_SCHEMA });
+    if (settings.ratchet) {
+      const previous = ledger.entries.findLast(entry => entry.type === 'seal-run');
+      if (previous) {
+        const last = await readVaultJson(join(paths.results, `${String(previous.data.query).padStart(4, '0')}.enc`), key, aad(sealed.sealId, `result-${previous.data.query}`));
+        const passed = new Set(last.tests.filter(test => test.status === 'pass' && !(sealed.suspended || []).includes(test.id)).map(test => test.id));
+        metrics.regressions = run.tests.filter(test => passed.has(test.id) && test.status === 'fail').length;
+      }
+    }
     const query = ledger.entries.filter(entry => entry.type === 'seal-run').length + 1, resultDigest = resultMac(key, run.tests);
     await writeVaultFile(join(paths.results, `${String(query).padStart(4, '0')}.enc`), key, JSON.stringify({ scope, loopId, tree, tests: run.tests, files: run.files, metrics, at: new Date().toISOString() }), aad(sealed.sealId, `result-${query}`));
-    await ledger.append('seal-run', { scope, loopId, tree, resultDigest, query, S: metrics.S, OI: metrics.OI });
+    await ledger.append('seal-run', { scope, loopId, tree, resultDigest, query, S: metrics.S, OI: metrics.OI, durationMs: Date.now() - started });
     return { sealed, metrics, resultDigest, query, bundle };
   });
 }

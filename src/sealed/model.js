@@ -121,5 +121,6 @@ export async function sealReadiness(taskDir, settings) {
   const now = await sourceHashes(taskDir);
   if (now.prd !== sealed.sources?.prd || (sealed.sources?.spec || null) !== now.spec) return { state: 'stale', sealed, detail: 'PRD.md acceptance criteria or SPEC.md behavior changed since the seal; run maverick seal again' };
   if (settings.requireApproval && !sealed.approval) return { state: 'unapproved', sealed, detail: `a human approves the sealed suite first: maverick seal approve ${sealed.task}` };
+  if (settings.review?.required && (sealed.review?.verdict !== 'pass' || sealed.review?.digest !== sealed.suiteDigest)) return { state: 'unreviewed', sealed, detail: 'an independent review of this exact suite must pass before it decides a loop' };
   return { state: 'ready', sealed };
 }

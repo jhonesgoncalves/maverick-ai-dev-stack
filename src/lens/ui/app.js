@@ -11,6 +11,7 @@ import * as codebase from './views/codebase.js';
 import * as agents from './views/agents.js';
 import * as capabilities from './views/capabilities.js';
 import * as settings from './views/settings.js';
+import * as decide from './views/decide.js';
 
 export const store = { project: null, runs: null, agentRuns: null, loops: null, detail: new Map(), version: 0, running: 0 };
 /** Agent events from the server: `agent` for each streamed event, `agent-end` when a run finishes. */
@@ -30,7 +31,7 @@ function parse() {
   const [page = 'inbox', id, tab, ...rest] = path.split('/').map(decodeURIComponent);
   return { page: page || 'inbox', id, tab, rest, params: new URLSearchParams(query || '') };
 }
-const VIEWS = { inbox, tasks, runs, loops, codebase, agents, specs: library, docs: library, lab: library, changes: system, capabilities, settings, cli: system };
+const VIEWS = { inbox, tasks, runs, loops, codebase, agents, scorecard: decide, holdouts: decide, specs: library, docs: library, lab: library, changes: system, capabilities, settings, cli: system };
 function viewFor(route) { return route.page === 'tasks' && route.id ? task : VIEWS[route.page] || inbox; }
 
 /** Loops waiting on a human are hot; otherwise the number running. */
@@ -44,6 +45,7 @@ const NAV = () => {
     { h: 'Workspace', items: [['#/inbox', 'inbox', 'Inbox', 'inbox', attention ? `<em class="hot">${attention}</em>` : ''], ['#/tasks', 'tasks', 'Tasks', 'tasks', `<em>${p?.tasks?.length ?? ''}</em>`], ['#/runs', 'runs', 'Runs', 'runs', store.running ? `<em class="hot">${store.running}</em>` : ''], ['#/loops', 'loops', 'Loops', 'loop', loopBadge()]] },
     { h: 'Codebase', items: [['#devtools/overview', 'codebase:overview', 'Overview', 'code'], ['#devtools/map', 'codebase:map', 'Architecture', 'map'], ['#devtools/routes', 'codebase:routes', 'Entry points', 'route'], ['#devtools/hotspots', 'codebase:hotspots', 'Hotspots', 'flame'], ['#devtools/findings', 'codebase:findings', 'Findings', 'alert'], ['#/changes', 'changes', 'Changes', 'branch', p?.git?.changes?.length ? `<em>${p.git.changes.length}</em>` : '']] },
     { h: 'Library', items: [['#/specs', 'specs', 'Specs', 'spec', `<em>${p?.specs?.length ?? ''}</em>`], ['#/docs', 'docs', 'Docs', 'book'], ...(p?.lab?.length ? [['#/lab', 'lab', 'Lab', 'bolt']] : [])] },
+    { h: 'Evidence', items: [['#/scorecard', 'scorecard', 'Scorecard', 'bolt'], ['#/holdouts', 'holdouts', 'Sealed holdouts', 'shield']] },
     { h: 'System', items: [['#/agents', 'agents', 'Agents', 'agent'], ['#/capabilities', 'capabilities', 'Capabilities', 'puzzle'], ['#/settings', 'settings', 'Settings', 'gear'], ['#/cli', 'cli', 'CLI reference', 'terminal']] }
   ];
 };

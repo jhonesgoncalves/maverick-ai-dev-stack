@@ -54,6 +54,7 @@ var LOOP_DEFAULTS = {
   setupTimeoutMinutes: 20,
   budgets: { maxIterations: 10, maxMinutes: 120, maxCostUsd: null, maxTokens: null, forecast: "p90" },
   stall: { window: null, churnLines: 300, rollbackStreak: 3, overclaims: 2 },
+  yield: { enabled: false, window: 4, metric: "tokens", floor: 0.01 },
   escalation: ["retry-with-diagnosis", "raise-effort", "switch-provider", "human"],
   maxEffort: "xhigh",
   // Secrets are never part of a change an agent makes on its own.
@@ -98,6 +99,7 @@ function loopSettings(config = {}, flow, flags = {}) {
     setupTimeoutMinutes: loop.setupTimeoutMinutes || d.setupTimeoutMinutes,
     budgets,
     stall: { ...d.stall, ...loop.stall, window: loop.stall?.window || flow?.contract?.noProgressWindow || 2 },
+    yield: { ...d.yield, ...loop.yield },
     escalation,
     maxEffort: EFFORTS.includes(loop.maxEffort) ? loop.maxEffort : d.maxEffort,
     protectedPaths: loop.protectedPaths || d.protectedPaths,

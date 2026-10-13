@@ -31,7 +31,7 @@ function taskIndex(id, positional) {
   if (id === 'subtask') return ['list', 'next', 'validate'].includes(action) ? 2 : -1;
   if (id === 'agent') return ['run', 'runs'].includes(action) ? 2 : -1;
   if (id === 'flow') return action === 'run' ? 3 : action === 'status' ? 2 : -1;
-  if (id === 'seal') return ['status', 'approve'].includes(action) ? 2 : 1;
+  if (id === 'seal') return ['status', 'approve', 'review', 'amend', 'suspend', 'restore'].includes(action) ? 2 : 1;
   if (id === 'unseal') return 1;
   if (id === 'loop') return ['run', 'status', 'stop', 'verify', 'log', 'release', 'clean'].includes(action) ? 2 : -1;
   return -1;

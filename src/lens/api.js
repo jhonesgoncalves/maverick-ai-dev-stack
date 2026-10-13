@@ -43,9 +43,11 @@ async function taskFlows(cwd, dir, preset, stage) {
   for (const flow of flows) {
     const state = await readState(dir, flow.name);
     if (!state.runs.length && !offered(flow.name)) continue;
+    const gates = [...flow.gates];
+    if (state.runs.at(-1)?.results.some(r => r.id === 'autonomy-judge') && !gates.some(g => g.id === 'autonomy-judge')) gates.push({ id: 'autonomy-judge', type: 'judge', severity: 'block', description: 'Independent judge required by the reviewed autonomy policy.' });
     result.push({
       name: flow.name, description: flow.description, source: flow.source, contract: flow.contract,
-      gates: flow.gates.map(gate => ({ id: gate.id, type: gate.type, run: gate.run, severity: gate.severity, description: gate.description, prompt: gate.prompt })),
+      gates: gates.map(gate => ({ id: gate.id, type: gate.type, run: gate.run, severity: gate.severity, description: gate.description, prompt: gate.prompt })),
       status: state.status || 'not run', approvals: state.approvals || {}, autoApprove: autoApproves(config, flow.name), lastRun: state.runs.at(-1) || null,
       history: state.runs.slice(-10).map(run => ({ at: run.at, outcome: run.outcome, iteration: run.iteration }))
     });

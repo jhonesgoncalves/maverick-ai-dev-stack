@@ -4,6 +4,8 @@ import { getTask } from '../core/tasks.js';
 import { brand, output } from '../core/util.js';
 import { holdoutLine } from '../sealed/run.js';
 import { approveSeal, createSeal, planSeal, sealReport, unseal } from '../sealed/seal.js';
+import { sealChangeLines, showDecide } from './decide-output.js';
+import { amendSeal, reviewSeal, suspendSealTest } from '../sealed/review.js';
 
 // `maverick seal`: acceptance tests the builder never sees. See src/sealed/model.js.
 
@@ -85,13 +87,20 @@ function swallowedFlag(options, command) {
 
 async function sealCommand(cwd, rest, options = {}) {
   const [first, second] = rest;
-  swallowedFlag(options, first === 'status' || first === 'approve' ? `seal ${first}` : 'seal');
+  swallowedFlag(options, ['status', 'approve', 'review', 'amend', 'suspend', 'restore'].includes(first) ? `seal ${first}` : 'seal');
+  if (['review', 'amend', 'suspend', 'restore'].includes(first)) {
+    const { dir: taskDir, config } = await getTask(cwd, second);
+    const args = { cwd, task: second, taskDir, config, fromFile: str(options.fromFile), by: str(options.by) || process.env.USER || 'human', reason: str(options.reason), testId: rest[2], restore: first === 'restore' };
+    const result = first === 'review' ? await reviewSeal(args) : first === 'amend' ? await amendSeal(args) : await suspendSealTest(args);
+    showDecide(`SEAL ${first.toUpperCase()}`, result, options, sealChangeLines(first, second, result, args));
+    return;
+  }
   if (first === 'status') return status(cwd, second, options);
   if (first === 'approve') return approve(cwd, second, options);
   return seal(cwd, first, options);
 }
 
 export const sealCommands = [
-  { id: 'seal', description: 'Seal acceptance tests the builder never sees: written by another model family (or you), encrypted out of the tree, run only at milestones.', aliases: [], usage: 'seal <task> [--provider <id>] [--from-file <dir|bundle.json>] [--surface spec|techspec|boundary] [--dry-run] | seal status <task> [--reveal] | seal approve <task>', run: ({ cwd, rest, options }) => sealCommand(cwd, rest, options) },
+  { id: 'seal', description: 'Seal, review and amend acceptance tests kept from the builder.', aliases: [], usage: 'seal <task> [--from-file <bundle>] [--surface spec|techspec|boundary] | seal status|approve|review <task> | seal amend <task> --from-file <bundle> --reason "..." | seal suspend|restore <task> <ST-id> --reason "..."', run: ({ cwd, rest, options }) => sealCommand(cwd, rest, options) },
   { id: 'unseal', description: 'Open a task\'s sealed tests at review: commit them as protected regression tests, or discard them.', aliases: [], usage: 'unseal <task> --commit [--protect] | --discard', run: ({ cwd, arg, options }) => { swallowedFlag(options, 'unseal'); return unsealCommand(cwd, arg, options); } }
 ];

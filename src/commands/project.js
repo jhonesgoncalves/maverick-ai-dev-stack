@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ADAPTERS, detectAdapters, layoutFor, SHARED } from '../capabilities/adapters.js';
 import { checkDrift, LOCK_PATH, readLock } from '../capabilities/engine.js';
+import { trifectaReport } from '../capabilities/lint.js';
 import { defaultConfig, globalConfigPath, loadConfig, resolveConfig } from '../core/config.js';
 import { PRESET_IDS } from '../core/presets.js';
 import { languageName, languageRule, normalizeLanguage, projectLanguage } from '../core/language.js';
@@ -231,6 +232,8 @@ async function doctor(cwd, options = {}) {
     ['Repository instructions', map.instructions.length > 0],
     ['Verification commands', commands.length > 0]
   ];
+  const trifecta = trifectaReport(config?.session);
+  checks.push(['Session trifecta', !trifecta.complete, trifecta.recommendation]);
   if (await exists(join(cwd, LOCK_PATH))) {
     const drifted = (await checkDrift(cwd, await readLock(cwd))).filter(item => item.issues.length);
     checks.push(['Capabilities match lockfile', !drifted.length, drifted.length ? `${drifted.map(item => item.ref).join(', ')} changed; run maverick installed` : undefined]);

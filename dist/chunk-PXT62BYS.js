@@ -13,7 +13,7 @@ import {
   sha256,
   splitCommand,
   taskPreset
-} from "./chunk-EVJRL34C.js";
+} from "./chunk-RXZYNRDJ.js";
 import {
   AGENT_STAGE_IDS,
   PERMISSIONS
@@ -513,6 +513,21 @@ function stageOf({ stage, issues } = {}) {
   return issues?.length ? "fix" : "build";
 }
 
+// src/decide/autonomy.js
+function autonomyFor(config, files) {
+  const policies = config.autonomy?.paths || [];
+  const matches2 = (file) => policies.filter((p) => file === p.path || file.startsWith(`${p.path.replace(/\/$/, "")}/`));
+  const selected = files.flatMap(matches2);
+  return { configured: policies.length > 0, autoApprove: files.length > 0 && files.every((file) => matches2(file).length && matches2(file).every((p) => p.autoApprove)), judgeRequired: selected.some((p) => p.judgeRequired), maxFiles: selected.length ? Math.min(...selected.map((p) => p.maxFiles)) : null, maxPermission: selected.some((p) => p.maxPermission === "read-only") ? "read-only" : selected.some((p) => p.maxPermission === "edit") ? "edit" : null };
+}
+function eligibleForAutoApproval(policy, results, files) {
+  if (!policy.autoApprove || policy.maxFiles !== null && files.length > policy.maxFiles) return false;
+  if (!results.some((r) => r.id === "integrity" && r.status === "pass" && !r.issues?.length)) return false;
+  if (results.some((r) => ["integrity", "ablation"].includes(r.id) && r.status !== "pass")) return false;
+  if (policy.judgeRequired && !results.some((r) => r.type === "judge" && r.status === "pass")) return false;
+  return !results.some((r) => r.type === "sealed" && !["pass", "skipped"].includes(r.status));
+}
+
 // src/runtime/policy.js
 var rank = (level) => PERMISSIONS.indexOf(level);
 function matches(route, subtask) {
@@ -531,6 +546,9 @@ function resolveRun(config, { provider, model, effort, permission, subtask, stag
   if (checks && !trusted.includes(chosen)) throw new Error(`provider ${chosen} is not trusted in this repository; review it, then run maverick agent trust ${chosen}`);
   const ceiling = runtime.maxPermission || "edit";
   const requested = permission || route?.permission || step?.permission || runtime.defaultPermission || (rank(ceiling) < rank("edit") ? ceiling : "edit");
+  const declared = subtask?.body ? [...sectionBody(subtask.body, "Files").matchAll(/`([^`]+)`/g)].map((match) => match[1]) : (config.autonomy?.paths || []).map((p) => p.path);
+  const autonomy = autonomyFor(config, declared);
+  if (checks && autonomy.maxPermission && rank(requested) > rank(autonomy.maxPermission)) throw new Error(`permission ${requested} exceeds the reviewed autonomy ceiling (${autonomy.maxPermission}) for this scope`);
   if (!PERMISSIONS.includes(requested)) throw new Error(`permission must be one of ${PERMISSIONS.join(", ")}`);
   if (checks && rank(requested) > rank(ceiling)) throw new Error(`permission ${requested} exceeds runtime.maxPermission (${ceiling}); raise it in .maverick/config.json only after review`);
   const support = definition.permissions?.[requested];
@@ -1486,6 +1504,8 @@ export {
   STAGE_IDS,
   RECOMMENDED,
   stageOf,
+  autonomyFor,
+  eligibleForAutoApproval,
   resolveRun,
   stageDefaults,
   shellFor,

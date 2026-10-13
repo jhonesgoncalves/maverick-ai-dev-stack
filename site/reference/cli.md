@@ -73,3 +73,28 @@ The built-in `pr` flow (`flow run pr <task>`) runs the whole step: it checks the
 `graph [--json] [--format mermaid|dot] [--depth <n>]` reports the resolved import graph across languages (cycles, hubs, fan-in, instability, and a health score with its formula). `impact <path>` lists transitive dependents and the tests to run, falling back to text references for non-source files. `hotspots [--since <git date>] [--limit <n>]` ranks files by churn and dependents. `mcp` starts a read-only Model Context Protocol server over stdio; its `ground_change` tool returns the same grounding as `maverick new`.
 
 `routes [--kind http|page|graphql|rpc|event|job|websocket] [--method <verb>] [--grep <text>] [--json]` lists entry points in any stack—decorators and annotations, router calls, file-system routing and OpenAPI, GraphQL or protobuf contracts—with guards, duplicates, contract drift and write routes without a guard. `coupling [--json]` reports components with afferent and efferent coupling, instability, abstractness and distance from the main sequence, component cycles, Stable Dependencies Principle violations and configured boundary rules. `audit [--severity high|medium|low] [--category <name>] [--fail-on high|medium|low] [--json]` ranks every architecture finding with its evidence; `--fail-on` makes it a CI gate. `impact <path>` also lists the entry points served by the affected files. See the [Devtools guide](/guide/devtools).
+
+## Decide with evidence
+
+```sh
+maverick scorecard --json
+maverick route suggest
+maverick autonomy suggest
+maverick canary run --provider codex --dry-run
+maverick canary run --all
+maverick decision init
+maverick decision calibration integrity
+maverick decision label integrity <id> --answer refactor --by reviewer --reason "Assertions preserved"
+maverick trifecta --json
+```
+
+Routes and autonomy are written to `.maverick/policy-proposals/*.patch`, never applied automatically. [Decide](../concepts/decide.md) describes samples, calibration and safety signals.
+
+```sh
+maverick seal review <task>
+maverick seal amend <task> --from-file <bundle.json> --reason "Corrected disputed behavior"
+maverick seal suspend <task> ST-01 --reason "Contradicts the approved contract"
+maverick seal restore <task> ST-01 --reason "Dispute resolved"
+```
+
+Amendment and suspension revoke approval. The suite stays encrypted outside the repository. See [Sealed tests](../concepts/sealed-tests.md).

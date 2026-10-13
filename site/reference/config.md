@@ -100,3 +100,17 @@ The optional `sealed` section sets how [sealed tests](/concepts/sealed-tests) ar
   "loop": { "sealed": "required" }
 }
 ```
+
+## Evidence-based decisions
+
+```json
+{
+  "loop": { "yield": { "enabled": true, "window": 4, "metric": "tokens", "floor": 0.01 } },
+  "decisions": { "enabled": true, "localCommand": "my-local-decider", "llm": false, "timeoutSeconds": 30 },
+  "autonomy": { "windowDays": 30, "minSamples": 30, "paths": [{ "path": "src/orders", "autoApprove": false, "judgeRequired": true, "maxFiles": 5, "maxPermission": "edit" }] },
+  "session": { "privateData": true, "web": false, "externalWrite": false },
+  "sealed": { "review": { "required": true }, "ratchet": true }
+}
+```
+
+Yield governance, decision triage, independent suite-review requirements and the sealed ratchet are opt-in for existing configurations. `decisions.localCommand` receives typed evidence on stdin and returns JSON; when omitted, an installed `jev` is used. `decisions.llm` enables an independent, read-only LLM fallback. Rubric changes reset human calibration; fewer than 30 labels cannot become calibrated evidence. [Decide](../concepts/decide.md) documents the command contract and the meaning of autonomy proposals.

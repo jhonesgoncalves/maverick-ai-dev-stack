@@ -1,13 +1,13 @@
 import {
   buildProjectIndex
-} from "./chunk-VI7EHI2J.js";
-import "./chunk-KS7FBQ56.js";
+} from "./chunk-MOWQGSW3.js";
+import "./chunk-CAKACX3K.js";
 import {
   buildDevtools,
   loadCatalog,
   searchCatalog,
   traceLine
-} from "./chunk-PUP4WTVD.js";
+} from "./chunk-SXR3DEER.js";
 import {
   buildGraph,
   churn,
@@ -20,12 +20,13 @@ import {
   rankHotspots,
   readLedger,
   verifyChain
-} from "./chunk-FDZLEB4U.js";
+} from "./chunk-VZF7QBRD.js";
 import {
   loopPaths,
   visibleReasons
-} from "./chunk-P3Q7POVR.js";
-import "./chunk-2B5ZDJBT.js";
+} from "./chunk-YS6LRZVS.js";
+import "./chunk-MXEATQKY.js";
+import "./chunk-PXT62BYS.js";
 import {
   exists,
   getTask,
@@ -34,7 +35,7 @@ import {
   packageVersion,
   selectVerificationCommands,
   taskStage
-} from "./chunk-EVJRL34C.js";
+} from "./chunk-RXZYNRDJ.js";
 import "./chunk-5ZWVM3IA.js";
 import "./chunk-YL4AI5AN.js";
 

@@ -33,6 +33,10 @@ import { holdoutLine } from '../sealed/run.js';
 import { querySeal } from '../sealed/seal.js';
 import { buildersOf } from '../sealed/author.js';
 import { vaultRoot } from '../sealed/vault.js';
+import { assessDecision } from '../decide/decisions.js';
+import { collectEvidence } from '../decide/scorecard.js';
+import { scanVaultAccess } from '../sealed/surface.js';
+import { autonomyFor } from '../decide/autonomy.js';
 
 // The loop engine. Each iteration gives one unit of work (the next subtask, or the goal) to an
 // agent with a fresh context, then decides it with evidence the harness collects itself: the
@@ -336,6 +340,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
     const exhausted = checkBudget(budgets, state.spent) || (forecast.stop ? forecast : null);
     if (exhausted) throw new Error(`the budget is exhausted (${exhausted.detail}); raise it with --max-iterations, --max-minutes, --max-cost or --max-tokens`);
   } else { loopId = newLoopId(); state = null; }
+  const repositorySamples = (await collectEvidence(cwd, config)).rows.filter(row => row.source === 'loop' && row.task !== task).map(row => ({ durationMs: row.durationMs, costUsd: row.costUsd, tokens: { totalTokens: row.tokens } }));
   const previousStatus = state?.status || null;
   const paths = loopPaths(taskDir, loopId), mode = resume ? state.mode : settings.isolation;
   await mkdir(paths.dir, { recursive: true });
@@ -421,6 +426,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       try { metrics = await holdoutQuery({ scope: 'done', tree, n, final: true, visible: id => (judged.has(id) ? judged.get(id) : allBlockingPass(state.checkpoint.score)) }); } catch (error) { return { error: error.stopped ? error.message : `the sealed tests could not run: ${error.message}`, stopped: error.stopped }; }
       if (!metrics) return null;
       state.sealed.final = { S: metrics.S, passed: metrics.passed, total: metrics.total, Sac: metrics.Sac, Vac: metrics.Vac, OI: metrics.OI, criteria: metrics.criteria, excluded: metrics.excluded, tree };
+      await ledger.append('sealed-result', { provider: state.iterations.at(-1)?.provider || initial.provider.id, model: state.iterations.at(-1)?.model || initial.model || null, effort: state.iterations.at(-1)?.effort || initial.effort || null, S: metrics.S, OI: metrics.OI, tree });
       if (metrics.total && metrics.S >= state.sealed.threshold) return null;
       state.sealed.gapTree = tree;
       await ledger.append('sealed-gap', { S: metrics.S, Sac: metrics.Sac, Vac: metrics.Vac, OI: metrics.OI, passed: metrics.passed, total: metrics.total, threshold: state.sealed.threshold });
@@ -591,7 +597,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       if (stop) { await rm(paths.stop, { force: true }); return await finish('aborted', `stopped by ${stop.by}${stop.reason ? `: ${stop.reason}` : ''}`); }
       const hard = checkBudget(state.budgets, { ...state.spent, activeMs: activeBase + (Date.now() - invocationStart) });
       if (hard) return await finish('budget-exceeded', hard.detail);
-      const forecast = wouldExceed(state.budgets, { ...state.spent, activeMs: activeBase + (Date.now() - invocationStart) }, state.iterations);
+      const forecast = wouldExceed(state.budgets, { ...state.spent, activeMs: activeBase + (Date.now() - invocationStart) }, state.iterations, state.budgets.forecast, repositorySamples);
       if (forecast.stop) return await finish('budget-exceeded', forecast.detail);
       if (mode === 'in-place') {
         const head = await resolveRef(cwd, 'HEAD'), branch = (await git(cwd, ['symbolic-ref', '-q', 'HEAD'])).stdout.trim() || null;
@@ -634,7 +640,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
 
       // Record the start first, then back up what the agent must not change: the ledger is part of it.
       state.inFlight = { n, phase: 'agent', startedAt: now(), scope, provider: plan.provider.id, effort: plan.effort || null };
-      await ledger.append('iteration-start', { n, scope, provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, rung: state.escalation.rung, checkpoint: state.checkpoint.n });
+      await ledger.append('iteration-start', { n, scope, provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, type: subtask?.type || null, complexity: subtask?.complexity || null, rung: state.escalation.rung, checkpoint: state.checkpoint.n });
       await persist();
       await isolation.sync(taskDir);
       const backup = await backupProtected({ cwd, taskDir, loopDir: paths.dir, inflight: paths.inflight, subtask });
@@ -693,7 +699,27 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       const tree = await isolation.snapshot();
       const diff = await isolation.diff(state.checkpoint.tree, tree);
       emit({ type: 'verify', n, diff: { files: diff.files.length, added: diff.added, deleted: diff.deleted } });
-      const audit = await auditIntegrity(cwd, { workCwd: workCwd(), base: state.checkpoint.tree, head: tree, diff, taskDir, subtask, settings, config, stack, gates: oracle, claim: { filesChanged: result.filesChanged || [], disputes: result.disputes || [] } });
+      const autonomy = autonomyFor(config, diff.files.map(file => file.path));
+      if (autonomy.judgeRequired) settings.judge.enabled = true;
+      const audit = await auditIntegrity(cwd, { workCwd: workCwd(), base: state.checkpoint.tree, head: tree, diff, taskDir, subtask, settings: { ...settings, blastRadius: { ...settings.blastRadius, ...(autonomy.maxFiles !== null && { maxFiles: Math.min(settings.blastRadius.maxFiles, autonomy.maxFiles) }) } }, config, stack, gates: oracle, claim: { filesChanged: result.filesChanged || [], disputes: result.disputes || [] } });
+      if (holdingOut() && run.transcript) {
+        const findings = scanVaultAccess(await readFile(run.transcript, 'utf8'), vaultRoot(cwd, task));
+        audit.findings.push(...findings);
+        if (findings.length) audit.ok = false;
+      }
+      if (config.decisions?.enabled && (audit.findings.length || result.disputes?.length)) {
+        const rubricId = result.disputes?.length ? 'dispute' : 'integrity';
+        const evidence = { findings: audit.findings, disputes: result.disputes || [], diff: diff.patch, contract: await readFile(join(taskDir, 'SPEC.md'), 'utf8').catch(() => '') };
+        const abort = new globalThis.AbortController();
+        controller.current = abort;
+        const watch = setInterval(() => { readFile(paths.stop, 'utf8').then(JSON.parse).then(request => { if (request.mode !== 'after-iteration') abort.abort(); }).catch(() => {}); }, settings.stopPollMs);
+        let suggestion;
+        try { suggestion = await assessDecision({ cwd, config, taskDir, task, rubricId, evidence, makers: [{ provider: plan.provider.id, model: plan.model }], risk: 'high', signal: abort.signal }); } finally { clearInterval(watch); controller.current = null; }
+        state.spent.costUsd += suggestion.spent.costUsd;
+        state.spent.costUnknown += suggestion.spent.costUnknown;
+        state.spent.tokens += suggestion.spent.tokens;
+        await ledger.append('decision', { n, scope, ...suggestion });
+      }
       const findings = [...guarded.findings, ...invariant.findings, ...audit.findings].map(item => ({ source: item.source || 'integrity', ...item }));
       const blocking = findings.filter(item => item.severity === 'block');
       let measured = null, comparison = null, judge = null;
@@ -734,7 +760,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
         // Work kept despite integrity warnings taints its checkpoint and every one derived from it.
         const warned = [...new Set(findings.filter(item => item.severity === 'warn').map(item => item.kind))];
         const taint = warned.length ? { since: state.checkpoint.tainted?.since ?? n, kinds: [...new Set([...(state.checkpoint.tainted?.kinds || []), ...warned])], acknowledged: null } : state.checkpoint.tainted || null;
-        await ledger.append('iteration-end', { n, decision: 'accepted', reasons: [], progress, score: summarize(measured.score), diff: { files: diff.files.length, added: diff.added, deleted: diff.deleted }, findings: findings.map(item => item.kind), ...(warned.length && { tainted: warned }), agent: { status, costUsd: run.cost ?? null, ...(run.costEstimated && { costEstimated: true }), tokens: run.usage?.totalTokens ?? null, durationMs: run.durationMs, transcriptSha256 }, ...(checkpoint && { checkpoint }) });
+        await ledger.append('iteration-end', { n, decision: 'accepted', reasons: [], progress, score: summarize(measured.score), diff: { files: diff.files.length, added: diff.added, deleted: diff.deleted }, findings: findings.map(item => item.kind), overclaim, disputes: result.disputes || [], paths: diff.files.map(item => item.path), ...(warned.length && { tainted: warned }), agent: { status, costUsd: run.cost ?? null, ...(run.costEstimated && { costEstimated: true }), tokens: run.usage?.totalTokens ?? null, durationMs: run.durationMs, transcriptSha256 }, ...(checkpoint && { checkpoint }) });
         state.checkpoint = { ...(checkpoint || state.checkpoint), n: checkpoint?.n ?? state.checkpoint.n, iteration: n, score: measured.score, issues: cap(measured.issues, 30), tainted: taint };
         state.spent.accepted += 1; state.lastRejection = null;
         if (mode === 'worktree') await isolation.collect(taskDir);
@@ -759,11 +785,12 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
         const rollback = await isolation.rollback(state.checkpoint);
         await restoreBackup(backup);
         if (diff.patch) { await mkdir(paths.rejected, { recursive: true }); await writeFile(join(paths.rejected, `${n}.patch`), diff.patch.slice(0, 1024 * 1024)); }
-        await ledger.append('iteration-end', { n, decision: 'rejected', reasons: cap(reasons, 20), score: measured ? summarize(measured.score) : null, diff: { files: diff.files.length, added: diff.added, deleted: diff.deleted }, findings: findings.map(item => item.kind), agent: { status, costUsd: run.cost ?? null, ...(run.costEstimated && { costEstimated: true }), tokens: run.usage?.totalTokens ?? null, durationMs: run.durationMs, transcriptSha256 }, rollback: { restored: rollback.restored.length, deleted: rollback.deleted.length } });
+        await ledger.append('iteration-end', { n, decision: 'rejected', reasons: cap(reasons, 20), score: measured ? summarize(measured.score) : null, diff: { files: diff.files.length, added: diff.added, deleted: diff.deleted }, findings: findings.map(item => item.kind), overclaim, disputes: result.disputes || [], paths: diff.files.map(item => item.path), agent: { status, costUsd: run.cost ?? null, ...(run.costEstimated && { costEstimated: true }), tokens: run.usage?.totalTokens ?? null, durationMs: run.durationMs, transcriptSha256 }, rollback: { restored: rollback.restored.length, deleted: rollback.deleted.length } });
         state.lastRejection = { n, reasons: cap(reasons, 12), causes: cap(causes, 12), files: diff.files.map(item => item.path).slice(0, 30) };
       }
       const entry = record({ n, started, subtask, scope, plan, family, decision: accepted ? 'accepted' : 'rejected', reasons: cap(reasons, 20), causes: cap(causes, 20), run, status, result, transcriptSha256, diff, findings, measured, comparison, judge, progress, overclaim, checkpoint, subtaskDone, checklistDelta: guarded.checklistDelta, cwd });
       state.iterations.push(entry);
+      entry.gateGain = accepted ? (comparison?.improvements || []).filter(item => ['gate-fixed', 'fewer-failures'].includes(item.kind)).length : 0;
       state.spent.iterations += 1;
       if (typeof run.cost === 'number') state.spent.costUsd += run.cost; else state.spent.costUnknown += 1;
       if (run.costEstimated) state.spent.costEstimated = (state.spent.costEstimated || 0) + 1;
@@ -774,7 +801,11 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       emit({ type: 'decision', n, entry, state });
       // A holdout milestone runs once the iteration is safely recorded: it is evidence, not part of the decision.
       if (milestone) {
-        try { await holdoutQuery(milestone); await persist(); } catch (error) {
+        try {
+          const metrics = await holdoutQuery(milestone);
+          await persist();
+          if (metrics?.regressions) return await finish('holdout-gap', 'a previously passing sealed test regressed; a human reviews the suite before another iteration');
+        } catch (error) {
           if (error.stopped) { const request = await readFile(paths.stop, 'utf8').then(JSON.parse).catch(() => null); await rm(paths.stop, { force: true }); return await finish('aborted', `stopped by ${request?.by || 'request'} during a run of the sealed tests`); }
           emit({ type: 'notice', level: 'warn', message: `the sealed tests could not run at ${milestone.scope}: ${error.message}` });
         }
@@ -786,10 +817,15 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       if (status === 'blocked' || status === 'needs-input') return await finish('needs-human', `the agent is ${status}: ${result.summary || 'no summary'}`, { questions: result.questions });
 
       // Diagnose this scope since its last escalation, and climb one rung when it is stuck.
-      if (progress) state.escalation = { ...state.escalation, since: n + 1, diagnosis: null };
+      if (progress && !settings.yield.enabled) state.escalation = { ...state.escalation, since: n + 1, diagnosis: null };
       else {
         const history = state.iterations.filter(item => item.scope === scope && item.n >= state.escalation.since);
-        const { signals, summary } = diagnose(history, settings.stall);
+        const completed = subtaskDone || (work.mode === 'goal' && accepted && allBlockingPass(measured?.score) && status === 'done');
+        const { signals, summary, yield: yieldReport } = diagnose(history, settings.stall, completed ? undefined : settings.yield);
+        if (yieldReport) {
+          entry.yield = yieldReport;
+          await ledger.append('yield', { n, scope, ...yieldReport });
+        }
         entry.signals = signals.map(signal => signal.kind);
         if (signals.length) {
           const step = nextRung(state.escalation, { ...settings, excludeFamilies: holdingOut() && active.sealed.sealer.family ? [active.sealed.sealer.family] : [] }, { providers, current: { provider: plan.provider.id, effort: plan.effort, model: plan.model }, config });
@@ -833,7 +869,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
       // Unless the feedback is detailed, the judges' reasoning stays outside the work tree, where the agent being judged does not look.
       const reportDir = settings.feedback === 'detailed' ? undefined : reportsDir;
       const result = await runJudgeGate({ cwd: workCwd(), task, taskDir, config, reportDir }, { ...gate, when: 'always', scope: subtask ? gate.scope : gate.scope === 'rubric' ? 'rubric' : 'task' }, results, {}, { loop: { makers, head: tree, diff, subtask: subtask || null, integrity: audit, loopId, iteration: n } });
-      const verdicts = (result.judge?.verdicts || []).map(item => ({ provider: item.provider, family: item.family, verdict: item.verdict, confidence: item.confidence }));
+      const verdicts = (result.judge?.verdicts || []).map(item => ({ provider: item.provider, model: item.model || null, family: item.family, verdict: item.verdict, confidence: item.confidence, costUsd: item.costUsd ?? null, tokens: item.tokens ?? null, durationMs: item.durationMs ?? null }));
       await ledger.append('judge', { n, scope: subtask ? subtask.id : 'task', status: result.status, digest: result.judge?.digest || null, verdicts, costUsd: result.judge?.costUsd ?? null });
       emit({ type: 'judge', n, status: result.status, summary: result.summary, issues: result.issues });
       return { status: result.status, tokens: result.judge?.tokens || null, issues: result.issues, unmet: result.status === 'fail' ? (result.keys || []).filter(key => /^[A-Z]+-\d+$/.test(key)) : [], summary: result.summary, costUsd: result.judge?.costUsd ?? null, digest: result.judge?.digest, verdicts, criteria: (result.judge?.verdicts || []).map(item => ({ family: item.family, criteria: (item.criteria || []).map(entry => ({ id: entry.id, met: entry.met })) })), reason: result.judge?.reason || null };
@@ -856,7 +892,7 @@ export async function runLoop({ cwd, task, options = {}, emit = () => {} }) {
   /** One iteration as the state, Lens and MCP read it. */
   function record({ n, started, subtask, scope, plan, family, decision, reasons, causes = [], run, status, result = {}, transcriptSha256, diff, findings = [], measured, comparison, judge, progress = false, overclaim = false, checkpoint = null, subtaskDone = null, checklistDelta = 0, cwd: root = cwd }) {
     return {
-      n, startedAt: new Date(started).toISOString(), endedAt: now(), durationMs: Date.now() - started, costUsd: typeof run?.cost === 'number' || typeof judge?.costUsd === 'number' ? (run?.cost || 0) + (judge?.costUsd || 0) : null, scope, subtask: subtask ? { id: subtask.id, title: subtask.title } : null,
+      n, startedAt: new Date(started).toISOString(), endedAt: now(), durationMs: Date.now() - started, costUsd: typeof run?.cost === 'number' ? run.cost + (judge?.costUsd || 0) : null, scope, subtask: subtask ? { id: subtask.id, title: subtask.title, type: subtask.type, complexity: subtask.complexity } : null,
       provider: plan.provider.id, model: plan.model || null, effort: plan.effort || null, family, rung: state.escalation.rung,
       tokens: run?.usage || null,
       agent: run ? { status, summary: result.summary || null, questions: result.questions || [], disputes: result.disputes || [], notes: decision === 'accepted' && !findings.length ? result.notes || [] : [], ...(result.notes?.length && (decision !== 'accepted' || findings.length) && { notesWithheld: result.notes.length }), filesChanged: result.filesChanged || [], costUsd: run.cost ?? null, ...(run.costEstimated && { costEstimated: true }), durationMs: run.durationMs, transcript: rel(root, run.transcript), transcriptSha256, problems: run.problems } : null,

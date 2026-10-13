@@ -65,6 +65,24 @@ npm run lens:example
 
 It writes a temporary project called **Northstar Orders** and serves it on `http://127.0.0.1:4175`. The tasks, docs, source files and signals are made up for demos and screenshots; nothing from your machine is indexed. `npm run docs:shots` captures the screenshots on this site from that project.
 
+The complete evidence example includes 56 verifiable loop histories, six encrypted sealed suites, 48 integrity canaries, five calibrated-decision rubrics, living contracts, learned rules, and reviewed policy patches. Its private `MAVERICK_HOME` is temporary too. Provider buttons use local demonstration stubs, so they do not invoke a real agent or spend provider credit. Stopping the example removes its temporary files.
+
+| View | What to inspect |
+|---|---|
+| `#/scorecard` | Acceptance intervals, integrity and OI penalties, canary honesty, costs and calibration above/below 30 labels. |
+| `#/holdouts` | Reviewed, amended, suspended, unreviewed and committed suites, overhead and observed post-merge defects. |
+| `#/loops/add-orders-pagination/20261012-090000-f002` | Low yield, escalation and a typed advisory decision. |
+| `#/loops/repair-cursor-boundary/20261012-110000-f004` | A rolled-back integrity finding followed by passing visible checks and a holdout gap. |
+| `#/loops/harden-payment-webhooks/20261012-100000-f003` | An honest dispute that requires human review. |
+| `#/lab` | Canary classifications, route/autonomy patch proposals and learned rules. |
+| `#/capabilities` and `#/settings` | A pinned skill, intentional capability drift and the session trifecta report. |
+
+Open **Docs → Evidence tour** inside the example for the full walkthrough. The figures are synthetic demonstrations, not measured provider recommendations.
+
+<LensShot src="lens-scorecard" path="/#/scorecard" caption="The populated scorecard compares acceptance, integrity, honesty, OI trends and human calibration." />
+
+<LensShot src="lens-holdouts" path="/#/holdouts" caption="Sealed suites cover amendments, suspension, independent review, measured overhead and human decisions." />
+
 ## 3. A five-minute tour
 
 1. **Read the Inbox.** Lens opens on `#/inbox`: decisions waiting on you, work in progress, the gate pass rate and what is ready to ship. On a new project it offers to create the first task. → [Inbox and tasks](./inbox-and-tasks.md)

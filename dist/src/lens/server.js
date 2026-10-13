@@ -14,6 +14,7 @@ import { allRuns, exclusive, requireSlug, runAction, setAutoApprove, taskArtifac
 import { createAgentHub } from './agents.js';
 import { createLoopHub } from './loops.js';
 import { capabilities, capability, changeCapabilities, changeSettings, settings } from './system.js';
+import { decisionDashboard, holdoutDashboard } from './decide.js';
 
 const ui = new URL('./ui/', import.meta.url);
 const page = new URL('./index.html', ui);
@@ -78,6 +79,8 @@ export async function startLens({ cwd, host = '127.0.0.1', port = 4173, watch = 
       if (url.pathname === '/api/capabilities' && req.method === 'GET') return json(res, 200, await capabilities(main, cwd));
       if (url.pathname === '/api/capability') return json(res, 200, await capability(main, cwd, url.searchParams.get('ref')));
       if (url.pathname === '/api/capabilities' && req.method === 'POST') { const result = await changeCapabilities(main, cwd, await requestBody(req)); if (result.ok && result.data?.applied !== false) await refresh(); return json(res, 200, result); }
+      if (url.pathname === '/api/scorecard' && req.method === 'GET') return json(res, 200, await decisionDashboard(cwd));
+      if (url.pathname === '/api/holdouts' && req.method === 'GET') return json(res, 200, await holdoutDashboard(cwd));
       if (url.pathname === '/api/settings' && req.method === 'GET') return json(res, 200, await settings(main, cwd));
       if (url.pathname === '/api/settings' && req.method === 'POST') { const result = await changeSettings(main, cwd, await requestBody(req)); await refresh(); return json(res, 200, result); }
       if (url.pathname === '/api/devtools') { if (url.searchParams.has('refresh')) devtools = null; return json(res, 200, serializeDevtools(await analysis())); }
