@@ -4,6 +4,8 @@ All notable changes follow Semantic Versioning. Write user-facing changes under 
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-13
+
 ### Added: the work graph, parallel lanes guided by the code
 - `maverick loop graph <task>` runs a task's ready subtasks in parallel **lanes**, each a loop in a worktree of its own from the same integration commit. For every pair of ready subtasks it predicts a collision from the files both declare, the files one changes that the other's files import within two hops, and the files history says change together; subtasks that may collide share a lane and run in series. `--plan` shows the predicted collisions and lanes without running anything; `--max-lanes` caps them (default 4).
 - The lanes meet at a **fan-in**: an integration worktree merges their branches and runs the whole oracle. A merge conflict, or a gate the merged lanes break, is a real collision, recorded next to the prediction; its subtasks go back to pending and run again in the next wave on the merged code. When every subtask is done, the merged work must pass every blocking gate and, for a sealed task, the holdout. The result stays on `maverick/graph/<task>-<id>`; `.maverick/tasks/<task>/graphs/<id>.json` keeps every wave, the predicted and real collisions and wall-clock time against the lanes' total.
