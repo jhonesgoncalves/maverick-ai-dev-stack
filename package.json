@@ -93,7 +93,7 @@
     "playwright": "^1.63.0",
     "prettier": "^3.5.3",
     "search-insights": "^2.17.3",
-    "tsup": "^8.3.5",
+    "tsup": "^9.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitepress": "^1.6.3"
